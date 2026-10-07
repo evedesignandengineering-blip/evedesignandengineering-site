@@ -16,6 +16,7 @@ if (contactForm) {
       phone: data.get("phone") || "Not provided",
       message: data.get("message") || "",
       _subject: "New website enquiry — EVE Design & Engineering",
+      _cc: "admin@evedesignandengineering.com",
       _replyto: data.get("email") || "",
       _template: "table",
       _url: window.location.href
@@ -31,7 +32,7 @@ if (contactForm) {
     }
 
     try {
-      const response = await fetch("https://formsubmit.co/ajax/admin@evedesignandengineering.com", {
+      const response = await fetch("https://formsubmit.co/ajax/evedesignandengineering@gmail.com", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
