@@ -4,9 +4,11 @@ if (contactForm) {
   contactForm.addEventListener("submit", async function (e) {
     e.preventDefault();
 
-    const data = new FormData(this);
-    const submitButton = this.querySelector('button[type="submit"], input[type="submit"]');
+    const form = this;
+    const data = new FormData(form);
+    const submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
     const originalButtonText = submitButton ? (submitButton.textContent || submitButton.value || "Send") : "Send";
+    const successPanel = document.querySelector(".contact-success-preview");
 
     const payload = {
       name: data.get("name") || "",
@@ -44,22 +46,32 @@ if (contactForm) {
         throw new Error(result.message || "Unable to send your enquiry.");
       }
 
-      this.reset();
+      form.reset();
 
-      const successMessage = document.createElement("div");
-      successMessage.className = "form-success";
-      successMessage.setAttribute("role", "status");
-      successMessage.innerHTML = `
-        <div class="form-success-icon" aria-hidden="true">✓</div>
-        <div>
-          <p class="form-success-eyebrow">Enquiry received</p>
-          <h3>Thank you for contacting us.</h3>
-          <p>We’ve received your enquiry and appreciate you taking the time to get in touch. Our team will review your message and contact you shortly.</p>
-          <p class="form-success-closing">We look forward to discussing your project with you.</p>
-        </div>
-      `;
+      if (successPanel) {
+        form.style.display = "none";
+        successPanel.classList.add("show");
 
-      this.replaceWith(successMessage);
+        window.setTimeout(() => {
+          successPanel.classList.remove("show");
+          form.style.display = "";
+          if (submitButton) {
+            submitButton.disabled = false;
+            if ("value" in submitButton && submitButton.tagName === "INPUT") {
+              submitButton.value = originalButtonText;
+            } else {
+              submitButton.textContent = originalButtonText || "Send";
+            }
+          }
+        }, 2000);
+      } else if (submitButton) {
+        submitButton.disabled = false;
+        if ("value" in submitButton && submitButton.tagName === "INPUT") {
+          submitButton.value = originalButtonText;
+        } else {
+          submitButton.textContent = originalButtonText || "Send";
+        }
+      }
     } catch (error) {
       console.error("Contact form submission failed:", error);
       window.alert("We couldn't send your enquiry right now. Please email admin@evedesignandengineering.com directly.");
