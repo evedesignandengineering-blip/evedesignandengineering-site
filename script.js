@@ -6,7 +6,7 @@ if (contactForm) {
 
     const data = new FormData(this);
     const submitButton = this.querySelector('button[type="submit"], input[type="submit"]');
-    const originalButtonText = submitButton ? submitButton.textContent : "";
+    const originalButtonText = submitButton ? (submitButton.textContent || submitButton.value || "Send") : "Send";
 
     const payload = {
       name: data.get("name") || "",
@@ -21,7 +21,11 @@ if (contactForm) {
 
     if (submitButton) {
       submitButton.disabled = true;
-      submitButton.textContent = "Sending...";
+      if ("value" in submitButton && submitButton.tagName === "INPUT") {
+        submitButton.value = "Sending...";
+      } else {
+        submitButton.textContent = "Sending...";
+      }
     }
 
     try {
@@ -41,14 +45,31 @@ if (contactForm) {
       }
 
       this.reset();
-      window.alert("Thank you. Your enquiry has been sent to EVE Design & Engineering.");
+
+      const successMessage = document.createElement("div");
+      successMessage.className = "form-success";
+      successMessage.setAttribute("role", "status");
+      successMessage.innerHTML = `
+        <div class="form-success-icon" aria-hidden="true">✓</div>
+        <div>
+          <p class="form-success-eyebrow">Enquiry received</p>
+          <h3>Thank you for contacting us.</h3>
+          <p>We’ve received your enquiry and appreciate you taking the time to get in touch. Our team will review your message and contact you shortly.</p>
+          <p class="form-success-closing">We look forward to discussing your project with you.</p>
+        </div>
+      `;
+
+      this.replaceWith(successMessage);
     } catch (error) {
       console.error("Contact form submission failed:", error);
       window.alert("We couldn't send your enquiry right now. Please email admin@evedesignandengineering.com directly.");
-    } finally {
       if (submitButton) {
         submitButton.disabled = false;
-        submitButton.textContent = originalButtonText || "Send";
+        if ("value" in submitButton && submitButton.tagName === "INPUT") {
+          submitButton.value = originalButtonText;
+        } else {
+          submitButton.textContent = originalButtonText || "Send";
+        }
       }
     }
   });
