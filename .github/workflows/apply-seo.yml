@@ -1,0 +1,49 @@
+name: Apply SEO metadata
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  seo:
+    if: github.event.head_commit.message != 'chore: apply SEO metadata'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update SEO metadata
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("index.html")
+          s = p.read_text()
+          old = """<title>EVEDesign and Engineering — Distribution Drafting &amp; Design</title>
+          <meta name="description" content="Cost-effective overhead and underground electrical distribution drafting and design. 6+ years' experience with Western Power and TasNetworks standards. Call .">
+          <meta property="og:title" content="EVEDesign and Engineering — Distribution Drafting &amp; Design">
+          <meta property="og:description" content="Cost-effective overhead and underground electrical distribution drafting and design. 6+ years' experience with Western Power and TasNetworks standards.">
+          <meta property="og:type" content="website"><meta name="twitter:card" content="summary_large_image">"""
+          new = """<title>EVE Design &amp; Engineering | Electrical Engineering &amp; Substation Design Australia</title>
+          <meta name="description" content="EVE Design &amp; Engineering provides electrical engineering, electrical distribution design, substation design, upgrades and replacement services across Australia.">
+          <link rel="canonical" href="https://evedesignandengineering.com/">
+          <meta name="robots" content="index, follow, max-image-preview:large">
+          <meta property="og:title" content="EVE Design &amp; Engineering | Electrical Engineering &amp; Substation Design Australia">
+          <meta property="og:description" content="Electrical engineering, electrical distribution design and substation design services across Australia.">
+          <meta property="og:type" content="website">
+          <meta property="og:url" content="https://evedesignandengineering.com/">
+          <meta property="og:site_name" content="EVE Design &amp; Engineering">
+          <meta name="twitter:card" content="summary_large_image">
+          <meta name="twitter:title" content="EVE Design &amp; Engineering | Electrical Engineering &amp; Substation Design Australia">
+          <meta name="twitter:description" content="Electrical engineering, electrical distribution design and substation design services across Australia.">
+          <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfessionalService","name":"EVE Design &amp; Engineering","url":"https://evedesignandengineering.com/","description":"Electrical engineering, electrical distribution design and substation design services across Australia.","areaServed":{"@type":"Country","name":"Australia"},"serviceType":["Electrical engineering","Electrical distribution design","Overhead electrical distribution design","Underground electrical distribution design","Substation design","Substation upgrade and replacement design"]}</script>"""
+          if old not in s:
+              raise SystemExit("Expected SEO metadata block was not found")
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Commit SEO changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "chore: apply SEO metadata"
+          git push
