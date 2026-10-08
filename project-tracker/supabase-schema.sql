@@ -90,19 +90,13 @@ alter table public.approvals enable row level security;
 alter table public.activities enable row level security;
 
 drop policy if exists "authenticated profiles" on public.profiles;
-create policy "authenticated profiles" on public.profiles for all to authenticated using (true) with check (true);
-drop policy if exists "authenticated projects" on public.projects;
-create policy "authenticated projects" on public.projects for all to authenticated using (true) with check (true);
-drop policy if exists "authenticated tasks" on public.tasks;
-create policy "authenticated tasks" on public.tasks for all to authenticated using (true) with check (true);
-drop policy if exists "authenticated milestones" on public.milestones;
-create policy "authenticated milestones" on public.milestones for all to authenticated using (true) with check (true);
-drop policy if exists "authenticated documents" on public.documents;
-create policy "authenticated documents" on public.documents for all to authenticated using (true) with check (true);
-drop policy if exists "authenticated approvals" on public.approvals;
-create policy "authenticated approvals" on public.approvals for all to authenticated using (true) with check (true);
-drop policy if exists "authenticated activities" on public.activities;
-create policy "authenticated activities" on public.activities for all to authenticated using (true) with check (true);
+create policy "company profiles" on public.profiles for all to authenticated using ((auth.jwt()->>'email') like '%@evedesignandengineering.com') with check ((auth.jwt()->>'email') like '%@evedesignandengineering.com');
+create policy "company projects" on public.projects for all to authenticated using ((auth.jwt()->>'email') like '%@evedesignandengineering.com') with check ((auth.jwt()->>'email') like '%@evedesignandengineering.com');
+create policy "company tasks" on public.tasks for all to authenticated using ((auth.jwt()->>'email') like '%@evedesignandengineering.com') with check ((auth.jwt()->>'email') like '%@evedesignandengineering.com');
+create policy "company milestones" on public.milestones for all to authenticated using ((auth.jwt()->>'email') like '%@evedesignandengineering.com') with check ((auth.jwt()->>'email') like '%@evedesignandengineering.com');
+create policy "company documents" on public.documents for all to authenticated using ((auth.jwt()->>'email') like '%@evedesignandengineering.com') with check ((auth.jwt()->>'email') like '%@evedesignandengineering.com');
+create policy "company approvals" on public.approvals for all to authenticated using ((auth.jwt()->>'email') like '%@evedesignandengineering.com') with check ((auth.jwt()->>'email') like '%@evedesignandengineering.com');
+create policy "company activities" on public.activities for all to authenticated using ((auth.jwt()->>'email') like '%@evedesignandengineering.com') with check ((auth.jwt()->>'email') like '%@evedesignandengineering.com');
 
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
