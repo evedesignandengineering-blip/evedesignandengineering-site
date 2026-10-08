@@ -22,7 +22,13 @@
 <script>
 const SUPABASE_URL="https://hszkloepnewfkzdegfhl.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_Avjn-CGtbEdeLaxSWCwQDw_36mgImSu";
-if(!window.supabase){document.getElementById("authGate").innerHTML='<div class="login"><div class="loginbox"><div class="loginbrand">EVE</div><h1>Unable to load Project Control</h1><p>The secure database library could not be loaded. Please refresh the page.</p></div></div>';throw new Error("Supabase client library did not load.");} const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+let supabase=null;
+function bootError(e){const msg=e?.message||String(e)||"Unknown startup error";const gate=document.getElementById("authGate");if(gate)gate.innerHTML='<div class="login"><div class="loginbox"><div class="loginbrand">EVE</div><h1>Project Control could not start</h1><p>The secure workspace failed during startup.</p><div class="notice">'+String(msg).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div><button class="primary" onclick="location.reload()">Refresh</button></div></div>';console.error(e);}
+try{
+ if(!window.supabase)throw new Error("Supabase client library did not load. The CDN script may be blocked.");
+ supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+}catch(e){bootError(e);}
+
 const KEY="eveProjectControlDataV2";
 let authUser=null; let remoteMode=true;
 const defaultData={users:[],projects:[
@@ -88,6 +94,7 @@ async function loadRemote(){
 }
 async function initApp(){
  try{
+  if(!supabase) throw new Error("Supabase client was not created. See the startup error above.");
   const {data:s,error}=await supabase.auth.getSession();
   if(error) throw error;
   authUser=s.session?.user||null;
