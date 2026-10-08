@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="styles.css?v=20261008-portfolio">
+<title>Portfolio | EVE Design & Engineering</title>
+<meta name="description" content="EVE Design & Engineering portfolio — professional drafting, electrical design and technical documentation.">
+<link rel="canonical" href="https://evedesignandengineering.com/portfolio.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+.portfolio-hero{padding:58px 5.6% 42px;background:linear-gradient(135deg,#09284b,#1d527d);color:#fff}
+.portfolio-hero small{display:block;color:#b8d8ef;font-size:10px;font-weight:700;letter-spacing:.1em;margin-bottom:8px}
+.portfolio-hero h1{margin:0 0 12px;font:800 38px/1.12 Manrope;letter-spacing:-.045em}
+.portfolio-hero p{max-width:720px;margin:0;color:#e5eff6;font-size:13px;line-height:1.65}
+.portfolio-main{padding:34px 5.6% 60px;background:#f5f8fb}
+.portfolio-section{margin-bottom:34px}
+.portfolio-section h2{margin:0;color:#09284b;font:800 25px/1.15 Manrope;letter-spacing:-.04em}
+.portfolio-section .rule{margin:9px 0 20px}
+.portfolio-pdf{height:700px;min-height:450px;resize:vertical;overflow:hidden;background:#fff;border:1px solid #d5dee6;border-radius:8px;box-shadow:0 4px 16px rgba(21,44,65,.1)}
+.portfolio-pdf iframe{width:100%;height:100%;border:0;display:block}
+.portfolio-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}
+.portfolio-card{margin:0;background:#fff;border:1px solid #d5dee6;border-radius:8px;overflow:hidden;box-shadow:0 4px 14px rgba(21,44,65,.08)}
+.portfolio-card img{display:block;width:100%;height:auto;background:#eef3f7}
+.portfolio-card figcaption{padding:12px 15px;color:#334c63;font-size:11px;font-weight:600}
+.portfolio-loading,.portfolio-empty,.portfolio-error{padding:24px;border:1px dashed #c9d5df;border-radius:8px;background:#fff;color:#566473;font-size:12px}
+.portfolio-empty{display:none}
+.portfolio-back{display:inline-flex;margin-top:22px;padding:10px 16px;border-radius:6px;background:#2f6ea4;color:#fff;font-size:12px;font-weight:700}
+@media(max-width:700px){.portfolio-hero{padding:45px 7% 35px}.portfolio-hero h1{font-size:31px}.portfolio-main{padding:28px 7% 45px}.portfolio-pdf{height:520px;min-height:360px}.portfolio-gallery{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="site">
+<header class="nav">
+<a class="brand" href="index.html#home" aria-label="EVE Design and Engineering home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a>
+<nav aria-label="Primary navigation"><a href="index.html#home">Home</a><a href="index.html#about">About</a><a href="index.html#services">Services</a><a class="active" href="portfolio.html">Portfolio</a><a href="index.html#contact">Contact</a></nav>
+<a class="nav-cta" href="index.html#contact">Get in Touch <b>→</b></a>
+</header>
+<main>
+<section class="portfolio-hero">
+<small>PORTFOLIO</small>
+<h1>Professional Drafting &amp; Technical Documentation</h1>
+<p>A selection of work showing how EVE Design &amp; Engineering transforms sketches, redline markups and project requirements into clear, professional technical documentation.</p>
+</section>
+<section class="portfolio-main">
+<div class="portfolio-section">
+<small style="display:block;color:#2b6799;font-size:10px;font-weight:700;letter-spacing:.08em;margin-bottom:5px">FEATURED PROJECT</small>
+<h2>Substation Install, Upgrade and Replacement</h2>
+<div class="rule"></div>
+<div class="portfolio-pdf"><iframe title="Featured portfolio PDF" src="assets/OVERHEAD%20HV%20LV%20UPGRADE%20WITH%20POLE%20TOP%20TRANSFORMER%20.pdf#toolbar=1&navpanes=0&view=FitH"></iframe></div>
+</div>
+<div class="portfolio-section">
+<small style="display:block;color:#2b6799;font-size:10px;font-weight:700;letter-spacing:.08em;margin-bottom:5px">ADDITIONAL WORK</small>
+<h2>Drafting Examples</h2>
+<div class="rule"></div>
+<div id="portfolioGallery" class="portfolio-gallery">
+<div id="portfolioLoading" class="portfolio-loading">Loading additional portfolio drawings…</div>
+</div>
+<div id="portfolioEmpty" class="portfolio-empty">Additional portfolio drawings will appear here when PNG, JPG or JPEG files beginning with <strong>PAGE 2 PORTFOLIO</strong> are added to the GitHub <strong>assets</strong> folder.</div>
+<div id="portfolioError" class="portfolio-error" style="display:none">Additional portfolio drawings could not be loaded right now. The featured project above is still available.</div>
+</div>
+<a class="portfolio-back" href="index.html#portfolio">← Back to Website</a>
+</section>
+</main>
+<footer><a class="footer-brand" href="index.html#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav><a href="index.html#home">Home</a><a href="index.html#about">About</a><a href="index.html#services">Services</a><a href="portfolio.html">Portfolio</a><a href="index.html#contact">Contact</a></nav></footer>
+</div>
+<script>
+(async function(){
+  const gallery=document.getElementById("portfolioGallery");
+  const loading=document.getElementById("portfolioLoading");
+  const empty=document.getElementById("portfolioEmpty");
+  const error=document.getElementById("portfolioError");
+  const api="https://api.github.com/repos/evedesignandengineering-blip/evedesignandengineering-site/contents/assets?ref=main";
+  try{
+    const response=await fetch(api,{headers:{Accept:"application/vnd.github+json"}});
+    if(!response.ok) throw new Error("GitHub assets request failed");
+    const files=await response.json();
+    const matches=files.filter(file=>{
+      const name=(file.name||"").toLowerCase();
+      return file.type==="file" &&
+        name.startsWith("page 2 portfolio") &&
+        /.(png|jpe?g)$/i.test(file.name);
+    }).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
+    loading.remove();
+    if(!matches.length){empty.style.display="block";return;}
+    matches.forEach(file=>{
+      const figure=document.createElement("figure");
+      figure.className="portfolio-card";
+      const img=document.createElement("img");
+      img.loading="lazy";
+      img.alt=file.name.replace(/.[^.]+$/,"").replace(/^page 2 portfolio[s_-]*/i,"")||"Portfolio drawing";
+      img.src="https://raw.githubusercontent.com/evedesignandengineering-blip/evedesignandengineering-site/main/assets/"+encodeURIComponent(file.name).replace(/%20/g,"%20");
+      const caption=document.createElement("figcaption");
+      caption.textContent=file.name.replace(/.[^.]+$/,"");
+      figure.append(img,caption);
+      gallery.appendChild(figure);
+    });
+  }catch(e){
+    console.error(e);
+    loading.remove();
+    error.style.display="block";
+  }
+})();
+</script>
+</body>
+</html>
