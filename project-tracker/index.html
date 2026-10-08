@@ -91,7 +91,7 @@ async function loadRemote(){
   tasks:(t.data||[]).map(x=>({id:x.id,projectId:x.project_id,title:x.title,assigneeId:x.assignee_id,priority:x.priority,due:x.due_date,status:x.status})),
   milestones:m.data||[],documents:d.data||[],activities:(a.data||[]).map(x=>({id:x.id,text:x.action,projectId:x.project_id,time:new Date(x.created_at).toLocaleString("en-AU",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}))
  };
- timesheets=(ts.data||[]).map(x=>({id:x.id,userId:x.user_id,projectId:x.project_id,workDate:x.work_date,hours:Number(x.hours),description:x.description||"",createdAt:x.created_at}));
+ timesheets=(ts.data||[]).map(x=>({id:x.id,userId:x.user_id,projectId:x.project_id,workDate:x.work_date,hours:Number(x.hours),description:x.description||"",status:x.status||"Draft",submittedAt:x.submitted_at||null,reviewedBy:x.reviewed_by||null,reviewedAt:x.reviewed_at||null,reviewNote:x.review_note||"",createdAt:x.created_at}));
  localStorage.setItem(KEY,JSON.stringify(data));
 }function showLogin(){
  document.getElementById("appShell").style.display="none";
