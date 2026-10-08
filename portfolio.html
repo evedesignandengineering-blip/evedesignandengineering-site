@@ -81,7 +81,7 @@
       const name=(file.name||"").toLowerCase();
       return file.type==="file" &&
         name.startsWith("page 2 portfolio") &&
-        /.(png|jpe?g)$/i.test(file.name);
+        /\.(png|jpe?g)$/i.test(file.name);
     }).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
     loading.remove();
     if(!matches.length){empty.style.display="block";return;}
