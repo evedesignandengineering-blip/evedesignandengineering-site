@@ -39,7 +39,7 @@ async function save(){
    supabase.from("tasks").upsert(data.tasks.map(t=>({id:t.id,project_id:t.projectId,title:t.title,assignee_id:t.assigneeId||null,priority:t.priority,due_date:t.due||null,status:t.status}))),
    supabase.from("milestones").upsert(data.milestones||[]),
    supabase.from("documents").upsert(data.documents||[]),
-   supabase.from("activities").upsert((data.activities||[]).map(a=>({id:a.id,action:a.text,created_at:a.time,user_id:null,project_id:null})))
+   supabase.from("activities").upsert((data.activities||[]).map(a=>({id:a.id,action:a.text,created_at:a.time,user_id:authUser?.id||null,project_id:a.projectId||null})))
   ]; await Promise.all(writes);
  }catch(e){console.error("Supabase sync",e)}
 }
