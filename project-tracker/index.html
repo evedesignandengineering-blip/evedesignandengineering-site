@@ -80,11 +80,25 @@ async function loadRemote(){
  document.getElementById("loginForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const email=String(f.get("email")).trim().toLowerCase();if(!email.endsWith("@evedesignandengineering.com")){document.getElementById("loginMsg").textContent="Use your @evedesignandengineering.com account.";return}const {error}=await supabase.auth.signInWithPassword({email,password:f.get("password")});if(error)document.getElementById("loginMsg").textContent=error.message};
 }
 async function initApp(){
- const {data:s}=await supabase.auth.getSession(); authUser=s.session?.user||null;
- supabase.auth.onAuthStateChange((_e,session)=>{authUser=session?.user||null;if(authUser) location.reload(); else showLogin()});
- if(!authUser){showLogin();return}
- try{await loadRemote();document.getElementById("authGate").innerHTML="";document.getElementById("appShell").style.display="block";render();}catch(e){document.getElementById("authGate").innerHTML='<div class="login"><div class="loginbox"><h1>Database setup required</h1><p>Supabase is connected, but the project tables are not ready yet. Run <b>project-tracker/supabase-schema.sql</b> once in the Supabase SQL Editor, then refresh this page.</p><p>'+esc(e.message||e)+'</p></div></div>'}
+ try{
+  const {data:s,error}=await supabase.auth.getSession();
+  if(error) throw error;
+  authUser=s.session?.user||null;
+  supabase.auth.onAuthStateChange((_e,session)=>{authUser=session?.user||null;if(authUser){loadRemote().then(()=>{document.getElementById("authGate").innerHTML="";document.getElementById("appShell").style.display="block";render()}).catch(showFatal)}else showLogin()});
+  if(!authUser){showLogin();return}
+  await loadRemote();
+  document.getElementById("authGate").innerHTML="";
+  document.getElementById("appShell").style.display="block";
+  render();
+ }catch(e){showFatal(e)}
 }
+function showFatal(e){
+ document.getElementById("appShell").style.display="none";
+ document.getElementById("authGate").innerHTML='<div class="login"><div class="loginbox"><div class="loginbrand">EVE</div><h1>Project Control could not start</h1><p>The page loaded, but the secure workspace could not initialise.</p><div class="notice">'+esc(e?.message||String(e)||"Unknown error")+'</div><button class="primary" onclick="location.reload()">Refresh</button></div></div>';
+}
+window.addEventListener("error",e=>{if(!authUser)showFatal(e.error||e.message)});
+window.addEventListener("unhandledrejection",e=>{if(!authUser)showFatal(e.reason)});
+1
 async function showSignup(){
  document.getElementById("authGate").innerHTML='<div class="login"><div class="loginbox"><div class="loginbrand">EVE</div><div class="muted">DESIGN &amp; ENGINEERING · PROJECT CONTROL</div><h1>Create employee account</h1><p>Use your company email. A confirmation email may be required by your Supabase authentication settings.</p><form id="signupForm"><div class="field"><label>Name<input name="name" required placeholder="Your full name"></label></div><div class="field"><label>Email<input name="email" type="email" required placeholder="name@evedesignandengineering.com"></label></div><div class="field"><label>Password<input name="password" type="password" minlength="8" required></label></div><button class="primary">Create account</button><button type="button" class="secondary" style="width:100%;margin-top:8px" onclick="showLogin()">Back to sign in</button><div id="loginMsg" class="loginmsg"></div></form></div></div>';
  document.getElementById("signupForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const email=String(f.get("email")).trim().toLowerCase();if(!email.endsWith("@evedesignandengineering.com")){document.getElementById("loginMsg").textContent="Use your @evedesignandengineering.com account.";return}const {error}=await supabase.auth.signUp({email,password:f.get("password"),options:{data:{name:f.get("name")}}});document.getElementById("loginMsg").textContent=error?error.message:"Account created. Check your company email if confirmation is required, then sign in."};
