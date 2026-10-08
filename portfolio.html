@@ -19,16 +19,18 @@
 .portfolio-section{margin-bottom:34px}
 .portfolio-section h2{margin:0;color:#09284b;font:800 25px/1.15 Manrope;letter-spacing:-.04em}
 .portfolio-section .rule{margin:9px 0 20px}
-.portfolio-pdf{height:700px;min-height:450px;resize:vertical;overflow:hidden;background:#fff;border:1px solid #d5dee6;border-radius:8px;box-shadow:0 4px 16px rgba(21,44,65,.1)}
-.portfolio-pdf iframe{width:100%;height:100%;border:0;display:block}
 .portfolio-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}
-.portfolio-card{margin:0;background:#fff;border:1px solid #d5dee6;border-radius:8px;overflow:hidden;box-shadow:0 4px 14px rgba(21,44,65,.08)}
-.portfolio-card img{display:block;width:100%;height:auto;background:#eef3f7}
-.portfolio-card figcaption{padding:12px 15px;color:#334c63;font-size:11px;font-weight:600}
+.portfolio-card{margin:0;background:#fff;border:1px solid #d5dee6;border-radius:8px;overflow:hidden;box-shadow:0 4px 14px rgba(21,44,65,.08);cursor:zoom-in}
+.portfolio-card img{display:block;width:100%;height:auto;background:#eef3f7;transition:transform .25s ease}
+.portfolio-card:hover img{transform:scale(1.015)}
 .portfolio-loading,.portfolio-empty,.portfolio-error{padding:24px;border:1px dashed #c9d5df;border-radius:8px;background:#fff;color:#566473;font-size:12px}
 .portfolio-empty{display:none}
 .portfolio-back{display:inline-flex;margin-top:22px;padding:10px 16px;border-radius:6px;background:#2f6ea4;color:#fff;font-size:12px;font-weight:700}
-@media(max-width:700px){.portfolio-hero{padding:45px 7% 35px}.portfolio-hero h1{font-size:31px}.portfolio-main{padding:28px 7% 45px}.portfolio-pdf{height:520px;min-height:360px}.portfolio-gallery{grid-template-columns:1fr}}
+.portfolio-lightbox{position:fixed;inset:0;z-index:1000;display:none;align-items:center;justify-content:center;padding:28px;background:rgba(5,18,31,.9);cursor:zoom-out}
+.portfolio-lightbox.open{display:flex}
+.portfolio-lightbox img{max-width:94vw;max-height:92vh;width:auto;height:auto;object-fit:contain;border-radius:5px;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.portfolio-lightbox button{position:absolute;top:16px;right:20px;width:42px;height:42px;border:0;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;font-size:28px;line-height:1;cursor:pointer}
+@media(max-width:700px){.portfolio-hero{padding:45px 7% 35px}.portfolio-hero h1{font-size:31px}.portfolio-main{padding:28px 7% 45px}.portfolio-gallery{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -46,12 +48,6 @@
 </section>
 <section class="portfolio-main">
 <div class="portfolio-section">
-<small style="display:block;color:#2b6799;font-size:10px;font-weight:700;letter-spacing:.08em;margin-bottom:5px">FEATURED PROJECT</small>
-<h2>Substation Install, Upgrade and Replacement</h2>
-<div class="rule"></div>
-<div class="portfolio-pdf"><iframe title="Featured portfolio PDF" src="assets/OVERHEAD%20HV%20LV%20UPGRADE%20WITH%20POLE%20TOP%20TRANSFORMER%20.pdf#toolbar=1&navpanes=0&view=FitH"></iframe></div>
-</div>
-<div class="portfolio-section">
 <small style="display:block;color:#2b6799;font-size:10px;font-weight:700;letter-spacing:.08em;margin-bottom:5px">ADDITIONAL WORK</small>
 <h2>Drafting Examples</h2>
 <div class="rule"></div>
@@ -59,11 +55,15 @@
 <div id="portfolioLoading" class="portfolio-loading">Loading additional portfolio drawings…</div>
 </div>
 <div id="portfolioEmpty" class="portfolio-empty">Additional portfolio drawings will appear here when PNG, JPG or JPEG files beginning with <strong>PAGE 2 PORTFOLIO</strong> are added to the GitHub <strong>assets</strong> folder.</div>
-<div id="portfolioError" class="portfolio-error" style="display:none">Additional portfolio drawings could not be loaded right now. The featured project above is still available.</div>
-</div>
+<div id="portfolioError" class="portfolio-error" style="display:none">Additional portfolio drawings could not be loaded right now.</div>
 <a class="portfolio-back" href="index.html#portfolio">← Back to Website</a>
+</div>
 </section>
 </main>
+<div id="portfolioLightbox" class="portfolio-lightbox" aria-hidden="true">
+<button type="button" aria-label="Close enlarged image">×</button>
+<img id="portfolioLightboxImage" alt="">
+</div>
 <footer><a class="footer-brand" href="index.html#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav><a href="index.html#home">Home</a><a href="index.html#about">About</a><a href="index.html#services">Services</a><a href="portfolio.html">Portfolio</a><a href="index.html#contact">Contact</a></nav></footer>
 </div>
 <script>
@@ -72,16 +72,22 @@
   const loading=document.getElementById("portfolioLoading");
   const empty=document.getElementById("portfolioEmpty");
   const error=document.getElementById("portfolioError");
+  const lightbox=document.getElementById("portfolioLightbox");
+  const lightboxImage=document.getElementById("portfolioLightboxImage");
+  const closeButton=lightbox.querySelector("button");
   const api="https://api.github.com/repos/evedesignandengineering-blip/evedesignandengineering-site/contents/assets?ref=main";
+  function closeZoom(){lightbox.classList.remove("open");lightbox.setAttribute("aria-hidden","true");document.body.style.overflow="";}
+  function openZoom(src,alt){lightboxImage.src=src;lightboxImage.alt=alt;lightbox.classList.add("open");lightbox.setAttribute("aria-hidden","false");document.body.style.overflow="hidden";}
+  closeButton.addEventListener("click",closeZoom);
+  lightbox.addEventListener("click",e=>{if(e.target===lightbox)closeZoom();});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape")closeZoom();});
   try{
     const response=await fetch(api,{headers:{Accept:"application/vnd.github+json"}});
     if(!response.ok) throw new Error("GitHub assets request failed");
     const files=await response.json();
     const matches=files.filter(file=>{
       const name=(file.name||"").toLowerCase();
-      return file.type==="file" &&
-        name.startsWith("page 2 portfolio") &&
-        /\.(png|jpe?g)$/i.test(file.name);
+      return file.type==="file" && name.startsWith("page 2 portfolio") && /\.(png|jpe?g)$/i.test(file.name);
     }).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
     loading.remove();
     if(!matches.length){empty.style.display="block";return;}
@@ -90,11 +96,10 @@
       figure.className="portfolio-card";
       const img=document.createElement("img");
       img.loading="lazy";
-      img.alt=file.name.replace(/.[^.]+$/,"").replace(/^page 2 portfolio[s_-]*/i,"")||"Portfolio drawing";
-      img.src="https://raw.githubusercontent.com/evedesignandengineering-blip/evedesignandengineering-site/main/assets/"+encodeURIComponent(file.name).replace(/%20/g,"%20");
-      const caption=document.createElement("figcaption");
-      caption.textContent=file.name.replace(/.[^.]+$/,"");
-      figure.append(img,caption);
+      img.alt="Portfolio drafting example";
+      img.src="https://raw.githubusercontent.com/evedesignandengineering-blip/evedesignandengineering-site/main/assets/"+encodeURIComponent(file.name);
+      figure.appendChild(img);
+      figure.addEventListener("click",()=>openZoom(img.src,img.alt));
       gallery.appendChild(figure);
     });
   }catch(e){
