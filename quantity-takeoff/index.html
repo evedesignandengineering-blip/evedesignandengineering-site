@@ -37,7 +37,7 @@ drop.onclick=()=>fileInput.click();
 drop.ondragover=e=>{e.preventDefault();drop.classList.add('drag')};drop.ondragleave=()=>drop.classList.remove('drag');
 drop.ondrop=e=>{e.preventDefault();drop.classList.remove('drag');if(e.dataTransfer.files[0])setFile(e.dataTransfer.files[0])};
 fileInput.onchange=()=>{if(fileInput.files[0])setFile(fileInput.files[0])};
-function setFile(f){chosen=f;$('filename').textContent=f.name+' · '+(f.size/1024/1024).toFixed(2)+' MB';$('analyze').disabled=false;$('notice').className='notice';$('notice').textContent=/\.dgn$/i.test(f.name)?'DGN detected. This version does not yet have the DGN conversion engine connected, so no quantities will be estimated. Use DXF export from MicroStation for this first working analysis.':'DXF selected. Lengths are interpreted as metres as requested. Ensure the source drawing geometry is actually authored in metres.'; }
+function setFile(f){chosen=f;$('filename').textContent=f.name+' · '+(f.size/1024/1024).toFixed(2)+' MB';$('analyze').disabled=false;$('notice').className='notice';$('notice').textContent=/\.dgn$/i.test(f.name)?'DGN detected. The browser reader will attempt legacy DGN V7. DGN V8 may need to be exported to DXF or DGN V7 in MicroStation if the reader cannot open it.':'DXF selected. Lengths are interpreted as metres as requested. Ensure the source drawing geometry is actually authored in metres.'; }
 function readPairs(text){const lines=text.replace(/\r/g,'').split('\n');const pairs=[];for(let i=0;i<lines.length-1;i+=2){const code=Number(lines[i].trim());if(Number.isFinite(code))pairs.push({code,value:lines[i+1].trim()})}return pairs}
 function parseDxf(text){
  const p=readPairs(text);let i=0,section='',inEntities=false,entities=[],layers=new Set(),blocks=new Map();
@@ -61,7 +61,7 @@ async function parseDgnBrowser(file){
  const Gdal=await window.__eveGdalPromise;
  $('notice').textContent='Opening DGN and extracting geometry…';
  const opened=await Gdal.open(file);
- if(!opened||!opened.datasets||!opened.datasets.length){const errors=opened&&opened.errors;const detail=errors&&errors.length?' Reader details: '+errors.map(x=>{try{return typeof x==='string'?x:(x.message||JSON.stringify(x))}catch(_){return String(x)}}).join('; '):'';throw new Error('No DGN dataset was opened. The browser GDAL build may not include the needed driver.'+detail)}
+ if(!opened||!opened.datasets||!opened.datasets.length){const errors=opened&&opened.errors;const detail=errors&&errors.length?' GDAL reported: '+errors.map(x=>{try{if(typeof x==='string')return x;if(x&&x.message)return x.message;const s=JSON.stringify(x);return s&&s!=='{}'?s:'(empty driver message)'}catch(_){return String(x)}}).join('; '):' no driver details were returned';let drivers='';try{const ds=Gdal.drivers&&Gdal.drivers.vector;drivers=' Available vector drivers include DGN: '+(!!(ds&&(ds.DGN||ds.dgn)))+'; DXF: '+(!!(ds&&(ds.DXF||ds.dxf))+'.')}catch(_){}throw new Error('Could not open this DGN file.'+detail+drivers+' It may be DGN V8, which this browser build cannot read, or the file may be invalid. Try exporting it from MicroStation as ASCII DXF or legacy DGN V7, then upload the export.')}
  const dataset=opened.datasets[0];
  try {
   const output=await Gdal.ogr2ogr(dataset,['-f','GeoJSON']);
