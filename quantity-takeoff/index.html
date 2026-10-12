@@ -57,10 +57,15 @@ function parseDxf(text){
 }
 async function parseDgnBrowser(file){
  if(typeof initGdalJs!=='function')throw new Error('The browser CAD reader could not load. Check your internet connection and retry.');
- if(!window.__eveGdalPromise)window.__eveGdalPromise=initGdalJs({path:'https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package',useWorker:false});
- const Gdal=await window.__eveGdalPromise;
- $('notice').textContent='Opening DGN and extracting geometry…';
- const opened=await Gdal.open(file);
+ const describeCadError=e=>Array.isArray(e)?e.map(x=>x&&x.message?x.message:(x&&x.no!==undefined?'GDAL error code '+x.no+(x.message?': '+x.message:' (no diagnostic message)'):String(x))).join('; '):(e&&e.message?e.message:typeof e==='string'?e:JSON.stringify(e));
+ if(!window.__eveGdalPromise)window.__eveGdalPromise=Promise.resolve().then(()=>initGdalJs({path:'https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package',useWorker:false}));
+ let Gdal;
+ try { Gdal=await window.__eveGdalPromise; }
+ catch(e) { throw new Error('Browser CAD engine failed to initialise: '+describeCadError(e)+'. This is before the DGN file can be converted. Try a current Chrome/Edge browser and allow cdn.jsdelivr.net, or export the file to ASCII DXF in MicroStation/OpenRoads.'); }
+ $('notice').textContent='Opening DGN file…';
+ let opened;
+ try { opened=await Gdal.open(file); }
+ catch(e) { throw new Error('The browser CAD engine could not open this DGN file: '+describeCadError(e)+'. Automatic conversion cannot start until the DGN reader opens the source file. If this is a MicroStation V8 DGN, export it from MicroStation/OpenRoads as ASCII DXF, then upload the DXF here.'); }
  if(!opened||!opened.datasets||!opened.datasets.length){const errors=opened&&opened.errors;const detail=errors&&errors.length?' GDAL reported: '+errors.map(x=>{try{if(typeof x==='string')return x;if(x&&x.message)return x.message;const s=JSON.stringify(x);return s&&s!=='{}'?s:'(empty driver message)'}catch(_){return String(x)}}).join('; '):' no driver details were returned';let drivers='';try{const ds=Gdal.drivers&&Gdal.drivers.vector;drivers=' Available vector drivers include DGN: '+(!!(ds&&(ds.DGN||ds.dgn)))+'; DXF: '+(!!(ds&&(ds.DXF||ds.dxf))+'.')}catch(_){}throw new Error('Could not open this DGN file.'+detail+drivers+' It may be DGN V8, which this browser build cannot read, or the file may be invalid. Try exporting it from MicroStation as ASCII DXF or legacy DGN V7, then upload the export.')}
  const dataset=opened.datasets[0];
  try {
