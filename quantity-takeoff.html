@@ -64,9 +64,28 @@ async function parseDgnBrowser(file){
  if(!opened||!opened.datasets||!opened.datasets.length){const errors=opened&&opened.errors;const detail=errors&&errors.length?' GDAL reported: '+errors.map(x=>{try{if(typeof x==='string')return x;if(x&&x.message)return x.message;const s=JSON.stringify(x);return s&&s!=='{}'?s:'(empty driver message)'}catch(_){return String(x)}}).join('; '):' no driver details were returned';let drivers='';try{const ds=Gdal.drivers&&Gdal.drivers.vector;drivers=' Available vector drivers include DGN: '+(!!(ds&&(ds.DGN||ds.dgn)))+'; DXF: '+(!!(ds&&(ds.DXF||ds.dxf))+'.')}catch(_){}throw new Error('Could not open this DGN file.'+detail+drivers+' It may be DGN V8, which this browser build cannot read, or the file may be invalid. Try exporting it from MicroStation as ASCII DXF or legacy DGN V7, then upload the export.')}
  const dataset=opened.datasets[0];
  try {
+  // First convert the DGN to ASCII DXF in-browser, then use the app's tested DXF quantity parser.
+  // If the DXF writer cannot handle this drawing, fall back to GeoJSON extraction.
+  let dxfError=null;
+  try {
+   $('notice').textContent='Converting DGN to DXF for quantity analysis…';
+   const dxfOutput=await Gdal.ogr2ogr(dataset,['-f','DXF']);
+   const dxfBytes=await Gdal.getFileBytes(Array.isArray(dxfOutput)?dxfOutput[0]:dxfOutput);
+   const dxfText=new TextDecoder().decode(dxfBytes);
+   if(!/SECTION|ENTITIES/.test(dxfText.slice(0,100000)))throw new Error('The converter returned no readable DXF entities.');
+   const dxfRows=parseDxf(dxfText);
+   if(dxfRows.length){return dxfRows;}
+   dxfError=new Error('DGN-to-DXF conversion completed but no non-zero quantities were found.');
+  } catch(err) {
+   dxfError=err;
+  }
   let output;
   try { output=await Gdal.ogr2ogr(dataset,['-f','GeoJSON']); }
-  catch(err) { const detail=Array.isArray(err)?err.map(x=>x&&x.message?x.message:(x&&x.no!==undefined?'GDAL error code '+x.no+(x.message?': '+x.message:' (no diagnostic message)'):String(x))).join('; '):(err&&err.message?err.message:String(err)); let info='';try{const d=await Gdal.getInfo(dataset);info=' Dataset info: '+(typeof d==='string'?d:JSON.stringify(d)).slice(0,900)}catch(_){} throw new Error('The DGN file opened, but conversion to measurable geometry failed. '+detail+info+' This can occur with unsupported DGN versions or elements. Export as ASCII DXF from MicroStation and try again.'); }
+  catch(err) {
+   const describe=e=>Array.isArray(e)?e.map(x=>x&&x.message?x.message:(x&&x.no!==undefined?'GDAL error code '+x.no+(x.message?': '+x.message:' (no diagnostic message)'):String(x))).join('; '):(e&&e.message?e.message:String(e));
+   let info='';try{const d=await Gdal.getInfo(dataset);info=' Dataset info: '+(typeof d==='string'?d:JSON.stringify(d)).slice(0,900)}catch(_){}
+   throw new Error('Automatic DGN-to-DXF conversion and geometry extraction both failed. DXF conversion: '+describe(dxfError)+'. Geometry extraction: '+describe(err)+'.'+info+' This browser reader can read legacy DGN V7 only; for DGN V8, export to ASCII DXF in MicroStation or OpenRoads and upload the DXF.');
+  }
   const bytes=await Gdal.getFileBytes(Array.isArray(output)?output[0]:output);
   const geo=JSON.parse(new TextDecoder().decode(bytes));
   const grouped=new Map();
