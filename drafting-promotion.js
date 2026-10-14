@@ -37,6 +37,13 @@
     if (!nav) promo.classList.add("eve-promo-no-nav");
   }
   const header = nav || document.querySelector("header");
-  if (header) header.insertAdjacentElement("afterend", promo);
+  const gisApp = document.querySelector("main.app");
+  if (location.pathname.toLowerCase().includes("/gis-sow/") && gisApp) {
+    promo.classList.remove("eve-promo-sticky");
+    promo.style.position = "relative";
+    promo.style.top = "auto";
+    promo.style.transform = "none";
+    gisApp.insertAdjacentElement("beforebegin", promo);
+  } else if (header) header.insertAdjacentElement("afterend", promo);
   else document.body.insertBefore(promo, document.body.firstChild);
 })();
