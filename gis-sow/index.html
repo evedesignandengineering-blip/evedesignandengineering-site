@@ -33,11 +33,9 @@
       <div class="toolrow"><button class="btn" id="selectMode">Select</button><button class="btn" id="placeMode">Place block</button><button class="btn" id="lineMode">Draw line</button></div>
       <div class="section-label">Block types</div><div class="asset-list" id="assetTypes"><div class="empty">Loading block library…</div></div>
       <div class="section-label">Line types</div><div class="field"><label for="lineTypeSelect">Cable / line type</label><select id="lineTypeSelect"><option>Loading…</option></select></div>
-      <div class="field"><label for="fromName">Line from (asset / location)</label><input id="fromName" placeholder="e.g. New HV switchgear"></div>
-      <div class="field"><label for="toName">Line to (asset / location)</label><input id="toName" placeholder="e.g. Existing pole S296104"></div>
-      <div class="field"><label for="lineNote">Line note (optional)</label><input id="lineNote" placeholder="e.g. via customer-installed duct"></div>
+      <div class="hint">Click along the cable route to add bends, then double-click to finish. Length is measured along the drawn polyline.</div>
       <div class="section-label">Map line legend</div><div class="line-legend" id="lineLegend"></div>
-      <div class="hint"><strong>Tip:</strong> For an accurate route length, zoom in and click the route start and end. The current prototype measures a straight line; multi-point route editing and road/duct routing can be added next.</div>
+      <div class="hint"><strong>Tip:</strong> Click multiple points to follow the cable route; double-click to finish. Double-click any placed block to set its name or drawing reference. Address lookup uses OpenStreetMap data and may not return a street address for every location.</div>
       <div class="admin-tools" id="adminTools">
         <div class="section-label">Admin · shared library</div>
         <button class="btn primary" id="addBlockOpen" style="width:100%;margin-bottom:7px">＋ Add block type</button>
