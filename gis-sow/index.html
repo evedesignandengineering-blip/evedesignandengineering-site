@@ -71,6 +71,12 @@
       <div id="status" class="status" role="status" aria-live="polite"></div>
     </div>
     <div class="panel-body" style="border-top:1px solid var(--line)">
+      <div class="section-label" style="margin-top:0">CU catalogue lookup</div>
+      <div class="field"><label for="cuSearch">Search CU code or description</label><input id="cuSearch" type="search" placeholder="e.g. PENDA, 25mm, HU16"></div>
+      <div id="cuResults" class="catalogue-list"><div class="empty">Loading verified CU references…</div></div>
+      <div class="hint"><strong>Matching rule:</strong> A CU is not assigned automatically where voltage, arrangement, indoor/outdoor type or other design details are missing.</div>
+    </div>
+    <div class="panel-body" style="border-top:1px solid var(--line)">
       <div class="section-label" style="margin-top:0">Western Power catalogue references</div>
       <div class="catalogue-list" id="catalogues"><div class="empty">Loading catalogue index…</div></div>
       <div class="hint"><strong>Important:</strong> These documents are design catalogues, not a complete construction-standard library. CU quantities and construction compliance are not inferred until the relevant CU entries and rules have been extracted and verified.</div>
