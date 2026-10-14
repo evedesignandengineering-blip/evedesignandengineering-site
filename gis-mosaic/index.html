@@ -34,9 +34,9 @@
 <div class="steps">
 <div class="step"><span class="num">1</span><div><b>Read the map placement</b><p>Uses each PGW world file and PRJ coordinate reference system.</p></div></div>
 <div class="step"><span class="num">2</span><div><b>Check compatibility</b><p>Checks that images use a compatible projection, pixel scale and north-up alignment before merging.</p></div></div>
-<div class="step"><span class="num">3</span><div><b>Create one GeoTIFF</b><p>Exports a single .TIF with geographic reference information embedded.</p></div></div>
+<div class="step"><span class="num">3</span><div><b>Create one GeoTIFF</b><p>Exports a GeoTIFF with matching TFW and PRJ sidecars for CAD applications that rely on companion georeferencing files.</p></div></div>
 </div>
-<div class="note"><b>Important:</b> The first version expects the image tiles to use the same coordinate reference system and matching pixel resolution, without rotated world files. It will stop and explain if it detects incompatible inputs rather than silently misaligning them.</div>
+<div class="note"><b>Important:</b> All tiles must use the same coordinate reference system and north-up world files. The output ZIP includes the TIF, TFW and PRJ together; keep the three extracted files in the same folder for CAD to read the placement correctly.</div>
 <div class="privacy">▣ Files stay on your computer during processing</div>
 </aside>
 </div>
@@ -72,7 +72,7 @@ function buildVrt(tiles){
  const sourceForBand=(t,i,n)=>{const b=bounds[i],xOff=Math.round((b.left-minX)/px),yOff=Math.round((maxY-b.top)/py),dstW=Math.max(1,Math.round((b.right-b.left)/px)),dstH=Math.max(1,Math.round((b.top-b.bottom)/py));return '<SimpleSource><SourceFilename relativeToVRT="0">'+xmlEscape('/input/'+t.fileName)+'</SourceFilename><SourceBand>'+n+'</SourceBand><SourceProperties RasterXSize="'+t.width+'" RasterYSize="'+t.height+'" DataType="Byte" BlockXSize="'+Math.min(256,t.width)+'" BlockYSize="'+Math.min(256,t.height)+'"/><SrcRect xOff="0" yOff="0" xSize="'+t.width+'" ySize="'+t.height+'"/><DstRect xOff="'+xOff+'" yOff="'+yOff+'" xSize="'+dstW+'" ySize="'+dstH+'"/></SimpleSource>'};
  const bands=[1,2,3].map((n)=>'<VRTRasterBand dataType="Byte" band="'+n+'"><ColorInterp>'+(['Red','Green','Blue'][n-1])+'</ColorInterp>'+tiles.map((t,i)=>sourceForBand(t,i,n)).join('')+'</VRTRasterBand>').join('');
  const gt=[minX,px,0,maxY,0,-py].join(',');
- return {xml:'<VRTDataset rasterXSize="'+width+'" rasterYSize="'+height+'"><SRS>'+xmlEscape(prj)+'</SRS><GeoTransform>'+gt+'</GeoTransform>'+bands+'</VRTDataset>',width,height,px,py};
+ return {xml:'<VRTDataset rasterXSize="'+width+'" rasterYSize="'+height+'"><SRS>'+xmlEscape(prj)+'</SRS><GeoTransform>'+gt+'</GeoTransform>'+bands+'</VRTDataset>',width,height,px,py,minX,maxY,prj};
 }
 async function process(){
  if(busy||!selectedZips.length)return;busy=true;renderFiles();mergeBtn.textContent='Preparing…';showStatus('Reading ZIP files…');setProgress(3);
@@ -91,8 +91,8 @@ async function process(){
   if(!mosaic){const detail=(opened.errors||[]).join('\n');throw new Error('GDAL could not open the mosaic definition. '+detail)}
   const outPath=await Gdal.gdalwarp(mosaic,['-of','GTiff','-co','TILED=YES','-co','COMPRESS=DEFLATE','-co','BIGTIFF=IF_SAFER','-dstalpha'],'eve_gis_mosaic');
   setProgress(85);const bytes=await Gdal.getFileBytes(outPath);if(!bytes||!bytes.length)throw new Error('The GeoTIFF was created without readable output bytes.');
-  const url=URL.createObjectURL(new Blob([bytes],{type:'image/tiff'}));const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic.tif';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
-  setProgress(100);showStatus('Mosaic created successfully.\nTiles merged: '+tiles.length+'\nOutput size: '+vrt.width.toLocaleString()+' × '+vrt.height.toLocaleString()+' pixels\nFile: eve_gis_mosaic.tif\n\nAttach the GeoTIFF in your CAD software as a georeferenced raster.','good');
+  const tfw=[vrt.px,0,0,-vrt.py,vrt.minX+vrt.px/2,vrt.maxY-vrt.py/2].join('\n')+'\n';const bundle=new JSZip();bundle.file('eve_gis_mosaic.tif',bytes);bundle.file('eve_gis_mosaic.tfw',tfw);bundle.file('eve_gis_mosaic.prj',vrt.prj.trim()+'\n');const bundleBlob=await bundle.generateAsync({type:'blob',compression:'DEFLATE'});const url=URL.createObjectURL(bundleBlob);const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic_CAD_bundle.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  setProgress(100);showStatus('Mosaic created successfully.\nTiles merged: '+tiles.length+'\nOutput size: '+vrt.width.toLocaleString()+' × '+vrt.height.toLocaleString()+' pixels\nDownloaded: eve_gis_mosaic_CAD_bundle.zip\nContains the GeoTIFF plus matching TFW world file and PRJ projection file. Extract all three files into the same folder before attaching the TIF in CAD.','good');
   if(Gdal.close)try{Gdal.close(mosaic)}catch(e){}
  }catch(err){console.error(err);showStatus((err&&err.message?err.message:String(err))+'\n\nYour original ZIP files have not been changed.','bad')}finally{busy=false;mergeBtn.textContent='Merge into one GeoTIFF';renderFiles();setTimeout(()=>{if(!statusEl.classList.contains('bad')){progress.hidden=true;bar.style.width='0%'}},1200)}
 }
