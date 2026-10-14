@@ -92,7 +92,7 @@ const SUPABASE_KEY='sb_publishable_Avjn-CGtbEdeLaxSWCwQDw_36mgImSu';
 const ADMIN_EMAIL='admin@evedesignandengineering.com';
 const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
-let isAdmin=false,sessionUser=null,assetTypes=[],lineTypes=[],catalogues=[],placedAssets=[],placedLines=[],selectedAssetType=null,mode='select',pendingLineStart=null,nextId=1;
+let isAdmin=false,sessionUser=null,assetTypes=[],lineTypes=[],catalogues=[],cuItems=[],placedAssets=[],placedLines=[],selectedAssetType=null,mode='select',pendingLineStart=null,nextId=1;
 const map=L.map('map',{zoomControl:true}).setView([-31.75,115.80],13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 const assetLayer=L.layerGroup().addTo(map),lineLayer=L.layerGroup().addTo(map);
