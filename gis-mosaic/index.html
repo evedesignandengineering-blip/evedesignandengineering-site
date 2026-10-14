@@ -89,9 +89,18 @@ async function process(){
   showStatus('Building the mosaic and writing the GeoTIFF…');setProgress(48);
   const opened=await Gdal.open(virtualFiles);const mosaic=opened.datasets.find(d=>d.path&&d.path.toLowerCase().endsWith('mosaic.vrt'))||opened.datasets.find(d=>d.name&&d.name.toLowerCase().includes('mosaic.vrt'));
   if(!mosaic){const detail=(opened.errors||[]).join('\n');throw new Error('GDAL could not open the mosaic definition. '+detail)}
-  const outPath=await Gdal.gdalwarp(mosaic,['-of','GTiff','-co','TILED=YES','-co','COMPRESS=DEFLATE','-co','BIGTIFF=IF_SAFER','-dstalpha'],'eve_gis_mosaic');
-  setProgress(85);const bytes=await Gdal.getFileBytes(outPath);if(!bytes||!bytes.length)throw new Error('The GeoTIFF was created without readable output bytes.');
-  const tfw=[vrt.px,0,0,-vrt.py,vrt.minX+vrt.px/2,vrt.maxY-vrt.py/2].join('\n')+'\n';const bundle=new JSZip();bundle.file('eve_gis_mosaic.tif',bytes);bundle.file('eve_gis_mosaic.tfw',tfw);bundle.file('eve_gis_mosaic.prj',vrt.prj.trim()+'\n');const bundleBlob=await bundle.generateAsync({type:'blob',compression:'DEFLATE'});const url=URL.createObjectURL(bundleBlob);const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic_CAD_bundle.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  // Force GDAL to use the same CRS, bounds, and pixel grid as the world-file-derived VRT.
+  // This prevents an inferred output grid from shifting or rescaling the raster in CAD.
+  const outMinX=vrt.minX,outMaxY=vrt.maxY,outMaxX=vrt.minX+vrt.width*vrt.px,outMinY=vrt.maxY-vrt.height*vrt.py;
+  const outPath=await Gdal.gdalwarp(mosaic,[
+    '-of','GTiff','-overwrite',
+    '-s_srs',vrt.prj,'-t_srs',vrt.prj,
+    '-te',String(outMinX),String(outMinY),String(outMaxX),String(outMaxY),
+    '-ts',String(vrt.width),String(vrt.height),
+    '-co','TILED=YES','-co','COMPRESS=DEFLATE','-co','BIGTIFF=IF_SAFER',
+    '-dstalpha'
+  ],'eve_gis_mosaic');
+  setProgress(85);const bytes=await Gdal.getFileBytes(outPath);if(!bytes||!bytes.length)throw new Error('The GeoTIFF was created without readable output bytes.');const tfw=[vrt.px,0,0,-vrt.py,vrt.minX+vrt.px/2,vrt.maxY-vrt.py/2].join('\\n')+'\\n';const bundle=new JSZip();bundle.file('eve_gis_mosaic.tif',bytes);bundle.file('eve_gis_mosaic.tfw',tfw);bundle.file('eve_gis_mosaic.prj',vrt.prj.trim()+'\n');const bundleBlob=await bundle.generateAsync({type:'blob',compression:'DEFLATE'});const url=URL.createObjectURL(bundleBlob);const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic_CAD_bundle.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
   setProgress(100);showStatus('Mosaic created successfully.\nTiles merged: '+tiles.length+'\nOutput size: '+vrt.width.toLocaleString()+' × '+vrt.height.toLocaleString()+' pixels\nDownloaded: eve_gis_mosaic_CAD_bundle.zip\nContains the GeoTIFF plus matching TFW world file and PRJ projection file. Extract all three files into the same folder before attaching the TIF in CAD.','good');
   if(Gdal.close)try{Gdal.close(mosaic)}catch(e){}
  }catch(err){console.error(err);showStatus((err&&err.message?err.message:String(err))+'\n\nYour original ZIP files have not been changed.','bad')}finally{busy=false;mergeBtn.textContent='Merge into one GeoTIFF';renderFiles();setTimeout(()=>{if(!statusEl.classList.contains('bad')){progress.hidden=true;bar.style.width='0%'}},1200)}
