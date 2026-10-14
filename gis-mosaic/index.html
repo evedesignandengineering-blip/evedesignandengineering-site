@@ -34,9 +34,9 @@
 <div class="steps">
 <div class="step"><span class="num">1</span><div><b>Read the map placement</b><p>Uses each PGW world file and PRJ coordinate reference system.</p></div></div>
 <div class="step"><span class="num">2</span><div><b>Check compatibility</b><p>Checks that images use a compatible projection, pixel scale and north-up alignment before merging.</p></div></div>
-<div class="step"><span class="num">3</span><div><b>Create one GeoTIFF</b><p>Exports a GeoTIFF with matching TFW and PRJ sidecars for CAD applications that rely on companion georeferencing files.</p></div></div>
+<div class="step"><span class="num">3</span><div><b>Create one GeoTIFF</b><p>Reprojects the mosaic into GDA94 / MGA Zone 50 and embeds its coordinates in the GeoTIFF for CAD.</p></div></div>
 </div>
-<div class="note"><b>Important:</b> All tiles must use the same coordinate reference system and north-up world files. The output ZIP includes the TIF, TFW and PRJ together; keep the three extracted files in the same folder for CAD to read the placement correctly.</div>
+<div class="note"><b>Important:</b> All tiles must use the same coordinate reference system and north-up world files. Output is GDA94 / MGA Zone 50 (EPSG:28350), inferred from the uploaded imagery’s location. The GeoTIFF stores its projected coordinates internally.</div>
 <div class="privacy">▣ Files stay on your computer during processing</div>
 </aside>
 </div>
@@ -89,19 +89,20 @@ async function process(){
   showStatus('Building the mosaic and writing the GeoTIFF…');setProgress(48);
   const opened=await Gdal.open(virtualFiles);const mosaic=opened.datasets.find(d=>d.path&&d.path.toLowerCase().endsWith('mosaic.vrt'))||opened.datasets.find(d=>d.name&&d.name.toLowerCase().includes('mosaic.vrt'));
   if(!mosaic){const detail=(opened.errors||[]).join('\n');throw new Error('GDAL could not open the mosaic definition. '+detail)}
-  // Force GDAL to use the same CRS, bounds, and pixel grid as the world-file-derived VRT.
-  // This prevents an inferred output grid from shifting or rescaling the raster in CAD.
-  const outMinX=vrt.minX,outMaxY=vrt.maxY,outMaxX=vrt.minX+vrt.width*vrt.px,outMinY=vrt.maxY-vrt.height*vrt.py;
+  // Reproject source Web Mercator imagery into GDA94 / MGA Zone 50 (EPSG:28350),
+  // matching the uploaded image coordinates around longitude 115.25 E, latitude 33.67 S.
+  // Do not create a TFW from the source grid: those coordinates would be wrong after reprojection.
   const outPath=await Gdal.gdalwarp(mosaic,[
     '-of','GTiff','-overwrite',
-    '-s_srs',vrt.prj,'-t_srs',vrt.prj,
-    '-te',String(outMinX),String(outMinY),String(outMaxX),String(outMaxY),
-    '-ts',String(vrt.width),String(vrt.height),
+    '-t_srs','EPSG:28350',
+    '-r','bilinear',
     '-co','TILED=YES','-co','COMPRESS=DEFLATE','-co','BIGTIFF=IF_SAFER',
     '-dstalpha'
   ],'eve_gis_mosaic');
-  setProgress(85);const bytes=await Gdal.getFileBytes(outPath);if(!bytes||!bytes.length)throw new Error('The GeoTIFF was created without readable output bytes.');const tfw=[vrt.px,0,0,-vrt.py,vrt.minX+vrt.px/2,vrt.maxY-vrt.py/2].join('\\n')+'\\n';const bundle=new JSZip();bundle.file('eve_gis_mosaic.tif',bytes);bundle.file('eve_gis_mosaic.tfw',tfw);bundle.file('eve_gis_mosaic.prj',vrt.prj.trim()+'\n');const bundleBlob=await bundle.generateAsync({type:'blob',compression:'DEFLATE'});const url=URL.createObjectURL(bundleBlob);const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic_CAD_bundle.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
-  setProgress(100);showStatus('Mosaic created successfully.\nTiles merged: '+tiles.length+'\nOutput size: '+vrt.width.toLocaleString()+' × '+vrt.height.toLocaleString()+' pixels\nDownloaded: eve_gis_mosaic_CAD_bundle.zip\nContains the GeoTIFF plus matching TFW world file and PRJ projection file. Extract all three files into the same folder before attaching the TIF in CAD.','good');
+  setProgress(85);const bytes=await Gdal.getFileBytes(outPath);if(!bytes||!bytes.length)throw new Error('The GeoTIFF was created without readable output bytes.');
+  const targetPrj='PROJCS["GDA_1994_MGA_Zone_50",GEOGCS["GCS_GDA_1994",DATUM["D_GDA_1994",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000],PARAMETER["False_Northing",10000000],PARAMETER["Central_Meridian",117],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0],UNIT["Meter",1]]';
+  const bundle=new JSZip();bundle.file('eve_gis_mosaic.tif',bytes);bundle.file('eve_gis_mosaic.prj',targetPrj+'\\n');const bundleBlob=await bundle.generateAsync({type:'blob',compression:'DEFLATE'});const url=URL.createObjectURL(bundleBlob);const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic_CAD_bundle.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  setProgress(100);showStatus('Mosaic created successfully.\nTiles merged: '+tiles.length+'\nOutput size: '+vrt.width.toLocaleString()+' × '+vrt.height.toLocaleString()+' pixels\nDownloaded: eve_gis_mosaic_CAD_bundle.zip\nGeoTIFF reprojection: GDA94 / MGA Zone 50 (EPSG:28350). The TIFF embeds its projected coordinates; the PRJ sidecar identifies the projection.','good');
   if(Gdal.close)try{Gdal.close(mosaic)}catch(e){}
  }catch(err){console.error(err);showStatus((err&&err.message?err.message:String(err))+'\n\nYour original ZIP files have not been changed.','bad')}finally{busy=false;mergeBtn.textContent='Merge into one GeoTIFF';renderFiles();setTimeout(()=>{if(!statusEl.classList.contains('bad')){progress.hidden=true;bar.style.width='0%'}},1200)}
 }
