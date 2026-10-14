@@ -64,7 +64,7 @@ function buildVrt(tiles){
  const sortedX=tiles.map(t=>t.wf.A).sort((a,b)=>a-b),sortedY=tiles.map(t=>-t.wf.E).sort((a,b)=>a-b);
  const mid=Math.floor(tiles.length/2),px=sortedX.length%2?sortedX[mid]:(sortedX[mid-1]+sortedX[mid])/2,py=sortedY.length%2?sortedY[mid]:(sortedY[mid-1]+sortedY[mid])/2,prj=tiles[0].prj.trim();
  if(!(px>0&&py>0))throw new Error('The PGW world files contain invalid pixel sizes.');
- for(const t of tiles){if(t.prj.trim().replace(/\\s+/g,' ')!==prj.replace(/\\s+/g,' '))throw new Error('The PRJ coordinate systems do not match. Re-export all tiles using the same coordinate reference system.');if(!(t.wf.A>0&&-t.wf.E>0))throw new Error('A PGW world file contains invalid pixel dimensions.')}
+ for(const t of tiles){if(t.prj.trim().replace(/\s+/g,' ')!==prj.replace(/\s+/g,' '))throw new Error('The PRJ coordinate systems do not match. Re-export all tiles using the same coordinate reference system.');if(!(t.wf.A>0&&-t.wf.E>0))throw new Error('A PGW world file contains invalid pixel dimensions.')}
  const bounds=tiles.map(t=>{const tx=t.wf.A,ty=-t.wf.E;return {left:t.wf.C-tx/2,top:t.wf.F+ty/2,right:t.wf.C-tx/2+t.width*tx,bottom:t.wf.F+ty/2-t.height*ty}});
  const minX=Math.min(...bounds.map(b=>b.left)),maxY=Math.max(...bounds.map(b=>b.top)),maxX=Math.max(...bounds.map(b=>b.right)),minY=Math.min(...bounds.map(b=>b.bottom));
  const width=Math.ceil((maxX-minX)/px),height=Math.ceil((maxY-minY)/py);
