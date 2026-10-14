@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Combine georeferenced GIS PNG, PGW and PRJ exports into one CAD-ready GeoTIFF mosaic in your browser.">
+<title>GIS Image Mosaic Tool | EVE Design & Engineering</title>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3.js" crossorigin="anonymous"></script>
+<style>
+:root{--navy:#0b1c2c;--ink:#172638;--muted:#65758a;--line:#dce4ec;--bg:#f3f6f9;--blue:#2563eb;--teal:#0f766e;--white:#fff;--shadow:0 18px 55px #142b4512}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}button,input{font:inherit}.shell{max-width:1000px;margin:0 auto;padding:28px 20px 54px}.topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:30px}.brand{display:flex;align-items:center;gap:10px;color:var(--navy);font-weight:850;letter-spacing:-.02em}.brandmark{width:39px;height:39px;border-radius:12px;background:linear-gradient(135deg,var(--teal),var(--blue));display:grid;place-items:center;color:#fff;font-size:18px}.back{color:var(--muted);text-decoration:none;font-weight:650}.back:hover{color:var(--blue)}.hero{margin:0 0 25px}.eyebrow{color:var(--teal);font-size:11px;letter-spacing:.15em;text-transform:uppercase;font-weight:850}.hero h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.045em;line-height:1.1;margin:8px 0 12px}.hero p{max-width:690px;color:var(--muted);font-size:15px;margin:0}.layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(250px,.7fr);gap:18px;align-items:start}.card{background:var(--white);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:var(--shadow)}.card h2{font-size:16px;margin:0 0 6px;letter-spacing:-.02em}.sub{color:var(--muted);font-size:12px;margin:0 0 18px}.drop{border:1.5px dashed #aebdcd;border-radius:14px;padding:30px 18px;text-align:center;background:#f9fbfd;transition:border-color .2s,background .2s}.drop.drag{border-color:var(--blue);background:#eff6ff}.uploadicon{width:48px;height:48px;border-radius:15px;background:#e8f1ff;color:var(--blue);display:grid;place-items:center;margin:0 auto 12px;font-size:22px}.drop strong{display:block;font-size:14px}.drop p{color:var(--muted);font-size:12px;margin:5px 0 14px}.btn{border:0;border-radius:10px;padding:11px 15px;font-weight:750;cursor:pointer;transition:transform .2s,box-shadow .2s,background .2s}.btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 18px #1d4ed822}.btn:disabled{opacity:.48;cursor:not-allowed}.primary{background:linear-gradient(110deg,var(--teal),var(--blue));color:#fff}.secondary{background:#eef2f7;color:var(--ink)}.files{display:grid;gap:8px;margin-top:14px}.file{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.filebadge{flex-shrink:0;width:34px;height:34px;border-radius:9px;background:#f0f5ff;color:#2554a8;display:grid;place-items:center;font-size:10px;font-weight:900}.filemeta{min-width:0;flex:1}.filemeta b{display:block;font-size:12px;overflow-wrap:anywhere}.filemeta small{color:var(--muted);font-size:10px}.remove{border:0;background:transparent;color:#9a5260;cursor:pointer;font-size:18px;padding:4px 7px}.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}.status{margin-top:14px;padding:12px 13px;border-radius:10px;background:#f0f5fa;color:#475569;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.status.good{background:#eaf8f1;color:#176443}.status.bad{background:#fff0f0;color:#9c3030}.status[hidden]{display:none}.progress{height:5px;background:#e7edf4;border-radius:99px;overflow:hidden;margin-top:12px}.progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--blue));transition:width .25s}.steps{display:grid;gap:14px}.step{display:flex;gap:11px;align-items:flex-start}.num{flex-shrink:0;width:27px;height:27px;border-radius:9px;background:#edf4ff;color:#2457a6;display:grid;place-items:center;font-size:11px;font-weight:850}.step b{display:block;font-size:12px;margin:1px 0 3px}.step p{margin:0;color:var(--muted);font-size:11px}.note{margin-top:17px;padding:12px;border-radius:11px;background:#f8fafc;border:1px solid var(--line);color:var(--muted);font-size:11px}.privacy{display:flex;align-items:center;gap:8px;color:var(--teal);font-size:11px;font-weight:750;margin-top:15px}.footer{text-align:center;color:#8a97a8;font-size:10px;margin-top:24px}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.shell{padding:20px 14px 38px}.card{padding:17px}.topbar{margin-bottom:22px}.back{font-size:12px}}
+</style>
+</head>
+<body>
+<div class="shell">
+<header class="topbar"><div class="brand"><span class="brandmark">E</span><span>EVE Design & Engineering</span></div><a class="back" href="/">← Main website</a></header>
+<section class="hero"><div class="eyebrow">GIS utility · CAD workflow</div><h1>GIS Image Mosaic Tool</h1><p>Combine multiple GIS export ZIPs into one georeferenced GeoTIFF aerial image, ready to attach in CAD. Your files are processed in this browser and are not uploaded to a server.</p></section>
+<div class="layout">
+<section class="card">
+<h2>1. Add your GIS ZIP files</h2><p class="sub">Each ZIP should contain matching .PNG, .PGW and .PRJ files.</p>
+<div class="drop" id="drop">
+<div class="uploadicon">⇧</div><strong>Drop ZIP files here</strong><p>or choose multiple ZIP files from your computer</p><button class="btn secondary" id="browse" type="button">Choose ZIP files</button>
+<input id="zipInput" type="file" accept=".zip,application/zip" multiple hidden>
+</div>
+<div class="files" id="files"></div>
+<div class="actions"><button class="btn primary" id="merge" type="button" disabled>Merge into one GeoTIFF</button><button class="btn secondary" id="clear" type="button" disabled>Clear files</button></div>
+<div class="progress" id="progress" hidden><span id="bar"></span></div>
+<div class="status" id="status" hidden></div>
+</section>
+<aside class="card">
+<h2>What happens next?</h2><p class="sub">One import instead of many.</p>
+<div class="steps">
+<div class="step"><span class="num">1</span><div><b>Read the map placement</b><p>Uses each PGW world file and PRJ coordinate reference system.</p></div></div>
+<div class="step"><span class="num">2</span><div><b>Check compatibility</b><p>Checks that images use a compatible projection, pixel scale and north-up alignment before merging.</p></div></div>
+<div class="step"><span class="num">3</span><div><b>Create one GeoTIFF</b><p>Exports a single .TIF with geographic reference information embedded.</p></div></div>
+</div>
+<div class="note"><b>Important:</b> The first version expects the image tiles to use the same coordinate reference system and matching pixel resolution, without rotated world files. It will stop and explain if it detects incompatible inputs rather than silently misaligning them.</div>
+<div class="privacy">▣ Files stay on your computer during processing</div>
+</aside>
+</div>
+<div class="footer">EVE Design & Engineering · GIS Image Mosaic Tool</div>
+</div>
+<script>
+const zipInput=document.getElementById('zipInput'),drop=document.getElementById('drop'),filesEl=document.getElementById('files'),mergeBtn=document.getElementById('merge'),clearBtn=document.getElementById('clear'),statusEl=document.getElementById('status'),progress=document.getElementById('progress'),bar=document.getElementById('bar');
+let selectedZips=[],busy=false,gdalPromise=null;
+function fmtBytes(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(1)+' MB'}
+function showStatus(message,type=''){statusEl.hidden=false;statusEl.className='status'+(type?' '+type:'');statusEl.textContent=message}
+function setProgress(p){progress.hidden=false;bar.style.width=Math.max(0,Math.min(100,p))+'%'}
+function renderFiles(){filesEl.innerHTML='';selectedZips.forEach((f,i)=>{const row=document.createElement('div');row.className='file';row.innerHTML='<span class="filebadge">ZIP</span><span class="filemeta"><b></b><small></small></span><button class="remove" type="button" aria-label="Remove file">×</button>';row.querySelector('b').textContent=f.name;row.querySelector('small').textContent=fmtBytes(f.size);row.querySelector('button').onclick=()=>{if(busy)return;selectedZips.splice(i,1);renderFiles();statusEl.hidden=true};filesEl.appendChild(row)});mergeBtn.disabled=busy||selectedZips.length===0;clearBtn.disabled=busy||selectedZips.length===0}
+function addFiles(list){const incoming=[...list].filter(f=>f.name.toLowerCase().endsWith('.zip'));const seen=new Set(selectedZips.map(f=>f.name+'|'+f.size+'|'+f.lastModified));for(const f of incoming){const key=f.name+'|'+f.size+'|'+f.lastModified;if(!seen.has(key)){selectedZips.push(f);seen.add(key)}}renderFiles();if(list.length&&!incoming.length)showStatus('Please select ZIP files.','bad')}
+document.getElementById('browse').onclick=()=>zipInput.click();zipInput.onchange=()=>{addFiles(zipInput.files);zipInput.value=''};
+for(const ev of ['dragenter','dragover'])drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')});
+for(const ev of ['dragleave','drop'])drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')});
+drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));document.getElementById('clear').onclick=()=>{if(busy)return;selectedZips=[];renderFiles();statusEl.hidden=true};
+function worldFile(text){const n=text.trim().split(/[\r\n\s]+/).filter(Boolean).map(Number);if(n.length!==6||n.some(v=>!Number.isFinite(v)))throw new Error('A PGW world file must contain six numeric values.');const [A,D,B,E,C,F]=n;if(Math.abs(B)>1e-10||Math.abs(D)>1e-10)throw new Error('A rotated PGW world file was found. This version only supports north-up images.');if(A<=0||E>=0)throw new Error('Unexpected PGW pixel sizes. Expected a positive X size and negative Y size.');return {A,E,C,F}}
+function stem(path){const name=path.split('/').pop();return name.replace(/\.[^.]+$/,'').toLowerCase()}
+function dirname(path){const p=path.lastIndexOf('/');return p<0?'':path.slice(0,p+1)}
+function findSibling(entries,pngPath,ext){const base=stem(pngPath),dir=dirname(pngPath);return entries.find(x=>dirname(x.name).toLowerCase()===dir.toLowerCase()&&stem(x.name)===base&&x.name.toLowerCase().endsWith(ext))||entries.find(x=>stem(x.name)===base&&x.name.toLowerCase().endsWith(ext))}
+async function getImageSize(file){const bitmap=await createImageBitmap(file);const size={width:bitmap.width,height:bitmap.height};bitmap.close();return size}
+function xmlEscape(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function buildVrt(tiles){
+ const px=tiles[0].wf.A,py=-tiles[0].wf.E,prj=tiles[0].prj.trim();
+ for(const t of tiles){if(t.prj.trim().replace(/\s+/g,' ')!==prj.replace(/\s+/g,' '))throw new Error('The PRJ coordinate systems do not match. Re-export all tiles using the same coordinate reference system.');if(Math.abs(t.wf.A-px)>Math.max(1e-9,Math.abs(px)*1e-6)||Math.abs(-t.wf.E-py)>Math.max(1e-9,Math.abs(py)*1e-6))throw new Error('The PNG tiles have different pixel resolutions. Re-export them at the same resolution before merging.')}
+ const bounds=tiles.map(t=>({left:t.wf.C-px/2,top:t.wf.F+py/2,right:t.wf.C-px/2+t.width*px,bottom:t.wf.F+py/2-t.height*py}));
+ const minX=Math.min(...bounds.map(b=>b.left)),maxY=Math.max(...bounds.map(b=>b.top)),maxX=Math.max(...bounds.map(b=>b.right)),minY=Math.min(...bounds.map(b=>b.bottom));
+ const width=Math.round((maxX-minX)/px),height=Math.round((maxY-minY)/py);
+ if(!Number.isFinite(width*height)||width<1||height<1||width*height>180000000)throw new Error('The merged image would be too large for safe browser processing (>180 million pixels). Split the area into smaller mosaics.');
+ const sources=tiles.map((t,i)=>{const b=bounds[i],xOff=Math.round((b.left-minX)/px),yOff=Math.round((maxY-b.top)/py);if(Math.abs((b.left-minX)/px-xOff)>.02||Math.abs((maxY-b.top)/py-yOff)>.02)throw new Error('Some images do not line up on the same pixel grid. Check that all exports use the same resolution and aligned tile boundaries.');return '<SimpleSource><SourceFilename relativeToVRT="0">'+xmlEscape('/input/'+t.fileName)+'</SourceFilename><SourceBand>1</SourceBand><SourceProperties RasterXSize="'+t.width+'" RasterYSize="'+t.height+'" DataType="Byte" BlockXSize="'+Math.min(256,t.width)+'" BlockYSize="'+Math.min(256,t.height)+'"/><SrcRect xOff="0" yOff="0" xSize="'+t.width+'" ySize="'+t.height+'"/><DstRect xOff="'+xOff+'" yOff="'+yOff+'" xSize="'+t.width+'" ySize="'+t.height+'"/></SimpleSource>'});
+ const bands=[1,2,3].map((n)=>'<VRTRasterBand dataType="Byte" band="'+n+'"><ColorInterp>'+(['Red','Green','Blue'][n-1])+'</ColorInterp>'+sources.join('')+'</VRTRasterBand>').join('');
+ const gt=[minX,px,0,maxY,0,-py].join(',');
+ return {xml:'<VRTDataset rasterXSize="'+width+'" rasterYSize="'+height+'"><SRS>'+xmlEscape(prj)+'</SRS><GeoTransform>'+gt+'</GeoTransform>'+bands+'</VRTDataset>',width,height,px,py};
+}
+async function process(){
+ if(busy||!selectedZips.length)return;busy=true;renderFiles();mergeBtn.textContent='Preparing…';showStatus('Reading ZIP files…');setProgress(3);
+ try{
+  const allEntries=[];
+  for(let i=0;i<selectedZips.length;i++){const zip=await JSZip.loadAsync(selectedZips[i]);const entries=Object.values(zip.files).filter(e=>!e.dir);for(const entry of entries){const ext=entry.name.toLowerCase().split('.').pop();if(['png','pgw','prj'].includes(ext)){const blob=await entry.async('blob');allEntries.push({name:entry.name,ext,blob,zipIndex:i})}}setProgress(5+20*(i+1)/selectedZips.length)}
+  const pngs=allEntries.filter(e=>e.ext==='png');if(!pngs.length)throw new Error('No PNG images were found inside the selected ZIP files.');
+  const tiles=[];
+  for(let i=0;i<pngs.length;i++){const p=pngs[i],pgw=findSibling(allEntries.filter(x=>x.zipIndex===p.zipIndex),p.name,'.pgw'),prj=findSibling(allEntries.filter(x=>x.zipIndex===p.zipIndex),p.name,'.prj');if(!pgw||!prj)throw new Error('Missing matching .PGW or .PRJ for '+p.name+'. Each PNG needs a matching world file and projection file.');const wf=worldFile(await pgw.blob.text()),size=await getImageSize(p.blob);tiles.push({...size,wf,prj:await prj.blob.text(),fileName:'tile_'+String(i+1).padStart(4,'0')+'.png',blob:p.blob});}
+  showStatus('Checking '+tiles.length+' image tiles…');setProgress(35);
+  const vrt=buildVrt(tiles);if(!gdalPromise){showStatus('Loading the geospatial engine (first load can take a little while)…');gdalPromise=initGdalJs({path:'https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package',useWorker:false,logHandler:(m)=>{if(m)console.log('[GDAL]',m)}})}
+  const Gdal=await gdalPromise;
+  const virtualFiles=tiles.map(t=>new File([t.blob],t.fileName,{type:'image/png'}));virtualFiles.push(new File([vrt.xml],'mosaic.vrt',{type:'application/xml'}));
+  showStatus('Building the mosaic and writing the GeoTIFF…');setProgress(48);
+  const opened=await Gdal.open(virtualFiles);const mosaic=opened.datasets.find(d=>d.path&&d.path.toLowerCase().endsWith('mosaic.vrt'))||opened.datasets.find(d=>d.name&&d.name.toLowerCase().includes('mosaic.vrt'));
+  if(!mosaic){const detail=(opened.errors||[]).join('\n');throw new Error('GDAL could not open the mosaic definition. '+detail)}
+  const outPath=await Gdal.gdalwarp(mosaic,['-of','GTiff','-co','TILED=YES','-co','COMPRESS=DEFLATE','-co','BIGTIFF=IF_SAFER','-dstalpha'],'eve_gis_mosaic');
+  setProgress(85);const bytes=await Gdal.getFileBytes(outPath);if(!bytes||!bytes.length)throw new Error('The GeoTIFF was created without readable output bytes.');
+  const url=URL.createObjectURL(new Blob([bytes],{type:'image/tiff'}));const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic.tif';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  setProgress(100);showStatus('Mosaic created successfully.\nTiles merged: '+tiles.length+'\nOutput size: '+vrt.width.toLocaleString()+' × '+vrt.height.toLocaleString()+' pixels\nFile: eve_gis_mosaic.tif\n\nAttach the GeoTIFF in your CAD software as a georeferenced raster.','good');
+  if(Gdal.close)try{Gdal.close(mosaic)}catch(e){}
+ }catch(err){console.error(err);showStatus((err&&err.message?err.message:String(err))+'\n\nYour original ZIP files have not been changed.','bad')}finally{busy=false;mergeBtn.textContent='Merge into one GeoTIFF';renderFiles();setTimeout(()=>{if(!statusEl.classList.contains('bad')){progress.hidden=true;bar.style.width='0%'}},1200)}
+}
+mergeBtn.onclick=process;
+</script>
+</body></html>
