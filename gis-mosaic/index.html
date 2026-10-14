@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Combine georeferenced GIS PNG, PGW and PRJ exports into one CAD-ready GeoTIFF mosaic in your browser.">\n<link rel="stylesheet" href="../styles.css?v=20261014-header">\n<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet>
+<meta name="description" content="Combine georeferenced GIS PNG, PGW and PRJ exports into one CAD-ready GeoTIFF mosaic in your browser.">
+<link rel="stylesheet" href="../styles.css?v=20261014-header">\n<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet>
 <title>GIS Image Mosaic Tool | EVE Design & Engineering</title>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3.js" crossorigin="anonymous"></script>
@@ -14,8 +15,9 @@
 </style>
 </head>
 <body>
-<div class="shell">
-<header class="topbar"><div class="brand"><span class="brandmark">E</span><span>EVE Design & Engineering</span></div><a class="back" href="/">← Main website</a></header>
+<div class="site">
+<header class="nav"><a class="brand" href="https://evedesignandengineering.com/#home" aria-label="EVE Design and Engineering main website"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><nav aria-label="Primary navigation"><a href="../#home">Home</a><a href="../#about">About</a><a href="../#services">Services</a><a href="../portfolio.html">Portfolio</a><a class="active" href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav><a class="nav-cta" href="../#contact">Get in Touch <b>→</b></a></header>
+<div class="gis-shell">
 <section class="hero"><div class="eyebrow">GIS utility · CAD workflow</div><h1>GIS Image Mosaic Tool</h1><p>Combine multiple GIS export ZIPs into one georeferenced GeoTIFF aerial image, ready to attach in CAD. Your files are processed in this browser and are not uploaded to a server.</p></section>
 <div class="layout">
 <section class="card">
@@ -40,8 +42,7 @@
 <div class="privacy">▣ Files stay on your computer during processing</div>
 </aside>
 </div>
-<div class="footer">EVE Design & Engineering · GIS Image Mosaic Tool</div>
-</div>
+</div><footer><a class="footer-brand" href="https://evedesignandengineering.com/#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer></div>
 <script>
 const zipInput=document.getElementById('zipInput'),drop=document.getElementById('drop'),filesEl=document.getElementById('files'),mergeBtn=document.getElementById('merge'),clearBtn=document.getElementById('clear'),statusEl=document.getElementById('status'),progress=document.getElementById('progress'),bar=document.getElementById('bar');
 let selectedZips=[],busy=false,gdalPromise=null;
