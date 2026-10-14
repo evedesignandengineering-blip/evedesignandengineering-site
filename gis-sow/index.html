@@ -152,7 +152,7 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.c
 $('selectMode').onclick=$('mapSelect').onclick=()=>setMode('select');$('placeMode').onclick=$('mapPlace').onclick=()=>setMode('place');$('lineMode').onclick=$('mapLine').onclick=()=>setMode('line');$('undoBtn').onclick=()=>{if(placedLines.length){const l=placedLines.pop();lineLayer.removeLayer(l.polyline);renderPlacedLines()}else if(placedAssets.length){const a=placedAssets.pop();assetLayer.removeLayer(a.marker);renderPlacedAssets()}else{status('Nothing to undo.')}renderSowIfPresent()};
 $('clearBtn').onclick=()=>{if(!confirm('Clear all blocks and lines from this unsaved design?'))return;placedAssets=[];placedLines=[];assetLayer.clearLayers();lineLayer.clearLayers();pendingLineStart=null;renderPlacedAssets();renderPlacedLines();$('sowOutput').value='';status('Design cleared.','good')};
 $('groupBtn').onclick=groupSelected;$('generateBtn').onclick=generateSow;$('copyBtn').onclick=()=>copyText($('sowOutput').value);$('copyAllBtn').onclick=()=>copyText($('sowOutput').value+'\n\nCU NOTES\nCU quantities and codes have not been automatically verified. Check the relevant Western Power catalogue, current amendment list and construction standards before issue.');$('exportBtn').onclick=exportDesign;
-$('lineTypeSelect').onchange=()=>{if(mode==='line')setMode('line')};
+$('lineTypeSelect').onchange=()=>{if(mode==='line')setMode('line')};$('cuSearch').oninput=()=>renderCuItems($('cuSearch').value);
 (async()=>{await loadLibrary();await checkSession();setMode('select');setTimeout(()=>map.invalidateSize(),250)})();
 })();
 </script>
