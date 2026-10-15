@@ -20,7 +20,7 @@
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const SUPABASE_URL='https://hszkloepnewfkzdegfhl.supabase.co';
-const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhzemtsb2VwbmV3Zmt6ZGVnZmhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NDU0MzUsImV4cCI6MjEwNzAyMTQzfQ.PBoDEUUB8LoL8XKIgQVPvkptgzmwkSuxgDkSxdj92kw';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhzemtsb2VwbmV3Zmt6ZGVnZmhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NDU0MzUsImV4cCI6MjEwNzAyMTQzNX0.PBoDEUUB8LoL8XKIgQVPvkptgzmwkSuxgDkSxdj92kw';
 const $=id=>document.getElementById(id);
 $('drawing').addEventListener('change',e=>{$('drawingName').textContent=e.target.files[0]?.name||'No drawing selected';});
 $('quote').addEventListener('change',e=>{$('quoteName').textContent=e.target.files[0]?.name||'No quote selected';});
