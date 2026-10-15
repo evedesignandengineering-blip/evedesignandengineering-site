@@ -148,9 +148,9 @@ async function generateAiSow(){
   if(error){let detail='';try{detail=await error.context?.json?.().then(x=>x.error||'')}catch(_){}throw new Error(detail||error.message||'AI request failed')}
   if(!data?.ok||!data.scope_of_works)throw new Error(data?.error||'AI did not return a SOW draft');
   let out=data.scope_of_works.trim();
-  if(Array.isArray(data.cu_checks)&&data.cu_checks.length){out+='\\n\\nCU CHECKS / EVIDENCE';data.cu_checks.forEach((c,i)=>{out+='\\n'+(i+1)+'. '+c.item+' — '+c.status+(c.evidence_code?' | Verified catalogue code: '+c.evidence_code:'')+(c.source?' | Source: '+c.source:'')})}
-  if(Array.isArray(data.assumptions_or_missing_information)&&data.assumptions_or_missing_information.length){out+='\\n\\nASSUMPTIONS / INFORMATION TO CONFIRM';data.assumptions_or_missing_information.forEach(x=>out+='\\n- '+x)}
-  out+='\\n\\nAI-GENERATED DRAFT — NOT FOR ISSUE WITHOUT COMPETENT DESIGNER REVIEW. Verify current controlled standards, CU codes, site conditions, quantities, approvals and drawing references.';
+  if(Array.isArray(data.cu_checks)&&data.cu_checks.length){out+='\n\nCU CHECKS / EVIDENCE';data.cu_checks.forEach((c,i)=>{out+='\n'+(i+1)+'. '+c.item+' — '+c.status+(c.evidence_code?' | Verified catalogue code: '+c.evidence_code:'')+(c.source?' | Source: '+c.source:'')})}
+  if(Array.isArray(data.assumptions_or_missing_information)&&data.assumptions_or_missing_information.length){out+='\n\nASSUMPTIONS / INFORMATION TO CONFIRM';data.assumptions_or_missing_information.forEach(x=>out+='\n- '+x)}
+  out+='\n\nAI-GENERATED DRAFT — NOT FOR ISSUE WITHOUT COMPETENT DESIGNER REVIEW. Verify current controlled standards, CU codes, site conditions, quantities, approvals and drawing references.';
   $('sowOutput').value=out;$('sowFloat').classList.add('open');
   status('AI draft generated. Verified CU evidence supplied to AI: '+Number(data.verified_cu_evidence_count||0)+'. '+(data.note||'Review before use'),'good');
  }catch(err){status('AI SOW unavailable: '+(err?.message||err)+'. The standard Generate SOW option is still available.','error')}
