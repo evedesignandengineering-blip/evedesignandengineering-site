@@ -75,6 +75,21 @@ Public Sub PrepareBYDARequest()
     Print #fileNo, CsvLine("Submission status", "PREPARED ONLY - not submitted")
     Close #fileNo
 
+    ' Append a simple audit row. After lodging the enquiry, edit this CSV row to add
+    ' the official BYDA reference and change status to SUBMITTED / RESPONSES RECEIVED.
+    Dim logPath As String
+    Dim logNo As Integer
+    logPath = Environ$("USERPROFILE") & "\Documents\EVE_BYDA_Request_Log.csv"
+    logNo = FreeFile
+    If Dir$(logPath) = "" Then
+        Open logPath For Output As #logNo
+        Print #logNo, "PreparedAt,ProjectName,InternalReference,DrawingFile,Model,MGA94Zone,PreparedFile,BYDAReference,Status,Notes"
+    Else
+        Open logPath For Append As #logNo
+    End If
+    Print #logNo, """" & Format$(Now, "yyyy-mm-dd hh:nn:ss") & """,""" & Replace(jobName, """", """""") & """,""" & Replace(jobRef, """", """""") & """,""" & Replace(dgnPath, """", """""") & """,""" & Replace(modelName, """", """""") & """,""" & zone & """,""" & Replace(outputPath, """", """""") & ""","",""PREPARED - NOT SUBMITTED"",""Update this row after manual submission""
+    Close #logNo
+
     ThisApplication.StartDefaultBrowser "https://www.byda.com.au/"
 
     MsgBox "BYDA preparation file saved:" & vbCrLf & outputPath & vbCrLf & vbCrLf & _
