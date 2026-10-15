@@ -1,4 +1,3 @@
-Attribute VB_Name = "EVE_BYDA_Starter"
 Option Explicit
 
 ' EVE BYDA Helper - free manual-submission starter for MicroStation CONNECT Edition.
