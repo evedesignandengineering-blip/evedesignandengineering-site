@@ -142,10 +142,9 @@ async function generateAiSow(){
  if(!placedAssets.length&&!placedLines.length){status('Place at least one block or draw a cable line before using AI SOW.','error');return}
  const button=$('aiSowBtn'),oldText=button.textContent;button.disabled=true;button.textContent='AI drafting…';status('AI is preparing a draft from the current design and verified CU records.','');
  try{
-  const verified=cuItems.filter(c=>String(c.verification_status||'').toLowerCase()==='verified').map(c=>{const d=catalogues.find(x=>x.id===c.catalogue_id);return {code:c.code,description:c.description,unit:c.unit,verification_status:c.verification_status,source_page:c.source_page,revision_date:c.revision_date,catalogue_title:d?.title||'',catalogue_url:d?.url||''}});
-  const payload={header:$('sowHeader')?.value||'WESTERN POWER SCOPE OF WORK',drawing_ref:$('drawingRef')?.value||'',extra_notes:$('extraNotes')?.value||'',assets:placedAssets.map(a=>({type:a.name,label:a.label,drawing_ref:a.drawing_ref,group:a.group_name||'',description:a.description||''})),lines:placedLines.map(l=>({type:l.type,from:l.from,to:l.to,length_m:l.length_m,note:l.note||''})),verified_cus:verified};
+  const payload={header:$('sowHeader')?.value||'WESTERN POWER SCOPE OF WORK',drawing_ref:$('drawingRef')?.value||'',extra_notes:$('extraNotes')?.value||'',assets:placedAssets.map(a=>({type:a.name,label:a.label,drawing_ref:a.drawing_ref,group:a.group_name||'',description:a.description||''})),lines:placedLines.map(l=>({type:l.type,from:l.from,to:l.to,length_m:l.length_m,note:l.note||''}))};
   const {data,error}=await supabase.functions.invoke('gis-ai-sow',{body:payload});
-  if(error){let detail='';try{detail=await error.context?.json?.().then(x=>x.error||'')}catch(_){}throw new Error(detail||error.message||'AI request failed')}
+  if(error){let detail='';try{if(error.context&&typeof error.context.json==='function'){const parsedError=await error.context.json();detail=parsedError?.error||''}}catch(_){}throw new Error(detail||error.message||'AI request failed')}
   if(!data?.ok||!data.scope_of_works)throw new Error(data?.error||'AI did not return a SOW draft');
   let out=data.scope_of_works.trim();
   if(Array.isArray(data.cu_checks)&&data.cu_checks.length){out+='\n\nCU CHECKS / EVIDENCE';data.cu_checks.forEach((c,i)=>{out+='\n'+(i+1)+'. '+c.item+' — '+c.status+(c.evidence_code?' | Verified catalogue code: '+c.evidence_code:'')+(c.source?' | Source: '+c.source:'')})}
