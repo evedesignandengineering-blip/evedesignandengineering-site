@@ -215,7 +215,7 @@ async function importTrainingDrawing(){
   const pages=[];let charCount=0;
   for(let n=1;n<=pdf.numPages;n++){
    const page=await pdf.getPage(n);const tc=await page.getTextContent();
-   const txt=tc.items.map(x=>typeof x.str==="string"?x.str:"").join(" ").replace(/\\s+/g," ").trim();
+   const txt=tc.items.map(x=>typeof x.str==="string"?x.str:"").join(" ").replace(/\s+/g," ").trim();
    pages.push({page_number:n,text:txt});charCount+=txt.length;page.cleanup();
    if(n%5===0||n===pdf.numPages){msg.textContent="Reading PDF page "+n+" of "+pdf.numPages+"…"}
   }
