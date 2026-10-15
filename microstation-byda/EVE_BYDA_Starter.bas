@@ -22,7 +22,10 @@ Public Sub PrepareBYDARequest()
     Dim boundaryElement As Element
     Dim vertices As String
     Dim answer As VbMsgBoxResult
+    Dim currentStep As String
+    currentStep = "starting"
 
+    currentStep = "project details"
     jobName = Trim$(InputBox("Enter project / work-site name:", "EVE BYDA Helper"))
     If Len(jobName) = 0 Then
         MsgBox "Cancelled: project name is required.", vbInformation, "EVE BYDA Helper"
@@ -41,6 +44,7 @@ Public Sub PrepareBYDARequest()
         Exit Sub
     End If
 
+    currentStep = "reading selected boundary"
     answer = MsgBox("Before continuing, select ONE closed Shape element that outlines the work area in the active model. Continue?", vbOKCancel + vbInformation, "EVE BYDA Helper")
     If answer <> vbOK Then Exit Sub
 
@@ -50,16 +54,19 @@ Public Sub PrepareBYDARequest()
         Exit Sub
     End If
 
+    currentStep = "reading boundary coordinates"
     vertices = GetBoundaryCoordinates(boundaryElement)
     If Len(vertices) = 0 Then
         MsgBox "Could not read boundary vertices from the selected element. No request file was written.", vbExclamation, "EVE BYDA Helper"
         Exit Sub
     End If
 
+    currentStep = "reading drawing information"
     modelName = ActiveModelReference.Name
     dgnPath = ActiveDesignFile.FullName
     outputPath = Environ$("USERPROFILE") & "\Documents\EVE_BYDA_Prepared_" & Format$(Now, "yyyymmdd_hhnnss") & ".csv"
 
+    currentStep = "creating prepared CSV at: " & outputPath
     fileNo = FreeFile
     Open outputPath For Output As #fileNo
     Print #fileNo, "Field,Value"
@@ -76,6 +83,7 @@ Public Sub PrepareBYDARequest()
 
     ' Append a simple audit row. After lodging the enquiry, edit this CSV row to add
     ' the official BYDA reference and change status to SUBMITTED / RESPONSES RECEIVED.
+    currentStep = "updating request log"
     Dim logPath As String
     Dim logNo As Integer
     logPath = Environ$("USERPROFILE") & "\Documents\EVE_BYDA_Request_Log.csv"
@@ -89,6 +97,7 @@ Public Sub PrepareBYDARequest()
     Print #logNo, """" & Format$(Now, "yyyy-mm-dd hh:nn:ss") & """,""" & Replace(jobName, """", """""") & """,""" & Replace(jobRef, """", """""") & """,""" & Replace(dgnPath, """", """""") & """,""" & Replace(modelName, """", """""") & """,""" & zone & """,""" & Replace(outputPath, """", """""") & ""","",""PREPARED - NOT SUBMITTED"",""Update this row after manual submission""
     Close #logNo
 
+    currentStep = "opening BYDA website"
     Shell "cmd /c start """" ""https://www.byda.com.au/""", vbHide
 
     MsgBox "BYDA preparation file saved:" & vbCrLf & outputPath & vbCrLf & vbCrLf & _
@@ -99,7 +108,8 @@ Public Sub PrepareBYDARequest()
 Failed:
     On Error Resume Next
     If fileNo <> 0 Then Close #fileNo
-    MsgBox "EVE BYDA Helper could not complete this step: " & Err.Description & vbCrLf & _
+    MsgBox "EVE BYDA Helper failed during: " & currentStep & vbCrLf & _
+           "Error " & CStr(Err.Number) & ": " & Err.Description & vbCrLf & _
            "No automatic BYDA submission was made.", vbExclamation, "EVE BYDA Helper"
 End Sub
 
