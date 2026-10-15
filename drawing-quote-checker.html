@@ -31,14 +31,21 @@ function pill(status){const s=String(status||'REVIEW_REQUIRED');const cls=s==='M
 function num(v){return v===null||v===undefined||v===''?'Not confidently read':esc(v);}
 async function readPdf(file, role, maxImages){
  const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;
- let pages=[],images=[],totalChars=0;const ocrTargets=[];
+ let pages=[],images=[],totalChars=0,declaredSheets=null,effectivePageCount=pdf.numPages;const ocrTargets=[];
  for(let n=1;n<=pdf.numPages;n++){
+  if(n>effectivePageCount)break;
   const page=await pdf.getPage(n);const content=await page.getTextContent();let lines=[],lastY=null,line='';
   for(const item of content.items){if(!item.str||!item.str.trim())continue;const y=Math.round(item.transform?.[5]||0);if(lastY!==null&&Math.abs(y-lastY)>3){if(line.trim())lines.push(line.trim());line='';}line+=(line?' ':'')+item.str.trim();lastY=y;}
-  if(line.trim())lines.push(line.trim());let txt=lines.join('\n');totalChars+=txt.length;pages.push({page:n,text:txt});
+  if(line.trim())lines.push(line.trim());let txt=lines.join('\n');
+  // A drawing title block such as “Sheet 1 of 06” defines how many drawing pages belong to this set.
+  if(role==='drawing'&&n<=3){
+   const match=txt.match(/(?:sheet|sht\.?)[\s#]*(?:no\.?\s*)?\d+\s*(?:of|\/)\s*0*(\d{1,3})\b/i);
+   if(match){const count=Number(match[1]);if(count>0&&count<=pdf.numPages){declaredSheets=count;effectivePageCount=Math.min(pdf.numPages,count);}}
+  }
+  totalChars+=txt.length;pages.push({page:n,text:txt});
   if(txt.replace(/\s/g,'').length<35)ocrTargets.push(n);
  }
- // OCR image-based pages (maximum 5 per PDF) before AI analysis.
+ // OCR only the pages included in the drawing set; never OCR excluded trailing pages.
  if(ocrTargets.length&&window.Tesseract){
   const selected=ocrTargets.slice(0,5);
   for(const n of selected){
@@ -47,13 +54,13 @@ async function readPdf(file, role, maxImages){
   }
  }
  const text=pages.map(p=>'[PAGE '+p.page+']\n'+p.text).join('\n\n').slice(0,45000);
- // Render representative page images for visual AI inspection. Limit dimensions and payload.
- const candidates=new Set();for(let i=0;i<Math.min(maxImages,pdf.numPages);i++)candidates.add(i+1);
+ // Render representative page images from the included pages only.
+ const candidates=new Set();for(let i=0;i<Math.min(maxImages,pages.length);i++)candidates.add(i+1);
  const sparse=pages.filter(p=>p.text.replace(/\s/g,'').length<100).slice(0,maxImages);sparse.forEach(p=>{if(!candidates.has(p.page)){if(candidates.size>=maxImages){const arr=[...candidates];candidates.delete(arr[arr.length-1]);}candidates.add(p.page);}});
  for(const n of [...candidates].slice(0,maxImages)){
   try{const page=await pdf.getPage(n);const base=page.getViewport({scale:1});const scale=Math.min(1.45,1050/base.width);const vp=page.getViewport({scale});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;images.push(canvas.toDataURL('image/jpeg',0.52));canvas.width=canvas.height=1;}catch(e){console.warn('Image render failed',n,e);}
  }
- return {text,images,pageCount:pdf.numPages,chars:totalChars,ocrCount:ocrTargets.length};
+ return {text,images,pageCount:pages.length,sourcePageCount:pdf.numPages,declaredSheets,chars:totalChars,ocrCount:ocrTargets.length};
 }
 function renderReport(r){
  const di=Array.isArray(r.drawing_items)?r.drawing_items:[],qi=Array.isArray(r.quote_items)?r.quote_items:[],ds=Array.isArray(r.discrepancies)?r.discrepancies:[],ms=Array.isArray(r.matched_items)?r.matched_items:[],ex=Array.isArray(r.ignored_quote_extras)?r.ignored_quote_extras:[];
@@ -74,11 +81,11 @@ $('compare').addEventListener('click',async()=>{
   const [dr,qr]=await Promise.all([readPdf(d,'drawing',3),readPdf(q,'quote',2)]);
   setProgress(62,'Sending extracted text and page images to AI for item recognition and comparison…');$('status').textContent='The AI is identifying drawing items, matching quote descriptions, and checking quantities.';
   progressTimer=setInterval(()=>{const current=parseInt($('progressPercent').textContent,10)||62;if(current<92)setProgress(Math.min(92,current+1),'Sending extracted text and page images to AI for item recognition and comparison…');else setProgress(current,'AI is analysing items and quantities…');},450);
-  const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images};
+  const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets};
   const response=await fetch(SUPABASE_URL+'/functions/v1/ai-drawing-quote-check',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+SUPABASE_ANON_KEY},body:JSON.stringify(payload)});
   let result;try{result=await response.json();}catch{throw new Error('The AI service returned an invalid response. Please retry.');}
   if(!response.ok)throw new Error(result.error||('AI request failed ('+response.status+').'));
-  if(progressTimer){clearInterval(progressTimer);progressTimer=null;}setProgress(100,'Comparison complete');renderReport(result);$('status').textContent='AI comparison completed. '+dr.pageCount+' drawing pages and '+qr.pageCount+' quote pages processed; '+dr.ocrCount+' drawing and '+qr.ocrCount+' quote pages were considered for OCR.';
+  if(progressTimer){clearInterval(progressTimer);progressTimer=null;}setProgress(100,'Comparison complete');renderReport(result);$('status').textContent='AI comparison completed. '+dr.pageCount+' of '+dr.sourcePageCount+' drawing PDF pages and '+qr.pageCount+' quote pages processed'+(dr.declaredSheets?' (drawing sheet count detected: '+dr.declaredSheets+')':'')+'; '+dr.ocrCount+' drawing and '+qr.ocrCount+' quote pages were considered for OCR.';
  }catch(e){if(progressTimer){clearInterval(progressTimer);progressTimer=null;}$('progressPanel').style.display='none';$('status').textContent='AI comparison could not be completed: '+e.message;}
  finally{btn.disabled=false;}
 });
