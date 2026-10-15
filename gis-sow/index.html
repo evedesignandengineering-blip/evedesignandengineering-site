@@ -174,7 +174,7 @@ async function generateAiSow(){
   const payload={header:$('sowHeader')?.value||'WESTERN POWER SCOPE OF WORK',drawing_ref:$('drawingRef')?.value||'',extra_notes:$('extraNotes')?.value||'',assets:placedAssets.map(a=>({type:a.name,label:a.label,drawing_ref:a.drawing_ref,group:a.group_name||'',description:a.description||''})),lines:placedLines.map(l=>({type:l.type,from:l.from,to:l.to,length_m:l.length_m,note:l.note||''}))};
   const response=await fetch(SUPABASE_URL+'/functions/v1/gis-ai-sow',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify(payload)});
   let data={};try{data=await response.json()}catch(_){}
-  if(!response.ok)throw new Error(data.error||('AI service returned HTTP '+response.status)+(data.detail?': '+data.detail:''));
+  if(!response.ok){const parts=[data.error||('AI service returned HTTP '+response.status)];if(data.provider_status)parts.push('Provider HTTP '+data.provider_status);if(data.detail)parts.push(String(data.detail).slice(0,500));throw new Error(parts.join(' — '))}
   if(!data?.ok||!data.scope_of_works)throw new Error(data?.error||'AI did not return a SOW draft');
   let out=data.scope_of_works.trim();
   if(Array.isArray(data.cu_checks)&&data.cu_checks.length){out+='\n\nCU CHECKS / EVIDENCE';data.cu_checks.forEach((c,i)=>{out+='\n'+(i+1)+'. '+c.item+' — '+c.status+(c.evidence_code?' | Verified catalogue code: '+c.evidence_code:'')+(c.source?' | Source: '+c.source:'')})}
