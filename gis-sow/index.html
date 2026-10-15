@@ -176,20 +176,16 @@ async function generateAiSow(){
   let data={};try{data=await response.json()}catch(_){}
   if(!response.ok){const parts=[data.error||('AI service returned HTTP '+response.status)];if(data.provider_status)parts.push('Provider HTTP '+data.provider_status);if(data.detail)parts.push(String(data.detail).slice(0,500));throw new Error(parts.join(' — '))}
   if(!data?.ok||!data.scope_of_works)throw new Error(data?.error||'AI did not return a SOW draft');
-  let out=data.scope_of_works.trim();
-  if(Array.isArray(data.cu_checks)&&data.cu_checks.length){out+='\n\nCU CHECKS / EVIDENCE';data.cu_checks.forEach((c,i)=>{out+='\n'+(i+1)+'. '+c.item+' — '+c.status+(c.evidence_code?' | Verified catalogue code: '+c.evidence_code:'')+(c.source?' | Source: '+c.source:'')})}
-  if(Array.isArray(data.references)&&data.references.length){out+='\n\nREFERENCES — CHECK CURRENT CONTROLLED REVISIONS';data.references.forEach((r,i)=>{out+='\n'+(i+1)+'. '+String(r.title||r.source_type||'Source').trim()+(r.url?' — '+r.url:'')+(r.details?'\n   '+r.details:'')})}
-  if(Array.isArray(data.assumptions_or_missing_information)&&data.assumptions_or_missing_information.length){out+='\n\nASSUMPTIONS / INFORMATION TO CONFIRM';data.assumptions_or_missing_information.forEach(x=>out+='\n- '+x)}
-  out+='\n\nAI-GENERATED DRAFT — NOT FOR ISSUE WITHOUT COMPETENT DESIGNER REVIEW. Verify current controlled standards, CU codes, site conditions, quantities, approvals and drawing references.';
+  const out=data.scope_of_works.trim();
   $('sowOutput').value=out;$('sowFloat').classList.add('open');
-  say('AI draft generated. Verified catalogue entries supplied: '+Number(data.verified_cu_evidence_count||0)+'. Review the draft before use.','good');
+  say('AI scope generated. Check the wording and drawing details before using it.','good');
  }catch(err){
   const reason=String(err?.message||err);
-  if(reason.includes('OPENAI_API_KEY')){
+  if(reason.includes('GEMINI_API_KEY')){
    const fallback=buildSow();
-   $('sowOutput').value='RULE-BASED FALLBACK — AI IS NOT CONFIGURED\n\n'+fallback+'\n\nNOTICE: The AI service is not configured because OPENAI_API_KEY is missing in Supabase. This is a rule-based draft, not an AI-generated result. Configure the secret to enable AI drafting. Competent designer review is required before issue.';
+   $('sowOutput').value='RULE-BASED SCOPE\n\n'+fallback;
    $('sowFloat').classList.add('open');
-   say('AI is not configured. A clearly labelled rule-based draft was opened instead. Add OPENAI_API_KEY in Supabase to enable AI.','error');
+   say('AI is not configured. A rule-based scope has been opened instead.','error');
   }else{
    say('AI draft failed: '+reason+'. Standard Generate SOW remains available.','error');
   }
