@@ -235,7 +235,7 @@ async function importTrainingDrawing(){
    if(rows.length){const {error:insertError}=await supabase.from("drawing_ai_chunks").insert(rows);if(insertError)throw new Error("Index save failed on page "+(i+1)+": "+insertError.message);saved+=rows.length;chunkIndex+=rows.length;}
    msg.textContent="Indexing pages "+Math.min(i+batchSize,pages.length)+" of "+pages.length+"…";
   }
-  const {error:updateError}=await supabase.from("drawing_ai_documents").update({processing_status:"processed",extracted_text:"Selectable text extracted from "+pdf.numPages+" PDF pages using browser PDF.js; full text stored in searchable page chunks.",metadata:{processing_method:"browser_pdfjs_text_extraction",page_count:pdf.numPages,indexed_chunks:saved,processed_at:new Date().toISOString(),extracted_characters:charCount,ocr_required:false}}).eq("id",documentId);
+  const {error:updateError}=await supabase.from("drawing_ai_documents").update({processing_status:"ready",extracted_text:"Selectable text extracted from "+pdf.numPages+" PDF pages using browser PDF.js; full text stored in searchable page chunks.",metadata:{processing_method:"browser_pdfjs_text_extraction",page_count:pdf.numPages,indexed_chunks:saved,processed_at:new Date().toISOString(),extracted_characters:charCount,ocr_required:false}}).eq("id",documentId);
   if(updateError)throw new Error("Text chunks were saved, but the document status could not be updated: "+updateError.message);
   msg.style.color="var(--green)";msg.textContent="Training drawing indexed successfully: "+pdf.numPages+" pages, "+saved+" text chunks. The previous Edge CPU-limit failure has been avoided.";
  }catch(e){msg.style.color="var(--red)";msg.textContent=e instanceof Error?e.message:"Import failed. Please try again."}
