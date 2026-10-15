@@ -58,7 +58,7 @@ Public Sub PrepareBYDARequest()
 
     modelName = ActiveModelReference.Name
     dgnPath = ActiveDesignFile.FullName
-    outputPath = Environ$("USERPROFILE") & "DocumentsEVE_BYDA_Prepared_" & Format$(Now, "yyyymmdd_hhnnss") & ".csv"
+    outputPath = Environ$("USERPROFILE") & "\Documents\EVE_BYDA_Prepared_" & Format$(Now, "yyyymmdd_hhnnss") & ".csv"
 
     fileNo = FreeFile
     Open outputPath For Output As #fileNo
