@@ -90,7 +90,7 @@ Public Sub PrepareBYDARequest()
     Print #logNo, """" & Format$(Now, "yyyy-mm-dd hh:nn:ss") & """,""" & Replace(jobName, """", """""") & """,""" & Replace(jobRef, """", """""") & """,""" & Replace(dgnPath, """", """""") & """,""" & Replace(modelName, """", """""") & """,""" & zone & """,""" & Replace(outputPath, """", """""") & ""","",""PREPARED - NOT SUBMITTED"",""Update this row after manual submission""
     Close #logNo
 
-    ThisApplication.StartDefaultBrowser "https://www.byda.com.au/"
+    Shell "cmd /c start """" ""https://www.byda.com.au/""", vbHide
 
     MsgBox "BYDA preparation file saved:" & vbCrLf & outputPath & vbCrLf & vbCrLf & _
            "The official BYDA website has been opened. Check the site location and draw/confirm the boundary in BYDA, complete the form and submit manually." & vbCrLf & _
