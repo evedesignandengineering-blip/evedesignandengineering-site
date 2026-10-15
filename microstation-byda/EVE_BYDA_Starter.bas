@@ -98,7 +98,7 @@ Public Sub PrepareBYDARequest()
     Close #logNo
 
     currentStep = "opening BYDA website"
-    Shell "cmd /c start """" ""https://www.byda.com.au/""", vbHide
+    Shell "cmd /c start """" ""https://smarterwx.byda.com.au/enquiries/new""", vbHide
 
     MsgBox "BYDA preparation file saved:" & vbCrLf & outputPath & vbCrLf & vbCrLf & _
            "The official BYDA website has been opened. Check the site location and draw/confirm the boundary in BYDA, complete the form and submit manually." & vbCrLf & _
