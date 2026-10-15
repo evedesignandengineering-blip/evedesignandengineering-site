@@ -186,7 +186,7 @@ async function generateAiSow(){
   const reason=String(err?.message||err);
   if(reason.includes('OPENAI_API_KEY')){
    const fallback=buildSow();
-   $('sowOutput').value='RULE-BASED FALLBACK — AI IS NOT CONFIGURED\\n\\n'+fallback+'\\n\\nNOTICE: The AI service is not configured because OPENAI_API_KEY is missing in Supabase. This is a rule-based draft, not an AI-generated result. Configure the secret to enable AI drafting. Competent designer review is required before issue.';
+   $('sowOutput').value='RULE-BASED FALLBACK — AI IS NOT CONFIGURED\n\n'+fallback+'\n\nNOTICE: The AI service is not configured because OPENAI_API_KEY is missing in Supabase. This is a rule-based draft, not an AI-generated result. Configure the secret to enable AI drafting. Competent designer review is required before issue.';
    $('sowFloat').classList.add('open');
    say('AI is not configured. A clearly labelled rule-based draft was opened instead. Add OPENAI_API_KEY in Supabase to enable AI.','error');
   }else{
