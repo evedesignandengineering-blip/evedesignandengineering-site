@@ -129,13 +129,13 @@ End Function
 
 Private Function GetBoundaryCoordinates(ByVal el As Element) As String
     On Error GoTo CouldNotRead
-    Dim shp As ShapeElement
-    Dim pts() As Point3d
+    Dim vertexList As VertexList
+    Dim pts() As Point2d
     Dim i As Long
     Dim result As String
 
-    Set shp = el.AsShapeElement
-    pts = shp.GetVertices
+    Set vertexList = el.AsVertexList
+    pts = vertexList.GetVertices
     For i = LBound(pts) To UBound(pts)
         If Len(result) > 0 Then result = result & " | "
         result = result & Format$(pts(i).X, "0.000") & " " & Format$(pts(i).Y, "0.000")
