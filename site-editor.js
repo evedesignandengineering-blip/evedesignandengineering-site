@@ -3,7 +3,7 @@
   "use strict";
   const SUPABASE_URL = "https://hszkloepnewfkzdegfhl.supabase.co";
   const SUPABASE_KEY = "sb_publishable_Avjn-CGtbEdeLaxSWCwQDw_36mgImSu";
-  const pagePath = location.pathname.replace(/\\/$/, "") || "/index.html";
+  const pagePath = location.pathname.replace(/\/$/, "") || "/index.html";
   const pageKey = pagePath === "/" ? "/index.html" : pagePath;
   const clientReady = () => window.supabase && window.supabase.createClient;
   const css = `
@@ -123,5 +123,14 @@
     if(!error && data && data.content) config=data.content;
     assignEditorIds(); applyConfig(); addBar();
   }
-  function loadSupabaseAndStart() {\n    if (clientReady()) { start(); return; }\n    const loader = document.createElement("script");\n    loader.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";\n    loader.onload = start;\n    loader.onerror = () => console.warn("EVE editor: Supabase client could not be loaded.");\n    document.head.appendChild(loader);\n  }\n  if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", loadSupabaseAndStart);\n  else loadSupabaseAndStart();
+  function loadSupabaseAndStart() {
+    if (clientReady()) { start(); return; }
+    const loader = document.createElement("script");
+    loader.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+    loader.onload = start;
+    loader.onerror = () => console.warn("EVE editor: Supabase client could not be loaded.");
+    document.head.appendChild(loader);
+  }
+  if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", loadSupabaseAndStart);
+  else loadSupabaseAndStart();
 })();
