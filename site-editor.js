@@ -28,7 +28,7 @@
       el.dataset.eveTextId = stableId("text", n++);
     });
     let c = 0, i = 0;
-    const candidates = $("main section, main > div, .tools-grid, .service-grid, .commit-grid, .tool-card, .service-card, .commit-grid article, .contact > div");
+    const candidates = $("main, main section, main > div, .tools-grid, .service-grid, .commit-grid, .tool-card, .service-card, .commit-grid article, .contact > div");
     candidates.forEach(el => {
       if (el.closest("#eve-editor-bar,#eve-editor-hint")) return;
       if (el.matches(".tools-grid,.service-grid,.commit-grid,main") || el.matches("main > section, main > div")) {
@@ -123,5 +123,5 @@
     if(!error && data && data.content) config=data.content;
     assignEditorIds(); applyConfig(); addBar();
   }
-  window.addEventListener("DOMContentLoaded", start);
+  function loadSupabaseAndStart() {\n    if (clientReady()) { start(); return; }\n    const loader = document.createElement("script");\n    loader.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";\n    loader.onload = start;\n    loader.onerror = () => console.warn("EVE editor: Supabase client could not be loaded.");\n    document.head.appendChild(loader);\n  }\n  if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", loadSupabaseAndStart);\n  else loadSupabaseAndStart();
 })();
