@@ -13,6 +13,10 @@
     .eve-editable{outline:2px dashed #3a8ed0!important;outline-offset:3px;cursor:text}
     [data-eve-drag-item].eve-dragging{opacity:.45;outline:2px dashed #3a8ed0}
     [data-eve-drop-zone].eve-drop-target{outline:2px dashed #3a8ed0;outline-offset:5px}
+    .eve-order-controls{display:none;gap:5px;align-items:center;flex-wrap:wrap;margin:0 0 12px;padding:7px;background:#e8f3fc;border:1px solid #9cc9ed;border-radius:7px;position:relative;z-index:2}
+    .eve-order-controls button{border:1px solid #8db8dc;border-radius:5px;background:#fff;color:#09284b;padding:5px 9px;font:700 12px Arial;cursor:pointer}
+    .eve-order-controls button:disabled{opacity:.35;cursor:not-allowed}
+    [data-eve-drag-item].eve-dragging{opacity:.45}
     #eve-editor-hint{position:fixed;z-index:9999;bottom:80px;right:14px;background:#fff;color:#09284b;padding:12px 15px;border-radius:9px;box-shadow:0 4px 24px #001a3322;max-width:320px;font:13px/1.5 Arial}
     @media(max-width:600px){#eve-editor-bar{left:10px;right:10px;bottom:10px;justify-content:center}#eve-editor-status{width:100%;text-align:center}}
   `;
@@ -66,8 +70,43 @@
     return { texts, orders };
   }
   function markDirty() { dirty = true; const status = document.getElementById("eve-editor-status"); if(status) status.textContent = "Unsaved changes"; }
+  function refreshOrderControls() {
+    $("[data-eve-drag-item]").forEach(el => {
+      let controls = el.querySelector(":scope > .eve-order-controls");
+      if (!controls) {
+        controls = document.createElement("div");
+        controls.className = "eve-order-controls";
+        controls.setAttribute("contenteditable", "false");
+        controls.innerHTML = '<button type="button" data-eve-move="earlier" aria-label="Move block earlier">↑ Move earlier</button><button type="button" data-eve-move="later" aria-label="Move block later">↓ Move later</button>';
+        el.insertBefore(controls, el.firstChild);
+        controls.addEventListener("click", event => {
+          const button = event.target.closest("button[data-eve-move]");
+          if (!button) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const siblings = Array.from(el.parentElement.children).filter(item => item.hasAttribute("data-eve-drag-item"));
+          const index = siblings.indexOf(el);
+          if (button.dataset.eveMove === "earlier" && index > 0) {
+            el.parentElement.insertBefore(el, siblings[index - 1]);
+          } else if (button.dataset.eveMove === "later" && index >= 0 && index < siblings.length - 1) {
+            el.parentElement.insertBefore(siblings[index + 1], el);
+          }
+          markDirty();
+          refreshOrderControls();
+        });
+      }
+      controls.style.display = adminMode ? "flex" : "none";
+      const siblings = Array.from(el.parentElement.children).filter(item => item.hasAttribute("data-eve-drag-item"));
+      const index = siblings.indexOf(el);
+      const earlier = controls.querySelector('[data-eve-move="earlier"]');
+      const later = controls.querySelector('[data-eve-move="later"]');
+      if (earlier) earlier.disabled = index <= 0;
+      if (later) later.disabled = index < 0 || index >= siblings.length - 1;
+    });
+  }
   function setEditable(on) {
     adminMode = on;
+    refreshOrderControls();
     $("[data-eve-text-id]").forEach(el => {
       el.contentEditable = on ? "true" : "false";
       el.classList.toggle("eve-editable", on);
@@ -77,7 +116,7 @@
     $("[data-eve-drag-item]").forEach(el => {
       el.draggable = on;
       el.style.cursor = on ? "grab" : "";
-      el.ondragstart = on ? e => { e.dataTransfer.setData("text/plain", el.dataset.eveItemId); e.dataTransfer.effectAllowed = "move"; el.classList.add("eve-dragging"); } : null;
+      el.ondragstart = on ? e => { if (e.target.closest(".eve-order-controls")) { e.preventDefault(); return; } e.dataTransfer.setData("text/plain", el.dataset.eveItemId); e.dataTransfer.effectAllowed = "move"; el.classList.add("eve-dragging"); } : null;
       el.ondragend = on ? () => { el.classList.remove("eve-dragging"); $("[data-eve-drop-zone]").forEach(x=>x.classList.remove("eve-drop-target")); } : null;
       el.ondragover = on ? e => { if(el.parentElement.querySelector("[data-eve-drag-item].eve-dragging")) { e.preventDefault(); el.classList.add("eve-drop-target"); } } : null;
       el.ondragleave = on ? () => el.classList.remove("eve-drop-target") : null;
@@ -90,6 +129,7 @@
         const after = (e.clientY - rect.top) > rect.height / 2;
         el.parentElement.insertBefore(moving, after ? el.nextSibling : el);
         markDirty();
+        refreshOrderControls();
       } : null;
     });
   }
@@ -97,7 +137,7 @@
     const bar = document.createElement("div"); bar.id = "eve-editor-bar";
     bar.innerHTML = '<span><strong>EVE Website Editor</strong></span><span id="eve-editor-status">Ready</span><button id="eve-edit-toggle" class="primary">Edit page</button><button id="eve-save">Save changes</button><button id="eve-discard">Discard</button><button id="eve-logout">Log out</button>';
     document.body.appendChild(bar);
-    const hint = document.createElement("div"); hint.id="eve-editor-hint"; hint.textContent="Click highlighted text to edit. Drag a highlighted block onto another block in the same grid or section to reorder it."; hint.hidden=true; document.body.appendChild(hint);
+    const hint = document.createElement("div"); hint.id="eve-editor-hint"; hint.textContent="Click highlighted text to edit. Use the Move earlier / Move later buttons on highlighted blocks, or drag blocks to reorder them."; hint.hidden=true; document.body.appendChild(hint);
     document.getElementById("eve-edit-toggle").onclick = () => {
       setEditable(!adminMode); hint.hidden = !adminMode;
       document.getElementById("eve-edit-toggle").textContent = adminMode ? "Finish editing" : "Edit page";
