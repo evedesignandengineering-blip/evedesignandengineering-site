@@ -114,4 +114,5 @@ $('excel').onclick=()=>{const wb=XLSX.utils.book_new();XLSX.utils.book_append_sh
 function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href)}
 $('clear').onclick=()=>{chosen=null;rows=[];fileInput.value='';$('filename').textContent='No file selected';$('analyze').disabled=true;$('notice').className='notice';$('notice').textContent='DXF files are analysed in-browser. Direct DGN parsing requires a DGN-capable conversion/processing service; this static version will identify DGN uploads but will not invent quantities.';$('items').textContent=$('length').textContent=$('blocks').textContent='—';render()};
 </script><script src="/drafting-promotion.js?v=20261014" defer></script>
+<script src="../site-editor.js?v=20261016" defer></script>
 </body></html>
