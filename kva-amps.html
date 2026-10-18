@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#153f61">
 <meta name="description" content="Instantly convert kVA to amps or amps to kVA for 240 V single-phase and 415 V three-phase systems.">
 <link rel="canonical" href="https://evedesignandengineering.com/kva-amps.html">
-<link rel="stylesheet" href="styles.css?v=20261013-kva">
+<link rel="stylesheet" href="styles.css?v=20261018-audit">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
 <title>kVA ↔ Amps Calculator | EVE Design &amp; Engineering</title>
@@ -14,7 +15,13 @@
 .value-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.value-field{border:1px solid #d8e0e8;border-radius:9px;padding:15px;background:#fbfcfe;min-width:0}.value-field:focus-within{border-color:#2f6ea4;box-shadow:0 0 0 3px rgba(47,110,164,.1)}.value-field label{display:block;color:#566473;font-size:11px;font-weight:700;margin-bottom:9px}.value-entry{display:flex;align-items:center;gap:9px}.value-entry input{border:0;background:transparent;margin:0;padding:0;width:100%;min-width:0;font:800 28px/1.25 Manrope;color:#09284b;outline:none}.value-entry input::placeholder{color:#b0bdc9}.value-entry input::-webkit-inner-spin-button,.value-entry input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.value-entry input[type=number]{-moz-appearance:textfield}.unit{font:700 13px "DM Sans";color:#536a7e;white-space:nowrap}
 .result-note{margin-top:17px;padding:13px 15px;background:#f0f7fc;border-radius:7px;color:#31546f;font-size:12px;line-height:1.55}.result-note strong{color:#123d60}.formula{padding:20px 28px;background:#fafbfd;border-top:1px solid #e3e9ef}.formula h3{font:800 13px Manrope;margin:0 0 9px;color:#102947}.formula p{margin:5px 0;color:#566473;font-size:12px;line-height:1.6}.formula code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#edf2f6;padding:3px 5px;border-radius:4px;color:#174e79}.calc-disclaimer{max-width:820px;margin:15px auto 0;font-size:11px;line-height:1.65;color:#68798a}
 @media(max-width:620px){.calc-hero{padding:40px 7%}.calc-area{padding:24px 7% 40px}.calc-card-head,.calc-body{padding:21px 17px}.value-grid{grid-template-columns:1fr;gap:12px}.value-entry input{font-size:26px}.phase-options{gap:8px}.phase-option{padding:12px 10px}.formula{padding:18px 17px}}
-</style></head><body><div class="site">
+</style><style>
+/* Shared page-hero refinement: compact, consistent and high-contrast. */
+.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-top:clamp(28px,3.8vw,42px)!important;padding-bottom:clamp(26px,3.2vw,36px)!important;background:#153f61!important}
+.tools-hero h1,.portfolio-hero h1,.calc-hero h1,.takeoff-hero h1{line-height:1.12;text-wrap:balance}
+@media(max-width:620px){.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-left:6%!important;padding-right:6%!important}}
+</style>
+</head><body><div class="site">
 <header class="nav"><a class="brand" href="https://evedesignandengineering.com/#home" aria-label="EVE Design and Engineering main website"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><nav aria-label="Primary navigation"><a href="index.html#home">Home</a><a href="index.html#about">About</a><a href="index.html#services">Services</a><a href="portfolio.html">Portfolio</a><a class="active" href="tools.html">Tools</a><a href="index.html#contact">Contact</a></nav><a class="nav-cta" href="index.html#contact">Get in Touch <b>→</b></a></header>
 <main><section class="calc-hero"><small>EVE DESIGN &amp; ENGINEERING / ELECTRICAL CALCULATOR</small><h1>kVA ↔ Amps Calculator</h1><p>Enter either kVA or amps and the other value updates automatically. Select single-phase at 240 V or three-phase at 415 V.</p></section>
 <section class="calc-area"><div class="calc-card"><div class="calc-card-head"><small>INSTANT CONVERSION</small><h2>Electrical apparent power &amp; current</h2><p>Change the phase or type into either field. No Calculate button needed.</p></div>
