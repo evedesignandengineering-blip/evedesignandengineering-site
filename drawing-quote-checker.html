@@ -116,8 +116,8 @@ function renderReport(r){
   {name:'Narrogin',lat:-32.93,lon:117.18},{name:'Kondinin',lat:-32.49,lon:118.27},{name:'Merredin',lat:-31.48,lon:118.28},
   {name:'Geraldton',lat:-28.76,lon:114.65},{name:'Jurien Bay',lat:-30.30,lon:115.04},{name:'Moora',lat:-30.64,lon:116.01}
  ];
- let depotName=travel.depot_name||'';let distanceKm=Number(travel.distance_km);
- if((!depotName||!Number.isFinite(distanceKm))&&Number.isFinite(Number(travel.latitude))&&Number.isFinite(Number(travel.longitude))){
+ let depotName=travel.depot_name||'';let distanceKm=travel.distance_km!==null&&travel.distance_km!==undefined?Number(travel.distance_km):NaN;
+ if((!depotName||!Number.isFinite(distanceKm))&&travel.latitude!==null&&travel.latitude!==undefined&&travel.longitude!==null&&travel.longitude!==undefined&&Number.isFinite(Number(travel.latitude))&&Number.isFinite(Number(travel.longitude))){
   const rad=v=>v*Math.PI/180,olat=Number(travel.latitude),olon=Number(travel.longitude);
   const ranked=depotFallback.map(d=>{const dl=rad(d.lat-olat),dn=rad(d.lon-olon),a=Math.sin(dl/2)**2+Math.cos(rad(olat))*Math.cos(rad(d.lat))*Math.sin(dn/2)**2;return {name:d.name,km:6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))*1.25};}).sort((a,b)=>a.km-b.km);
   if(ranked.length){depotName=ranked[0].name;distanceKm=ranked[0].km;}
