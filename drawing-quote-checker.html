@@ -87,8 +87,8 @@ $('compare').addEventListener('click',async()=>{
  try{
   setProgress(5,'Reading the PDFs…');$('status').textContent='Preparing drawing and quote documents…';
   const [dr,qr]=await Promise.all([readPdf(d,'drawing',3),readPdf(q,'quote',2)]);
-  setProgress(62,'Sending extracted text and page images to AI for item recognition and comparison…');$('status').textContent='The AI is identifying drawing items, matching quote descriptions, and checking quantities.';
-  progressTimer=setInterval(()=>{const current=parseInt($('progressPercent').textContent,10)||62;if(current<92)setProgress(Math.min(92,current+1),'Sending extracted text and page images to AI for item recognition and comparison…');else setProgress(current,'AI is analysing items and quantities…');},450);
+  setProgress(62,'AI is reviewing drawing details and quote items…');$('status').textContent='The AI is identifying drawing items, matching quote descriptions, and checking quantities.';
+  progressTimer=setInterval(()=>{const current=parseInt($('progressPercent').textContent,10)||62;if(current<92)setProgress(Math.min(92,current+1),'AI is reviewing drawing details and quote items…');else setProgress(current,'AI is analysing items and quantities…');},450);
   const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets};
   const response=await fetch(SUPABASE_URL+'/functions/v1/ai-drawing-quote-check',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+SUPABASE_ANON_KEY},body:JSON.stringify(payload)});
   let result;try{result=await response.json();}catch{throw new Error('The AI service returned an invalid response. Please retry.');}
