@@ -61,7 +61,7 @@ document.querySelectorAll('.drop').forEach(zone=>{
 });
 
 
-$('clear').addEventListener('click',()=>{['drawing','quote'].forEach(id=>$(id).value='');$('drawingName').textContent='No drawing selected';$('quoteName').textContent='No quote selected';$('poleGame').style.display='block';$('progressPanel').style.display='none';setUploadCollapsed(false);$('results').classList.remove('focus-result');$('progressFill').style.width='0%';$('progressPercent').textContent='0%';$('progressTrack').setAttribute('aria-valuenow','0');$('status').textContent='Choose both PDF files to begin.';$('results').innerHTML='<h2>2. Comparison results</h2><div class="empty">Upload both PDFs and run AI comparison. The report will show matches and discrepancies.</div>';});
+$('clear').addEventListener('click',()=>{['drawing','quote'].forEach(id=>$(id).value='');$('drawingName').textContent='No drawing selected';$('quoteName').textContent='No quote selected';$('progressPanel').style.display='none';setUploadCollapsed(false);$('results').classList.remove('focus-result');$('progressFill').style.width='0%';$('progressPercent').textContent='0%';$('progressTrack').setAttribute('aria-valuenow','0');$('status').textContent='Choose both PDF files to begin.';$('results').innerHTML='<h2>2. Comparison results</h2><div class="empty">Upload both PDFs and run AI comparison. The report will show matches and discrepancies.</div>';});
 function setProgress(value,label){const pct=Math.max(0,Math.min(100,Math.round(value)));$('progressPanel').style.display='block';$('progressText').textContent=label;$('progressPercent').textContent=pct+'%';$('progressFill').style.width=pct+'%';$('progressTrack').setAttribute('aria-valuenow',String(pct));}
 
 function esc(s){return String(s??'—').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -144,7 +144,7 @@ $('compare').addEventListener('click',async()=>{
   setProgress(62,'AI is reviewing drawing details and quote items…');$('status').textContent='The AI is identifying drawing items, matching quote descriptions, and checking quantities.';
   let estimatedProgress=62,elapsedSeconds=0;progressTimer=setInterval(()=>{elapsedSeconds+=1;const step=estimatedProgress<78?1:(estimatedProgress<86?(elapsedSeconds%2===0?1:0):0);estimatedProgress=Math.min(88,estimatedProgress+step);let label='AI is reviewing drawing details and quote items…';if(estimatedProgress>=78)label='Checking quantities and matching quote items…';if(estimatedProgress>=86)label='Waiting for the AI provider response. This indicator is not a live measure of completed work.';setProgress(estimatedProgress,label);},1000);
   const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets};
-  let result=null,lastError=null;const maxAttempts=1;
+  let result=null,lastError=null;const maxAttempts=2;
   for(let attempt=1;attempt<=maxAttempts;attempt++){
    try{
     if(attempt===1){setProgress(Math.max(estimatedProgress,63),'AI is reviewing drawing details and quote items…');}
@@ -169,7 +169,7 @@ $('compare').addEventListener('click',async()=>{
   }
   if(!result)throw lastError||new Error('AI comparison could not be completed after automatic retries.');
   if(progressTimer){clearInterval(progressTimer);progressTimer=null;}setProgress(100,'Comparison complete');renderReport(result);setUploadCollapsed(true);$('results').classList.remove('focus-result');void $('results').offsetWidth;$('results').classList.add('focus-result');$('results').scrollIntoView({behavior:'smooth',block:'start'});$('status').textContent='AI comparison completed. '+dr.pageCount+' of '+dr.sourcePageCount+' drawing PDF pages and '+qr.pageCount+' quote pages processed'+(dr.declaredSheets?' (drawing sheet count detected: '+dr.declaredSheets+')':'')+'; '+dr.ocrCount+' drawing and '+qr.ocrCount+' quote pages were considered for OCR.';
- }catch(e){if(progressTimer){clearInterval(progressTimer);progressTimer=null;}stopPoleStackGame(false);$('progressPanel').style.display='none';$('status').textContent='AI comparison could not be completed: '+e.message;}
+ }catch(e){if(progressTimer){clearInterval(progressTimer);progressTimer=null;}$('progressPanel').style.display='none';$('status').textContent='AI comparison could not be completed: '+e.message;}
  finally{btn.disabled=false;}
 });
 </script><script src="/drafting-promotion.js?v=20261018-audit" defer></script>
