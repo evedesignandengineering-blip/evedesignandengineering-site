@@ -50,6 +50,23 @@
 <div class="privacy">▣ Files stay on your computer during processing</div>
 </aside>
 </div>
+
+<section class="card" id="road-dxf" style="margin-top:18px">
+<h2>2. Create preliminary road and footpath DXF</h2>
+<p class="sub">Trace candidate edges from the uploaded georeferenced satellite tiles, review the preview, then export editable CAD linework. This is an assisted image trace, not guaranteed road/footpath recognition.</p>
+<div class="note" style="margin-top:0;margin-bottom:14px"><b>Use the same ZIP files above.</b> Best results come from clear, high-resolution imagery with strong road edges. The trace can include building edges, shadows, trees and other objects; review and edit the DXF before design use.</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;align-items:end">
+<label style="display:grid;gap:6px;font-size:12px;font-weight:700">Target CAD coordinate system
+<select id="dxfCrs" style="padding:10px;border:1px solid var(--line);border-radius:9px;background:white"><option value="28350">GDA94 / MGA Zone 50 (EPSG:28350)</option><option value="3857">WGS 84 / Web Mercator (EPSG:3857)</option></select></label>
+<label style="display:grid;gap:6px;font-size:12px;font-weight:700">Edge sensitivity <span id="edgeVal" style="font-weight:500;color:var(--muted)">90</span>
+<input id="edgeThreshold" type="range" min="25" max="220" value="90" style="width:100%"></label>
+<label style="display:grid;gap:6px;font-size:12px;font-weight:700">Minimum line length <span id="minLenVal" style="font-weight:500;color:var(--muted)">8 pixels</span>
+<input id="minLen" type="range" min="3" max="35" value="8" style="width:100%"></label>
+</div>
+<div class="actions"><button class="btn primary" id="traceRoads" type="button" disabled>Trace road / footpath candidates</button><button class="btn secondary" id="downloadDxf" type="button" disabled>Download geolocated DXF</button></div>
+<canvas id="tracePreview" width="900" height="280" style="display:block;width:100%;height:auto;max-height:360px;object-fit:contain;margin-top:14px;background:#eef2f7;border:1px solid var(--line);border-radius:12px" aria-label="Road edge detection preview"></canvas>
+<div class="status" id="dxfStatus">Add ZIP files above to enable tracing. Preview highlights candidate edges; adjust sensitivity and minimum line length before exporting.</div>
+</section>
 </div><footer><a class="footer-brand" href="https://evedesignandengineering.com/#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer></div>
 <script>
 const zipInput=document.getElementById('zipInput'),drop=document.getElementById('drop'),filesEl=document.getElementById('files'),mergeBtn=document.getElementById('merge'),clearBtn=document.getElementById('clear'),statusEl=document.getElementById('status'),progress=document.getElementById('progress'),bar=document.getElementById('bar');
@@ -116,6 +133,73 @@ async function process(){
  }catch(err){console.error(err);showStatus((err&&err.message?err.message:String(err))+'\n\nYour original ZIP files have not been changed.','bad')}finally{busy=false;mergeBtn.textContent='Merge into one GeoTIFF';renderFiles();setTimeout(()=>{if(!statusEl.classList.contains('bad')){progress.hidden=true;bar.style.width='0%'}},1200)}
 }
 mergeBtn.onclick=process;
+</script>
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
+<script>
+const traceBtn=document.getElementById('traceRoads'),dxfBtn=document.getElementById('downloadDxf'),dxfStatus=document.getElementById('dxfStatus'),preview=document.getElementById('tracePreview'),pctx=preview.getContext('2d'),thresholdInput=document.getElementById('edgeThreshold'),minLenInput=document.getElementById('minLen');
+let tracedEntities=[],traceBusy=false;
+thresholdInput.oninput=()=>document.getElementById('edgeVal').textContent=thresholdInput.value;
+minLenInput.oninput=()=>document.getElementById('minLenVal').textContent=minLenInput.value+' pixels';
+function dxfStatusMsg(s,type=''){dxfStatus.className='status'+(type?' '+type:'');dxfStatus.textContent=s}
+function syncTraceButton(){traceBtn.disabled=busy||traceBusy||!selectedZips.length}
+const renderFilesOriginal=renderFiles;
+renderFiles=function(){renderFilesOriginal();syncTraceButton()};
+function prjLooksWebMercator(s){return /3857|Pseudo.?Mercator|Web.?Mercator|Mercator_Auxiliary_Sphere/i.test(s)}
+function edgeTrace(data,w,h,threshold,minLength){
+ const gray=new Uint8Array(w*h);
+ for(let i=0,j=0;i<data.length;i+=4,j++)gray[j]=(data[i]*299+data[i+1]*587+data[i+2]*114)/1000;
+ const mag=new Uint8Array(w*h);
+ for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;
+  const gx=-gray[i-w-1]+gray[i-w+1]-2*gray[i-1]+2*gray[i+1]-gray[i+w-1]+gray[i+w+1];
+  const gy=-gray[i-w-1]-2*gray[i-w]-gray[i-w+1]+gray[i+w-1]+2*gray[i+w]+gray[i+w+1];
+  mag[i]=Math.min(255,Math.hypot(gx,gy)/4);
+ }
+ const active=new Uint8Array(w*h);for(let i=0;i<mag.length;i++)if(mag[i]>=threshold)active[i]=1;
+ // Greedily trace connected edge pixels into short editable polylines, limiting branching.
+ const seen=new Uint8Array(w*h),lines=[];let visits=0;
+ for(let start=0;start<active.length;start++){if(!active[start]||seen[start])continue;
+  const component=[],stack=[start];seen[start]=1;
+  while(stack.length&&component.length<250000){const idx=stack.pop();component.push(idx);const x=idx%w,y=(idx/w)|0;
+   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const xx=x+dx,yy=y+dy;if(xx<1||xx>=w-1||yy<1||yy>=h-1)continue;const ni=yy*w+xx;if(active[ni]&&!seen[ni]){seen[ni]=1;stack.push(ni)}}}
+  if(component.length<minLength)continue;
+  // Keep a spatially ordered chain: nearest unused neighbour; isolated branches are split into separate short runs.
+  const remain=new Set(component),chains=[];
+  while(remain.size){let cur=remain.values().next().value;remain.delete(cur);const chain=[cur];let guard=0;
+   while(guard++<component.length){const x=cur%w,y=(cur/w)|0;let next=-1,best=Infinity;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const ni=(y+dy)*w+(x+dx);if(remain.has(ni)){const score=(dx*dx+dy*dy)+(Math.abs(dx)+Math.abs(dy)===2?0.15:0);if(score<best){best=score;next=ni}}}
+    if(next<0)break;remain.delete(next);chain.push(next);cur=next;
+   }
+   if(chain.length>=minLength)chains.push(chain);
+  }
+  for(const c of chains)lines.push(c.map(i=>({x:i%w,y:(i/w)|0})));
+  visits+=component.length;if(visits>1800000)break;
+ }
+ return lines;
+}
+function drawTracePreview(image,lines){pctx.clearRect(0,0,preview.width,preview.height);pctx.fillStyle='#e8edf2';pctx.fillRect(0,0,preview.width,preview.height);const scale=Math.min(preview.width/image.width,preview.height/image.height);const ox=(preview.width-image.width*scale)/2,oy=(preview.height-image.height*scale)/2;pctx.drawImage(image,ox,oy,image.width*scale,image.height*scale);pctx.fillStyle='#f03b4f';for(const line of lines){for(let i=0;i<line.length;i++){const p=line[i];pctx.fillRect(ox+p.x*scale,oy+p.y*scale,Math.max(1,scale),Math.max(1,scale))}}}
+function dxfPair(code,value){return code+'\n'+value+'\n'}
+function makeDxf(entities,crs){let out='';out+=dxfPair(0,'SECTION')+dxfPair(2,'HEADER')+dxfPair(9,'$INSUNITS')+dxfPair(70,6)+dxfPair(9,'$MEASUREMENT')+dxfPair(70,1)+dxfPair(0,'ENDSEC');out+=dxfPair(0,'SECTION')+dxfPair(2,'TABLES')+dxfPair(0,'TABLE')+dxfPair(2,'LAYER')+dxfPair(70,2);
+ for(const [name,color] of [['ROAD_CANDIDATE',1],['FOOTPATH_CANDIDATE',5]])out+=dxfPair(0,'LAYER')+dxfPair(2,name)+dxfPair(70,0)+dxfPair(62,color)+dxfPair(6,'CONTINUOUS');
+ out+=dxfPair(0,'ENDTAB')+dxfPair(0,'ENDSEC')+dxfPair(0,'SECTION')+dxfPair(2,'ENTITIES');
+ for(const e of entities){if(e.points.length<2)continue;out+=dxfPair(0,'LWPOLYLINE')+dxfPair(8,e.layer)+dxfPair(90,e.points.length)+dxfPair(70,0);for(const p of e.points)out+=dxfPair(10,p.x.toFixed(3))+dxfPair(20,p.y.toFixed(3))+dxfPair(30,0)}
+ out+=dxfPair(0,'ENDSEC')+dxfPair(0,'EOF');return out}
+async function loadTraceTiles(){
+ const result=[];
+ for(const zipFile of selectedZips){const zip=await JSZip.loadAsync(zipFile);const entries=Object.values(zip.files).filter(e=>!e.dir);const pngs=entries.filter(e=>e.name.toLowerCase().endsWith('.png'));
+  for(const p of pngs){const pgw=entries.find(e=>stem(e.name)===stem(p.name)&&e.name.toLowerCase().endsWith('.pgw')),prj=entries.find(e=>stem(e.name)===stem(p.name)&&e.name.toLowerCase().endsWith('.prj'));if(!pgw||!prj)throw new Error('Missing matching PGW or PRJ for '+p.name);const wf=worldFile(await pgw.async('string')),prjText=await prj.async('string');if(!prjLooksWebMercator(prjText))throw new Error('This DXF tracer currently supports Web Mercator source tiles (EPSG:3857). Unsupported projection in '+p.name+'.');const blob=await p.async('blob'),url=URL.createObjectURL(blob);try{const img=await createImageBitmap(blob),canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const cx=canvas.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0);const pixels=cx.getImageData(0,0,img.width,img.height);result.push({name:p.name,wf,prjText,img,canvas,pixels,width:img.width,height:img.height,url})}catch(e){URL.revokeObjectURL(url);throw e}}
+ }
+ return result;
+}
+traceBtn.onclick=async()=>{if(traceBusy||!selectedZips.length)return;traceBusy=true;syncTraceButton();dxfBtn.disabled=true;tracedEntities=[];try{
+ dxfStatusMsg('Reading georeferenced images from ZIP files…');const tiles=await loadTraceTiles();if(!tiles.length)throw new Error('No PNG images found.');let total=0,previewDone=false;const minLen=Number(minLenInput.value),threshold=Number(thresholdInput.value),target=document.getElementById('dxfCrs').value,entities=[];
+ for(let ti=0;ti<tiles.length;ti++){const t=tiles[ti];dxfStatusMsg('Tracing tile '+(ti+1)+' of '+tiles.length+': '+t.name);await new Promise(r=>setTimeout(r,20));const lines=edgeTrace(t.pixels.data,t.width,t.height,threshold,minLen);total+=lines.length;
+  const transform=target==='28350'&&typeof proj4!=='undefined'?(xy)=>proj4('EPSG:3857','EPSG:28350',xy): (xy)=>xy;
+  for(const line of lines){const points=[];let last=null;for(let j=0;j<line.length;j+=Math.max(1,Math.floor(line.length/80))){const p=line[j];const mapXY=[t.wf.C+t.wf.A*p.x,t.wf.F+t.wf.E*p.y];const q=transform(mapXY);if(Number.isFinite(q[0])&&Number.isFinite(q[1])&&(!last||Math.hypot(q[0]-last.x,q[1]-last.y)>0.001)){points.push({x:q[0],y:q[1]});last=points[points.length-1]}}if(points.length>=2)entities.push({layer:'ROAD_CANDIDATE',points})}
+  if(!previewDone){drawTracePreview(t.img,lines);previewDone=true}t.img.close();URL.revokeObjectURL(t.url);
+ }
+ tracedEntities=entities;dxfBtn.disabled=!entities.length;dxfStatusMsg('Trace complete. '+entities.length.toLocaleString()+' candidate polylines from '+tiles.length+' tile(s). Red pixels show detected edges on the first tile. Lines are on layer ROAD_CANDIDATE. Please inspect, delete false detections, and redraw missing road/footpath edges in CAD. Coordinate output: '+(target==='28350'?'GDA94 / MGA Zone 50 (EPSG:28350)':'WGS 84 / Web Mercator (EPSG:3857)')+'.','good');
+ }catch(e){console.error(e);dxfStatusMsg(e.message||String(e),'bad')}finally{traceBusy=false;syncTraceButton()}};
+dxfBtn.onclick=()=>{if(!tracedEntities.length)return;const crs=document.getElementById('dxfCrs').value;const content=makeDxf(tracedEntities,crs);const blob=new Blob([content],{type:'application/dxf'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=crs==='28350'?'eve_road_footpath_candidates_MGA94_Zone50.dxf':'eve_road_footpath_candidates_WebMercator.dxf';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)};
 </script>
 <script src="/drafting-promotion.js?v=20261014" defer></script>
 <script src="../site-editor.js?v=20261016" defer></script>
