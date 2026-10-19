@@ -145,6 +145,7 @@ function syncTraceButton(){traceBtn.disabled=busy||traceBusy||!selectedZips.leng
 const renderFilesOriginal=renderFiles;
 renderFiles=function(){renderFilesOriginal();syncTraceButton()};
 function prjLooksWebMercator(s){return /3857|Pseudo.?Mercator|Web.?Mercator|Mercator_Auxiliary_Sphere/i.test(s)}
+if(typeof proj4!=='undefined'&&!proj4.defs('EPSG:28350'))proj4.defs('EPSG:28350','+proj=utm +zone=50 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
 function edgeTrace(data,w,h,threshold,minLength){
  const gray=new Uint8Array(w*h);
  for(let i=0,j=0;i<data.length;i+=4,j++)gray[j]=(data[i]*299+data[i+1]*587+data[i+2]*114)/1000;
@@ -186,7 +187,7 @@ function makeDxf(entities,crs){let out='';out+=dxfPair(0,'SECTION')+dxfPair(2,'H
 async function loadTraceTiles(){
  const result=[];
  for(const zipFile of selectedZips){const zip=await JSZip.loadAsync(zipFile);const entries=Object.values(zip.files).filter(e=>!e.dir);const pngs=entries.filter(e=>e.name.toLowerCase().endsWith('.png'));
-  for(const p of pngs){const pgw=entries.find(e=>stem(e.name)===stem(p.name)&&e.name.toLowerCase().endsWith('.pgw')),prj=entries.find(e=>stem(e.name)===stem(p.name)&&e.name.toLowerCase().endsWith('.prj'));if(!pgw||!prj)throw new Error('Missing matching PGW or PRJ for '+p.name);const wf=worldFile(await pgw.async('string')),prjText=await prj.async('string');if(!prjLooksWebMercator(prjText))throw new Error('This DXF tracer currently supports Web Mercator source tiles (EPSG:3857). Unsupported projection in '+p.name+'.');const blob=await p.async('blob'),url=URL.createObjectURL(blob);try{const img=await createImageBitmap(blob),canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const cx=canvas.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0);const pixels=cx.getImageData(0,0,img.width,img.height);result.push({name:p.name,wf,prjText,img,canvas,pixels,width:img.width,height:img.height,url})}catch(e){URL.revokeObjectURL(url);throw e}}
+  for(const p of pngs){const pgw=findSibling(entries,p.name,'.pgw'),prj=findSibling(entries,p.name,'.prj');if(!pgw||!prj)throw new Error('Missing matching PGW or PRJ for '+p.name);const wf=worldFile(await pgw.async('string')),prjText=await prj.async('string');if(!prjLooksWebMercator(prjText))throw new Error('This DXF tracer currently supports Web Mercator source tiles (EPSG:3857). Unsupported projection in '+p.name+'.');const blob=await p.async('blob'),url=URL.createObjectURL(blob);try{const img=await createImageBitmap(blob),canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const cx=canvas.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0);const pixels=cx.getImageData(0,0,img.width,img.height);result.push({name:p.name,wf,prjText,img,canvas,pixels,width:img.width,height:img.height,url})}catch(e){URL.revokeObjectURL(url);throw e}}
  }
  return result;
 }
