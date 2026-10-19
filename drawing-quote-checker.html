@@ -88,13 +88,17 @@ async function readPdf(file, role, maxImages){
   totalChars+=txt.length;pages.push({page:n,text:txt});
   if(txt.replace(/\s/g,'').length<35)ocrTargets.push(n);
  }
- // OCR only the pages included in the drawing set; never OCR excluded trailing pages.
+ // OCR only the pages included in the drawing set; reuse one worker to avoid repeated startup overhead.
  if(ocrTargets.length&&window.Tesseract){
-  const selected=ocrTargets.slice(0,5);
-  for(const n of selected){
-   $('status').textContent='OCR reading scanned '+role+' page '+n+'…';
-   try{const page=await pdf.getPage(n);const vp=page.getViewport({scale:1.5});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;const result=await Tesseract.recognize(canvas,'eng');const ocr=(result.data.text||'').trim();if(ocr.length>pages[n-1].text.length)pages[n-1].text=ocr;canvas.width=canvas.height=1;}catch(e){console.warn('OCR failed on page',n,e);}
-  }
+  const selected=ocrTargets.slice(0,5);let worker=null;
+  try{
+   worker=await Tesseract.createWorker('eng');
+   for(const n of selected){
+    $('status').textContent='OCR reading scanned '+role+' page '+n+'…';
+    try{const page=await pdf.getPage(n);const vp=page.getViewport({scale:1.35});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;const result=await worker.recognize(canvas);const ocr=(result.data.text||'').trim();if(ocr.length>pages[n-1].text.length)pages[n-1].text=ocr;canvas.width=canvas.height=1;}catch(e){console.warn('OCR failed on page',n,e);}
+   }
+  }catch(e){console.warn('OCR worker could not start',e);}
+  finally{if(worker)try{await worker.terminate();}catch(e){console.warn('OCR worker cleanup failed',e);}}
  }
  const text=pages.map(p=>'[PAGE '+p.page+']\n'+p.text).join('\n\n').slice(0,45000);
  // Render representative page images from the included pages only.
