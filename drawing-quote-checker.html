@@ -144,7 +144,7 @@ $('compare').addEventListener('click',async()=>{
   setProgress(62,'AI is reviewing drawing details and quote items…');$('status').textContent='The AI is identifying drawing items, matching quote descriptions, and checking quantities.';
   let estimatedProgress=62,elapsedSeconds=0;progressTimer=setInterval(()=>{elapsedSeconds+=1;const step=estimatedProgress<82?1:(estimatedProgress<90?(elapsedSeconds%2===0?1:0):(elapsedSeconds%5===0?1:0));estimatedProgress=Math.min(97,estimatedProgress+step);let label='AI is reviewing drawing details and quote items…';if(estimatedProgress>=82)label='Checking quantities and matching quote items…';if(estimatedProgress>=90)label='Still processing — larger PDFs can take a little longer. The AI is working in the background…';if(estimatedProgress>=97)label='AI is still working in the background — waiting for the comparison response…';setProgress(estimatedProgress,label);},1000);
   const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets};
-  let result=null,lastError=null;const maxAttempts=3;
+  let result=null,lastError=null;const maxAttempts=2;
   for(let attempt=1;attempt<=maxAttempts;attempt++){
    try{
     if(attempt===1){setProgress(Math.max(estimatedProgress,63),'AI is reviewing drawing details and quote items…');}
@@ -156,13 +156,13 @@ $('compare').addEventListener('click',async()=>{
     }catch(requestError){if(requestTimedOut)throw new Error('The AI comparison timed out after 2 minutes. Retrying automatically.');throw requestError;}finally{clearTimeout(requestTimeout);}
     if(!response.ok){
      const error=new Error(body.error||('AI request failed ('+response.status+').'));error.status=response.status;
-     if(attempt<maxAttempts&&(response.status===408||response.status===429||response.status>=500)){lastError=error;await new Promise(resolve=>setTimeout(resolve,1200*attempt));continue;}
+     if(response.status!==429&&attempt<2&&(response.status===408||response.status>=500)){lastError=error;await new Promise(resolve=>setTimeout(resolve,1200));continue;}
      throw error;
     }
     result=body;lastError=null;break;
    }catch(error){
     lastError=error;
-    const retryable=!error.status||error.status===408||error.status===429||error.status>=500||/timed out/i.test(error.message||'');
+    const retryable=!error.status||error.status===408||error.status>=500||/timed out/i.test(error.message||'');
     if(!retryable||attempt===maxAttempts)throw error;
     await new Promise(resolve=>setTimeout(resolve,1200*attempt));
    }
