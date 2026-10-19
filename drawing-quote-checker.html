@@ -77,9 +77,27 @@ async function readPdf(file, role, maxImages){
  let pages=[],images=[],totalChars=0,declaredSheets=null,effectivePageCount=pdf.numPages;const ocrTargets=[];
  for(let n=1;n<=pdf.numPages;n++){
   if(n>effectivePageCount)break;
-  const page=await pdf.getPage(n);const content=await page.getTextContent();let lines=[],lastY=null,line='';
-  for(const item of content.items){if(!item.str||!item.str.trim())continue;const y=Math.round(item.transform?.[5]||0);if(lastY!==null&&Math.abs(y-lastY)>3){if(line.trim())lines.push(line.trim());line='';}line+=(line?' ':'')+item.str.trim();lastY=y;}
-  if(line.trim())lines.push(line.trim());let txt=lines.join('\n');
+  const page=await pdf.getPage(n);const content=await page.getTextContent();
+  // Reconstruct text by visual row and X position so separate PDF table columns stay distinguishable.
+  const textItems=content.items.filter(item=>item.str&&item.str.trim()).map(item=>({text:item.str.trim(),x:Number(item.transform?.[4]||0),y:Number(item.transform?.[5]||0),width:Number(item.width||0)}));
+  textItems.sort((a,b)=>b.y-a.y||a.x-b.x);
+  const visualRows=[];
+  for(const item of textItems){
+   let row=visualRows.find(candidate=>Math.abs(candidate.y-item.y)<=3);
+   if(!row){row={y:item.y,items:[]};visualRows.push(row);}
+   row.items.push(item);
+  }
+  visualRows.sort((a,b)=>b.y-a.y);
+  const lines=visualRows.map(row=>{
+   row.items.sort((a,b)=>a.x-b.x);let output='',rightEdge=null;
+   for(const item of row.items){
+    const gap=rightEdge===null?0:item.x-rightEdge;
+    output+=(rightEdge===null?'':gap>24?' | ':' ')+item.text;
+    rightEdge=Math.max(rightEdge===null?item.x:rightEdge,item.x+item.width);
+   }
+   return output.trim();
+  }).filter(Boolean);
+  let txt=lines.join('\\n');
   // A drawing title block such as “Sheet 1 of 06” defines how many drawing pages belong to this set.
   if(role==='drawing'&&n<=3){
    const match=txt.match(/(?:sheet|sht\.?)[\s#]*(?:no\.?\s*)?\d+\s*(?:of|\/)\s*0*(\d{1,3})\b/i);
@@ -90,7 +108,7 @@ async function readPdf(file, role, maxImages){
  }
  // OCR only the pages included in the drawing set; reuse one worker to avoid repeated startup overhead.
  if(ocrTargets.length&&window.Tesseract){
-  const selected=ocrTargets.slice(0,5);let worker=null;
+  const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe/i.test(p.text)).map(p=>p.page);const selected=[...new Set([...priorityPages,...ocrTargets])].slice(0,5);let worker=null;
   try{
    worker=await Tesseract.createWorker('eng');
    for(const n of selected){
@@ -102,10 +120,13 @@ async function readPdf(file, role, maxImages){
  }
  const text=pages.map(p=>'[PAGE '+p.page+']\n'+p.text).join('\n\n').slice(0,45000);
  // Render representative page images from the included pages only.
- const candidates=new Set();for(let i=0;i<Math.min(maxImages,pages.length);i++)candidates.add(i+1);
- const sparse=pages.filter(p=>p.text.replace(/\s/g,'').length<100).slice(0,maxImages);sparse.forEach(p=>{if(!candidates.has(p.page)){if(candidates.size>=maxImages){const arr=[...candidates];candidates.delete(arr[arr.length-1]);}candidates.add(p.page);}});
+ const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\\s*mm/i.test(p.text)).map(p=>p.page);
+ const candidates=new Set(priorityPages.slice(0,maxImages));
+ for(let i=1;i<=Math.min(maxImages,pages.length);i++){if(candidates.size<maxImages)candidates.add(i);}
+ const sparse=pages.filter(p=>p.text.replace(/\\s/g,'').length<100);
+ for(const p of sparse){if(candidates.size>=maxImages)break;candidates.add(p.page);}
  for(const n of [...candidates].slice(0,maxImages)){
-  try{const page=await pdf.getPage(n);const base=page.getViewport({scale:1});const scale=Math.min(1.45,1050/base.width);const vp=page.getViewport({scale});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;images.push(canvas.toDataURL('image/jpeg',0.52));canvas.width=canvas.height=1;}catch(e){console.warn('Image render failed',n,e);}
+  try{const page=await pdf.getPage(n);const base=page.getViewport({scale:1});const scale=Math.min(1.6,1400/base.width);const vp=page.getViewport({scale});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;images.push(canvas.toDataURL('image/jpeg',0.68));canvas.width=canvas.height=1;}catch(e){console.warn('Image render failed',n,e);}
  }
  return {text,images,pageCount:pages.length,sourcePageCount:pdf.numPages,declaredSheets,chars:totalChars,ocrCount:ocrTargets.length};
 }
@@ -136,7 +157,7 @@ $('compare').addEventListener('click',async()=>{
  const btn=$('compare');btn.disabled=true;let progressTimer=null;
  try{
   setProgress(5,'Reading the PDFs…');$('status').textContent='Preparing drawing and quote documents…';
-  const [dr,qr]=await Promise.all([readPdf(d,'drawing',3),readPdf(q,'quote',2)]);
+  const [dr,qr]=await Promise.all([readPdf(d,'drawing',4),readPdf(q,'quote',3)]);
   setProgress(62,'AI is reviewing drawing details and quote items…');$('status').textContent='The AI is identifying drawing items, matching quote descriptions, and checking quantities.';
   let estimatedProgress=62,elapsedSeconds=0;progressTimer=setInterval(()=>{elapsedSeconds+=1;const step=estimatedProgress<78?1:(estimatedProgress<86?(elapsedSeconds%2===0?1:0):0);estimatedProgress=Math.min(88,estimatedProgress+step);let label='AI is reviewing drawing details and quote items…';if(estimatedProgress>=78)label='Checking quantities and matching quote items…';if(estimatedProgress>=86)label='Waiting for the AI provider response. This indicator is not a live measure of completed work.';setProgress(estimatedProgress,label);},1000);
   const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets};
