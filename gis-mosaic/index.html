@@ -179,11 +179,37 @@ function edgeTrace(data,w,h,threshold,minLength){
 }
 function drawTracePreview(image,lines){pctx.clearRect(0,0,preview.width,preview.height);pctx.fillStyle='#e8edf2';pctx.fillRect(0,0,preview.width,preview.height);const scale=Math.min(preview.width/image.width,preview.height/image.height);const ox=(preview.width-image.width*scale)/2,oy=(preview.height-image.height*scale)/2;pctx.drawImage(image,ox,oy,image.width*scale,image.height*scale);pctx.fillStyle='#f03b4f';for(const line of lines){for(let i=0;i<line.length;i++){const p=line[i];pctx.fillRect(ox+p.x*scale,oy+p.y*scale,Math.max(1,scale),Math.max(1,scale))}}}
 function dxfPair(code,value){return code+'\n'+value+'\n'}
-function makeDxf(entities,crs){let out='';out+=dxfPair(0,'SECTION')+dxfPair(2,'HEADER')+dxfPair(9,'$INSUNITS')+dxfPair(70,6)+dxfPair(9,'$MEASUREMENT')+dxfPair(70,1)+dxfPair(0,'ENDSEC');out+=dxfPair(0,'SECTION')+dxfPair(2,'TABLES')+dxfPair(0,'TABLE')+dxfPair(2,'LAYER')+dxfPair(70,2);
- for(const [name,color] of [['ROAD_CANDIDATE',1],['FOOTPATH_CANDIDATE',5]])out+=dxfPair(0,'LAYER')+dxfPair(2,name)+dxfPair(70,0)+dxfPair(62,color)+dxfPair(6,'CONTINUOUS');
- out+=dxfPair(0,'ENDTAB')+dxfPair(0,'ENDSEC')+dxfPair(0,'SECTION')+dxfPair(2,'ENTITIES');
- for(const e of entities){if(e.points.length<2)continue;out+=dxfPair(0,'LWPOLYLINE')+dxfPair(8,e.layer)+dxfPair(90,e.points.length)+dxfPair(70,0);for(const p of e.points)out+=dxfPair(10,p.x.toFixed(3))+dxfPair(20,p.y.toFixed(3))+dxfPair(30,0)}
- out+=dxfPair(0,'ENDSEC')+dxfPair(0,'EOF');return out}
+function makeDxf(entities,crs){
+ // Use AutoCAD R12 ASCII DXF (AC1009): the older POLYLINE/VERTEX entity
+ // is more widely supported by MicroStation than newer LWPOLYLINE entities.
+ const usable=entities.filter(e=>e.points&&e.points.length>=2);
+ const all=usable.flatMap(e=>e.points);
+ const minX=all.length?Math.min(...all.map(p=>p.x)):0,maxX=all.length?Math.max(...all.map(p=>p.x)):0;
+ const minY=all.length?Math.min(...all.map(p=>p.y)):0,maxY=all.length?Math.max(...all.map(p=>p.y)):0;
+ let out='';
+ out+=dxfPair(0,'SECTION')+dxfPair(2,'HEADER')+
+ dxfPair(9,'$ACADVER')+dxfPair(1,'AC1009')+
+ dxfPair(9,'$EXTMIN')+dxfPair(10,minX.toFixed(3))+dxfPair(20,minY.toFixed(3))+dxfPair(30,0)+
+ dxfPair(9,'$EXTMAX')+dxfPair(10,maxX.toFixed(3))+dxfPair(20,maxY.toFixed(3))+dxfPair(30,0)+
+ dxfPair(0,'ENDSEC');
+ out+=dxfPair(0,'SECTION')+dxfPair(2,'TABLES')+
+ dxfPair(0,'TABLE')+dxfPair(2,'LTYPE')+dxfPair(70,1)+
+ dxfPair(0,'LTYPE')+dxfPair(2,'CONTINUOUS')+dxfPair(70,0)+dxfPair(3,'Solid line')+dxfPair(72,65)+dxfPair(73,0)+dxfPair(40,0)+
+ dxfPair(0,'ENDTAB')+
+ dxfPair(0,'TABLE')+dxfPair(2,'LAYER')+dxfPair(70,2)+
+ dxfPair(0,'LAYER')+dxfPair(2,'ROAD_CANDIDATE')+dxfPair(70,0)+dxfPair(62,1)+dxfPair(6,'CONTINUOUS')+
+ dxfPair(0,'LAYER')+dxfPair(2,'FOOTPATH_CANDIDATE')+dxfPair(70,0)+dxfPair(62,5)+dxfPair(6,'CONTINUOUS')+
+ dxfPair(0,'ENDTAB')+dxfPair(0,'ENDSEC')+
+ dxfPair(999,'Coordinate system EPSG:'+crs+'; units are metres. Verify drawing CRS before design use.')+
+ dxfPair(0,'SECTION')+dxfPair(2,'ENTITIES');
+ for(const e of usable){
+  out+=dxfPair(0,'POLYLINE')+dxfPair(8,e.layer||'ROAD_CANDIDATE')+dxfPair(66,1)+dxfPair(70,0)+dxfPair(10,0)+dxfPair(20,0)+dxfPair(30,0);
+  for(const p of e.points){if(!Number.isFinite(p.x)||!Number.isFinite(p.y))continue;out+=dxfPair(0,'VERTEX')+dxfPair(8,e.layer||'ROAD_CANDIDATE')+dxfPair(10,p.x.toFixed(3))+dxfPair(20,p.y.toFixed(3))+dxfPair(30,0)+dxfPair(70,0)}
+  out+=dxfPair(0,'SEQEND')+dxfPair(8,e.layer||'ROAD_CANDIDATE');
+ }
+ out+=dxfPair(0,'ENDSEC')+dxfPair(0,'EOF');
+ return out
+}
 async function loadTraceTiles(){
  const result=[];
  for(const zipFile of selectedZips){const zip=await JSZip.loadAsync(zipFile);const entries=Object.values(zip.files).filter(e=>!e.dir);const pngs=entries.filter(e=>e.name.toLowerCase().endsWith('.png'));
