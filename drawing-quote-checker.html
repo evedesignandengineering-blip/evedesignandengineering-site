@@ -97,7 +97,7 @@ async function readPdf(file, role, maxImages){
    }
    return output.trim();
   }).filter(Boolean);
-  let txt=lines.join('\\n');
+  let txt=lines.join('\n')
   // A drawing title block such as “Sheet 1 of 06” defines how many drawing pages belong to this set.
   if(role==='drawing'&&n<=3){
    const match=txt.match(/(?:sheet|sht\.?)[\s#]*(?:no\.?\s*)?\d+\s*(?:of|\/)\s*0*(\d{1,3})\b/i);
@@ -120,10 +120,10 @@ async function readPdf(file, role, maxImages){
  }
  const text=pages.map(p=>'[PAGE '+p.page+']\n'+p.text).join('\n\n').slice(0,45000);
  // Render representative page images from the included pages only.
- const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\\s*mm/i.test(p.text)).map(p=>p.page);
+ const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\s*mm/i.test(p.text)).map(p=>p.page);
  const candidates=new Set(priorityPages.slice(0,maxImages));
  for(let i=1;i<=Math.min(maxImages,pages.length);i++){if(candidates.size<maxImages)candidates.add(i);}
- const sparse=pages.filter(p=>p.text.replace(/\\s/g,'').length<100);
+ const sparse=pages.filter(p=>p.text.replace(/\s/g,'').length<100);
  for(const p of sparse){if(candidates.size>=maxImages)break;candidates.add(p.page);}
  for(const n of [...candidates].slice(0,maxImages)){
   try{const page=await pdf.getPage(n);const base=page.getViewport({scale:1});const scale=Math.min(1.6,1400/base.width);const vp=page.getViewport({scale});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;images.push(canvas.toDataURL('image/jpeg',0.68));canvas.width=canvas.height=1;}catch(e){console.warn('Image render failed',n,e);}
