@@ -97,7 +97,7 @@ async function readPdf(file, role, maxImages){
    }
    return output.trim();
   }).filter(Boolean);
-  let txt=lines.join('\n')
+  let txt=lines.join('\n');
   // A drawing title block such as “Sheet 1 of 06” defines how many drawing pages belong to this set.
   if(role==='drawing'&&n<=3){
    const match=txt.match(/(?:sheet|sht\.?)[\s#]*(?:no\.?\s*)?\d+\s*(?:of|\/)\s*0*(\d{1,3})\b/i);
@@ -118,7 +118,7 @@ async function readPdf(file, role, maxImages){
   }catch(e){console.warn('OCR worker could not start',e);}
   finally{if(worker)try{await worker.terminate();}catch(e){console.warn('OCR worker cleanup failed',e);}}
  }
- const text=pages.map(p=>'[PAGE '+p.page+']\n'+p.text).join('\n\n').slice(0,45000);
+ const text=pages.map(p=>'[PAGE '+p.page+']\n'+p.text).join('\n\n').slice(0,60000);
  // Render representative page images from the included pages only.
  const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\s*mm/i.test(p.text)).map(p=>p.page);
  const candidates=new Set(priorityPages.slice(0,maxImages));
