@@ -281,8 +281,18 @@ $("runReview").addEventListener("click", async () => {
   $("reviewResults").classList.add("hidden");
   setReviewStatus("Rendering selected pages and sending a secure request to Gemini. Larger drawings may take a minute.");
   try {
-    const pageImages = await makeReviewPageImages(currentFile);
     const drawingText = extractedPages.map(p => "[Page " + p.page + "]\n" + p.text).join("\n\n").slice(0, 90000);
+    let pageImages = [];
+    try {
+      pageImages = await makeReviewPageImages(currentFile);
+    } catch (imageError) {
+      console.warn("Page image rendering failed; continuing with extracted PDF text.", imageError);
+      setReviewStatus("Page images could not be rendered in this browser. Trying the extracted drawing text instead…");
+    }
+    if (!drawingText.trim() && pageImages.length === 0) {
+      throw new Error("Could not extract drawing text or render page images. Try re-saving the PDF as an unencrypted PDF, then upload it again.");
+    }
+    setReviewStatus("Sending " + (drawingText.trim() ? "extracted drawing text" : "page images") + (pageImages.length ? " and " + pageImages.length + " page image(s)" : "") + " to the review service…");
     const { data, error } = await supabaseClient.functions.invoke("western-power-design-review", {
       body: {
         projectName: $("projectName").value.trim(),
