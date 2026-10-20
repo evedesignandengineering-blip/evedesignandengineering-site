@@ -238,13 +238,15 @@ async function makeReviewPageImages(file) {
   const result = [];
   for (const pageNo of candidates) {
     const page = await pdf.getPage(pageNo);
-    const viewport = page.getViewport({ scale: 1.15 });
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = Math.min(1.15, 1400 / Math.max(baseViewport.width, baseViewport.height));
+    const viewport = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width);
     canvas.height = Math.ceil(viewport.height);
     const ctx = canvas.getContext("2d", { alpha: false });
     await page.render({ canvasContext: ctx, viewport }).promise;
-    result.push({ page: pageNo, dataUrl: canvas.toDataURL("image/jpeg", 0.58) });
+    result.push({ page: pageNo, dataUrl: canvas.toDataURL("image/jpeg", 0.48) });
     canvas.width = 1; canvas.height = 1;
   }
   return result;
