@@ -21,3 +21,7 @@ The test backend does not discard an AI-proposed drawing CU merely because the m
 Code-recognition now handles unique lookalike matches for S/5, I/1/L, O/0/Q, Z/2, B/8 and G/6. It changes at most two glyphs, only when the cleaned code lengths match and there is exactly one DQM/source reference candidate. The original detected token and correction are preserved in the report. Exact valid codes win, and ambiguous lookalikes remain uncorrected for manual review. Parsed DQM CU rows are the primary reference; AI-read quote codes are used only when parsed quote text cannot supply a unique candidate.
 
 Regression cases and expected aggregation/code correction behaviour are in `tests/CU-CALLOUT-REGRESSION.txt`.
+
+
+## Single-area upload and project summary
+The Stable V3 checker has one shared multi-file PDF drop zone. Users can drop both files together or add them one at a time; the test page inspects filenames and PDF text to identify the design drawing and DQM quote, then assigns them to the existing internal document roles. After a successful comparison, the upload card replaces the initial instructions with detected project/designer/address and nearest-depot distance details. This change is limited to the Stable V3 test checker.
