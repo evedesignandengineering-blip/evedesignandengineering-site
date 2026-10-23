@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102d4f">
+  <title>EVE Design Review</title>
+  <meta name="description" content="Private design review workspace for EVE Design & Engineering.">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="EVE Design Review home">
+      <span class="brand-mark">EVE</span>
+      <span><strong>EVE Design Review</strong><small>Design &amp; Engineering</small></span>
+    </a>
+    <div class="topbar-right"><span id="authIndicator" class="status-dot"></span><span id="authStatus">Checking team access…</span><button id="signOutButton" class="header-button hidden" type="button">Sign out</button></div>
+  </header>
+
+  <main class="shell">
+    <section class="intro">
+      <div class="eyebrow">ENGINEERING QUALITY ASSURANCE</div>
+      <h1>Design review workspace</h1>
+      <p>Review Western Power distribution design PDFs against the Distribution Design Catalogue (CU), approved standards and project-specific requirements.</p>
+      <div class="notice"><strong>Engineering review notice</strong><span>When you run a review, extracted text and selected page images are sent to Gemini through a server-side function. Upload only drawings you are authorised to process. Gemini produces a preliminary review, not certification; a qualified engineer must verify every finding and reference.</span></div>
+      <section class="panel access-panel" id="accessPanel"><div class="section-heading"><div><span class="step">AUTH</span><h2>EVE team sign-in</h2></div><span class="muted">Restricted to provisioned team accounts</span></div><p class="helper">Enter your registered EVE team email to receive a secure sign-in link. You must already have an account in the connected team system.</p><form id="signInForm" class="sign-in-form"><label>Team email<input id="teamEmail" type="email" required autocomplete="email" placeholder="you@evedesignandengineering.com"></label><button id="signInButton" class="primary-button" type="submit">Send sign-in link</button></form><p id="signInMessage" class="auth-message" aria-live="polite"></p></section>
+    </section>
+
+    <section class="layout">
+      <div class="main-column">
+        <section class="panel">
+          <div class="section-heading"><div><span class="step">01</span><h2>Project details</h2></div><span class="muted">Required for traceability</span></div>
+          <div class="form-grid">
+            <label>Project / job name<input id="projectName" placeholder="e.g. Overhead distribution upgrade"></label>
+            <label>Drawing / design reference<input id="drawingRef" placeholder="Drawing number or work order"></label>
+            <label>Drawing revision<input id="revision" placeholder="e.g. Rev A"></label>
+            <label>Review scope<select id="scope"><option value="Overhead distribution">Overhead distribution</option><option value="Underground distribution">Underground distribution</option><option value="Combined overhead and underground">Combined overhead and underground</option></select></label>
+          </div>
+          <label class="full-label">Review notes<textarea id="reviewNotes" rows="2" placeholder="Known design constraints, exclusions, or questions for the reviewer"></textarea></label>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading"><div><span class="step">02</span><h2>Upload drawing PDF</h2></div><button id="loadSample" class="secondary-button" type="button">Load website sample</button></div>
+          <label class="dropzone" id="dropzone" for="pdfInput">
+            <span class="upload-icon">↑</span><strong>Choose a PDF or drop it here</strong><span>PDF text is extracted in your browser. When you run AI review, extracted text and selected page images are sent securely to the EVE review service for Gemini analysis.</span><span class="choose-button">Select PDF</span>
+            <input id="pdfInput" type="file" accept="application/pdf,.pdf">
+          </label>
+          <div id="fileInfo" class="file-info hidden"></div>
+          <div id="extractStatus" class="extract-status" aria-live="polite">No document loaded.</div>
+          <div id="textPreview" class="text-preview hidden"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading"><div><span class="step">03</span><h2>Automated AI review</h2></div><span class="muted">Gemini-assisted · human verification required</span></div>
+          <p class="helper">Run an AI-assisted preliminary review of the extracted drawing text and selected page images. For standards-specific findings, supply relevant authorised CU and Western Power standard excerpts below.</p>
+          <label class="full-label">Standards / CU excerpts (optional but strongly recommended)<textarea id="standardsText" rows="5" placeholder="Paste the applicable clause text, document title, edition and clause number. Do not paste confidential material unless authorised."></textarea></label>
+          <div class="actions review-actions"><button id="runReview" class="primary-button" type="button" disabled>Run Gemini design review</button></div>
+          <div id="reviewStatus" class="extract-status" aria-live="polite">Sign in and load a drawing PDF to enable review.</div>
+          <section id="reviewResults" class="review-results hidden" aria-live="polite"></section>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading"><div><span class="step">04</span><h2>Review checklist</h2></div><span class="muted">Mark as you verify</span></div>
+          <p class="helper">These are review work items, not automated compliance results. Record only findings supported by the drawing and a verified source.</p>
+          <div class="checklist">
+            <label><input type="checkbox" data-check="standards"><span><strong>Standards &amp; CU requirements</strong><small>Confirm applicable catalogue issue, standard version and clause.</small></span></label>
+            <label><input type="checkbox" data-check="construction"><span><strong>Construction &amp; installation</strong><small>Check required construction details, clearances and installation information.</small></span></label>
+            <label><input type="checkbox" data-check="quantities"><span><strong>Quantities &amp; schedules</strong><small>Reconcile symbols, equipment labels, schedules and material totals.</small></span></label>
+            <label><input type="checkbox" data-check="consistency"><span><strong>Cross-sheet consistency</strong><small>Compare IDs, cable types, dimensions, notes and revisions across sheets.</small></span></label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading"><div><span class="step">05</span><h2>Findings register</h2></div><button id="addFinding" class="secondary-button" type="button">+ Add finding</button></div>
+          <p class="helper">Capture an issue with its sheet, evidence and reference. Clause references should be verified against the approved source document.</p>
+          <div class="table-wrap"><table><thead><tr><th>Severity</th><th>Sheet / location</th><th>Finding &amp; evidence</th><th>Source / clause</th><th>Status</th><th></th></tr></thead><tbody id="findingsBody"><tr id="emptyFindings"><td colspan="6" class="empty">No findings recorded yet.</td></tr></tbody></table></div>
+          <div class="actions"><button id="exportCsv" class="secondary-button" type="button">Export findings CSV</button><button id="exportJson" class="primary-button" type="button">Export review record</button></div>
+        </section>
+      </div>
+
+      <aside class="side-column">
+        <section class="panel sticky">
+          <div class="section-heading"><div><span class="step">A</span><h2>Review basis</h2></div></div>
+          <div class="basis-row"><span>Target utility</span><strong>Western Power</strong></div>
+          <div class="basis-row"><span>Primary reference</span><strong>Distribution Design Catalogue (CU)</strong></div>
+          <div class="basis-row"><span>Checks requested</span><strong>Standards · Construction · Quantities · Consistency</strong></div>
+          <div class="basis-row"><span>Redlines</span><strong>Proposed only · reviewer approval required</strong></div>
+          <hr>
+          <h3>Source documents to add</h3>
+          <ul class="source-list"><li>Applicable CU catalogue version</li><li>Relevant Western Power construction standards</li><li>Project-specific design brief and approved departures</li></ul>
+          <p class="warning-note">No clause will be cited as verified until its source document and applicable revision are available.</p>
+        </section>
+        <section class="panel">
+          <h2>Before engineering use</h2>
+          <ul class="plain-list"><li>Enable authenticated team access.</li><li>Connect private storage and server-side review services.</li><li>Validate against drawings with known review outcomes.</li><li>Require an engineer to approve all findings and proposed redlines.</li></ul>
+        </section>
+      </aside>
+    </section>
+    <footer>© EVE Design &amp; Engineering · Internal review prototype · Not an engineering approval or certification tool.</footer>
+  </main>
+  <dialog id="findingDialog">
+    <form id="findingForm" method="dialog">
+      <div class="dialog-head"><h2>Add review finding</h2><button type="button" id="closeDialog" class="icon-button" aria-label="Close">×</button></div>
+      <label>Severity<select id="findingSeverity"><option>High</option><option selected>Medium</option><option>Low</option><option>Unverified</option></select></label>
+      <label>Sheet / location<input id="findingLocation" required placeholder="e.g. Sheet 2, pole P-03"></label>
+      <label>Finding and drawing evidence<textarea id="findingText" required rows="4" placeholder="Describe the observed condition and what on the drawing supports it."></textarea></label>
+      <label>Reference / clause<input id="findingSource" placeholder="Document title, version and clause (if verified)"></label>
+      <label>Status<select id="findingStatus"><option>Open</option><option>Needs verification</option><option>Accepted</option><option>Resolved</option></select></label>
+      <div class="actions"><button type="button" id="cancelFinding" class="secondary-button">Cancel</button><button type="submit" class="primary-button">Save finding</button></div>
+    </form>
+  </dialog>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#153f61">
+<link rel="icon" type="image/svg+xml" href="/stable-v3/favicon.svg?v=20261020">
+<link rel="shortcut icon" href="/stable-v3/favicon.svg?v=20261020">
+<meta name="description" content="Combine georeferenced GIS PNG, PGW and PRJ exports into one CAD-ready GeoTIFF mosaic in your browser.">
+<link rel="stylesheet" href="../styles.css?v=20261018-audit">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<title>GIS Image Mosaic Tool | EVE Design & Engineering</title>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3.js" crossorigin="anonymous"></script>
+<style>
+:root{--navy:#0b1c2c;--ink:#172638;--muted:#65758a;--line:#dce4ec;--bg:#f3f6f9;--blue:#2563eb;--teal:#0f766e;--white:#fff;--shadow:0 18px 55px #142b4512}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "DM Sans",Arial,sans-serif}button,input{font:inherit}.gis-shell{max-width:1000px;margin:0 auto;padding:28px 20px 54px}.gis-topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:30px}.gis-brandmark{width:39px;height:39px;border-radius:12px;background:linear-gradient(135deg,var(--teal),var(--blue));display:grid;place-items:center;color:#fff;font-size:18px}.back{color:var(--muted);text-decoration:none;font-weight:650}.back:hover{color:var(--blue)}.calc-hero{padding:48px 5.6% 42px;background:linear-gradient(120deg,#082b4d,#174e79);color:#fff;margin:0 0 16px}.calc-hero small{font-size:10px;letter-spacing:.12em;font-weight:700;color:#b8d8ef}.calc-hero h1{font:800 clamp(30px,4vw,42px)/1.1 Manrope;margin:10px 0 12px;letter-spacing:-.045em;color:#fff}.calc-hero p{max-width:650px;color:#e3edf5;font-size:14px;line-height:1.7;margin:0}.eyebrow{color:#b8d8e8;font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-weight:800}.hero h1{font:800 clamp(23px,2.8vw,29px)/1.1 Manrope;letter-spacing:-.035em;margin:5px 0 7px;color:#fff}.hero p{max-width:690px;color:#d5e6ef;font:12px/1.5 "DM Sans",Arial,sans-serif;margin:0}.layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(250px,.7fr);gap:18px;align-items:start}.card{background:var(--white);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:var(--shadow)}.card h2{font:800 16px/1.3 Manrope,sans-serif;color:#09284b;margin:0 0 6px;letter-spacing:-.02em}.sub{color:var(--muted);font:12px/1.6 "DM Sans",Arial,sans-serif;margin:0 0 18px}.drop{border:1.5px dashed #aebdcd;border-radius:14px;padding:30px 18px;text-align:center;background:#f9fbfd;transition:border-color .2s,background .2s}.drop.drag{border-color:var(--blue);background:#eff6ff}.uploadicon{width:48px;height:48px;border-radius:15px;background:#e8f1ff;color:var(--blue);display:grid;place-items:center;margin:0 auto 12px;font-size:22px}.drop strong{display:block;font:700 13px/1.5 "DM Sans",Arial,sans-serif}.drop p{color:var(--muted);font-size:12px;margin:5px 0 14px}.btn{border:0;border-radius:10px;padding:11px 15px;font:700 12px/1.4 "DM Sans",Arial,sans-serif;cursor:pointer;transition:transform .2s,box-shadow .2s,background .2s}.btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 18px #1d4ed822}.btn:disabled{opacity:.48;cursor:not-allowed}.primary{background:linear-gradient(110deg,var(--teal),var(--blue));color:#fff}.secondary{background:#eef2f7;color:var(--ink)}.files{display:grid;gap:8px;margin-top:14px}.file{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.filebadge{flex-shrink:0;width:34px;height:34px;border-radius:9px;background:#f0f5ff;color:#2554a8;display:grid;place-items:center;font-size:10px;font-weight:900}.filemeta{min-width:0;flex:1}.filemeta b{display:block;font-size:12px;overflow-wrap:anywhere}.filemeta small{color:var(--muted);font-size:10px}.remove{border:0;background:transparent;color:#9a5260;cursor:pointer;font-size:18px;padding:4px 7px}.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}.status{margin-top:14px;padding:12px 13px;border-radius:10px;background:#f0f5fa;color:#475569;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.status.good{background:#eaf8f1;color:#176443}.status.bad{background:#fff0f0;color:#9c3030}.status[hidden]{display:none}.progress{height:5px;background:#e7edf4;border-radius:99px;overflow:hidden;margin-top:12px}.progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--blue));transition:width .25s}.steps{display:grid;gap:14px}.step{display:flex;gap:11px;align-items:flex-start}.num{flex-shrink:0;width:27px;height:27px;border-radius:9px;background:#edf4ff;color:#2457a6;display:grid;place-items:center;font-size:11px;font-weight:850}.step b{display:block;font-size:12px;margin:1px 0 3px}.step p{margin:0;color:var(--muted);font-size:11px}.note{margin-top:17px;padding:12px;border-radius:11px;background:#f8fafc;border:1px solid var(--line);color:var(--muted);font-size:11px}.privacy{display:flex;align-items:center;gap:8px;color:var(--teal);font-size:11px;font-weight:750;margin-top:15px}.footer{text-align:center;color:#8a97a8;font-size:10px;margin-top:24px}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.gis-shell{padding:20px 14px 38px}.card{padding:17px}.topbar{margin-bottom:22px}.back{font-size:12px}}
+</style>
+<style>
+/* Shared page-hero refinement: compact, consistent and high-contrast. */
+.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-top:clamp(28px,3.8vw,42px)!important;padding-bottom:clamp(26px,3.2vw,36px)!important;background:#153f61!important}
+.tools-hero h1,.portfolio-hero h1,.calc-hero h1,.takeoff-hero h1{line-height:1.12;text-wrap:balance}
+@media(max-width:620px){.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-left:6%!important;padding-right:6%!important}}
+</style>
+</head>
+<body>
+<div class="site">
+<header class="nav"><a class="brand" href="https://evedesignandengineering.com/stable-v3/#home" aria-label="EVE Design and Engineering main website"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><nav aria-label="Primary navigation"><a href="../#home">Home</a><a href="../#about">About</a><a href="../#services">Services</a><a href="../portfolio.html">Portfolio</a><a class="active" href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav><a class="nav-cta" href="../#contact">Get in Touch <b>→</b></a></header>
+<div class="gis-shell">
+<section class="calc-hero"><small>EVE DESIGN &amp; ENGINEERING / GIS UTILITY</small><h1>GIS Image Mosaic Tool</h1><p>Combine multiple GIS export ZIPs into one georeferenced GeoTIFF aerial image, ready to attach in CAD. Your files are processed in this browser and are not uploaded to a server.</p></section>
+<div class="layout">
+<section class="card">
+<h2>1. Add your GIS ZIP files</h2><p class="sub">Each ZIP should contain matching .PNG, .PGW and .PRJ files.</p>
+<div class="drop" id="drop">
+<div class="uploadicon">⇧</div><strong>Drop ZIP files here</strong><p>or choose multiple ZIP files from your computer</p><button class="btn secondary" id="browse" type="button">Choose ZIP files</button>
+<input id="zipInput" type="file" accept=".zip,application/zip" multiple hidden>
+</div>
+<div class="files" id="files"></div>
+<div class="actions"><button class="btn primary" id="merge" type="button" disabled>Merge into one GeoTIFF</button><button class="btn secondary" id="clear" type="button" disabled>Clear files</button></div>
+<div class="progress" id="progress" hidden><span id="bar"></span></div>
+<div class="status" id="status" hidden></div>
+</section>
+<aside class="card">
+<h2>What happens next?</h2><p class="sub">One import instead of many.</p>
+<div class="steps">
+<div class="step"><span class="num">1</span><div><b>Read the map placement</b><p>Uses each PGW world file and PRJ coordinate reference system.</p></div></div>
+<div class="step"><span class="num">2</span><div><b>Check compatibility</b><p>Checks that images use a compatible projection, pixel scale and north-up alignment before merging.</p></div></div>
+<div class="step"><span class="num">3</span><div><b>Create one GeoTIFF</b><p>Reprojects the mosaic into GDA94 / MGA Zone 50 and embeds its coordinates in the GeoTIFF for CAD.</p></div></div>
+</div>
+<div class="note"><b>Important:</b> All tiles must use the same coordinate reference system and north-up world files. Output is GDA94 / MGA Zone 50 (EPSG:28350), inferred from the uploaded imagery’s location. The GeoTIFF stores its projected coordinates internally.</div>
+<div class="privacy">▣ Files stay on your computer during processing</div>
+</aside>
+</div>
+
+<section class="card" id="road-dxf" style="margin-top:18px">
+<h2>2. Create preliminary road and footpath DXF</h2>
+<p class="sub">Trace candidate edges from the uploaded georeferenced satellite tiles, review the preview, then export editable CAD linework. This is an assisted image trace, not guaranteed road/footpath recognition.</p>
+<div class="note" style="margin-top:0;margin-bottom:14px"><b>Use the same ZIP files above.</b> Best results come from clear, high-resolution imagery with strong road edges. The trace can include building edges, shadows, trees and other objects; review and edit the DXF before design use.</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;align-items:end">
+<label style="display:grid;gap:6px;font-size:12px;font-weight:700">Target CAD coordinate system
+<select id="dxfCrs" style="padding:10px;border:1px solid var(--line);border-radius:9px;background:white"><option value="28350">GDA94 / MGA Zone 50 (EPSG:28350)</option><option value="3857">WGS 84 / Web Mercator (EPSG:3857)</option></select></label>
+<label style="display:grid;gap:6px;font-size:12px;font-weight:700">Edge sensitivity <span id="edgeVal" style="font-weight:500;color:var(--muted)">90</span>
+<input id="edgeThreshold" type="range" min="25" max="220" value="90" style="width:100%"></label>
+<label style="display:grid;gap:6px;font-size:12px;font-weight:700">Minimum line length <span id="minLenVal" style="font-weight:500;color:var(--muted)">8 pixels</span>
+<input id="minLen" type="range" min="3" max="35" value="8" style="width:100%"></label>
+</div>
+<div class="actions"><button class="btn primary" id="traceRoads" type="button" disabled>Trace road / footpath candidates</button><button class="btn secondary" id="downloadDxf" type="button" disabled>Download geolocated DXF</button></div>
+<canvas id="tracePreview" width="900" height="280" style="display:block;width:100%;height:auto;max-height:360px;object-fit:contain;margin-top:14px;background:#eef2f7;border:1px solid var(--line);border-radius:12px" aria-label="Road edge detection preview"></canvas>
+<div class="status" id="dxfStatus">Add ZIP files above to enable tracing. Preview highlights candidate edges; adjust sensitivity and minimum line length before exporting.</div>
+</section>
+</div><footer><a class="footer-brand" href="https://evedesignandengineering.com/stable-v3/#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer></div>
+<script>
+const zipInput=document.getElementById('zipInput'),drop=document.getElementById('drop'),filesEl=document.getElementById('files'),mergeBtn=document.getElementById('merge'),clearBtn=document.getElementById('clear'),statusEl=document.getElementById('status'),progress=document.getElementById('progress'),bar=document.getElementById('bar');
+let selectedZips=[],busy=false,gdalPromise=null;
+function fmtBytes(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(1)+' MB'}
+function showStatus(message,type=''){statusEl.hidden=false;statusEl.className='status'+(type?' '+type:'');statusEl.textContent=message}
+function setProgress(p){progress.hidden=false;bar.style.width=Math.max(0,Math.min(100,p))+'%'}
+function renderFiles(){filesEl.innerHTML='';selectedZips.forEach((f,i)=>{const row=document.createElement('div');row.className='file';row.innerHTML='<span class="filebadge">ZIP</span><span class="filemeta"><b></b><small></small></span><button class="remove" type="button" aria-label="Remove file">×</button>';row.querySelector('b').textContent=f.name;row.querySelector('small').textContent=fmtBytes(f.size);row.querySelector('button').onclick=()=>{if(busy)return;selectedZips.splice(i,1);renderFiles();statusEl.hidden=true};filesEl.appendChild(row)});mergeBtn.disabled=busy||selectedZips.length===0;clearBtn.disabled=busy||selectedZips.length===0}
+function addFiles(list){const incoming=[...list].filter(f=>f.name.toLowerCase().endsWith('.zip'));const seen=new Set(selectedZips.map(f=>f.name+'|'+f.size+'|'+f.lastModified));for(const f of incoming){const key=f.name+'|'+f.size+'|'+f.lastModified;if(!seen.has(key)){selectedZips.push(f);seen.add(key)}}renderFiles();if(list.length&&!incoming.length)showStatus('Please select ZIP files.','bad')}
+document.getElementById('browse').onclick=()=>zipInput.click();zipInput.onchange=()=>{addFiles(zipInput.files);zipInput.value=''};
+for(const ev of ['dragenter','dragover'])drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')});
+for(const ev of ['dragleave','drop'])drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')});
+drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));document.getElementById('clear').onclick=()=>{if(busy)return;selectedZips=[];renderFiles();statusEl.hidden=true};
+function worldFile(text){const n=text.trim().split(/[\r\n\s]+/).filter(Boolean).map(Number);if(n.length!==6||n.some(v=>!Number.isFinite(v)))throw new Error('A PGW world file must contain six numeric values.');const [A,D,B,E,C,F]=n;if(Math.abs(B)>1e-10||Math.abs(D)>1e-10)throw new Error('A rotated PGW world file was found. This version only supports north-up images.');if(A<=0||E>=0)throw new Error('Unexpected PGW pixel sizes. Expected a positive X size and negative Y size.');return {A,E,C,F}}
+function stem(path){const name=path.split('/').pop();return name.replace(/\.[^.]+$/,'').toLowerCase()}
+function dirname(path){const p=path.lastIndexOf('/');return p<0?'':path.slice(0,p+1)}
+function findSibling(entries,pngPath,ext){const base=stem(pngPath),dir=dirname(pngPath);return entries.find(x=>dirname(x.name).toLowerCase()===dir.toLowerCase()&&stem(x.name)===base&&x.name.toLowerCase().endsWith(ext))||entries.find(x=>stem(x.name)===base&&x.name.toLowerCase().endsWith(ext))}
+async function getImageSize(file){const bitmap=await createImageBitmap(file);const size={width:bitmap.width,height:bitmap.height};bitmap.close();return size}
+function xmlEscape(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function buildVrt(tiles){
+ const sortedX=tiles.map(t=>t.wf.A).sort((a,b)=>a-b),sortedY=tiles.map(t=>-t.wf.E).sort((a,b)=>a-b);
+ const mid=Math.floor(tiles.length/2),px=sortedX.length%2?sortedX[mid]:(sortedX[mid-1]+sortedX[mid])/2,py=sortedY.length%2?sortedY[mid]:(sortedY[mid-1]+sortedY[mid])/2,prj=tiles[0].prj.trim();
+ if(!(px>0&&py>0))throw new Error('The PGW world files contain invalid pixel sizes.');
+ for(const t of tiles){if(t.prj.trim().replace(/\s+/g,' ')!==prj.replace(/\s+/g,' '))throw new Error('The PRJ coordinate systems do not match. Re-export all tiles using the same coordinate reference system.');if(!(t.wf.A>0&&-t.wf.E>0))throw new Error('A PGW world file contains invalid pixel dimensions.')}
+ const bounds=tiles.map(t=>{const tx=t.wf.A,ty=-t.wf.E;return {left:t.wf.C-tx/2,top:t.wf.F+ty/2,right:t.wf.C-tx/2+t.width*tx,bottom:t.wf.F+ty/2-t.height*ty}});
+ const minX=Math.min(...bounds.map(b=>b.left)),maxY=Math.max(...bounds.map(b=>b.top)),maxX=Math.max(...bounds.map(b=>b.right)),minY=Math.min(...bounds.map(b=>b.bottom));
+ const width=Math.ceil((maxX-minX)/px),height=Math.ceil((maxY-minY)/py);
+ if(!Number.isFinite(width*height)||width<1||height<1||width*height>180000000)throw new Error('The merged image would be too large for safe browser processing (>180 million pixels). The tool uses the median source resolution to balance detail and output size. Split the area into smaller mosaics.');
+ const sourceForBand=(t,i,n)=>{const b=bounds[i],xOff=Math.round((b.left-minX)/px),yOff=Math.round((maxY-b.top)/py),dstW=Math.max(1,Math.round((b.right-b.left)/px)),dstH=Math.max(1,Math.round((b.top-b.bottom)/py));return '<SimpleSource><SourceFilename relativeToVRT="0">'+xmlEscape('/input/'+t.fileName)+'</SourceFilename><SourceBand>'+n+'</SourceBand><SourceProperties RasterXSize="'+t.width+'" RasterYSize="'+t.height+'" DataType="Byte" BlockXSize="'+Math.min(256,t.width)+'" BlockYSize="'+Math.min(256,t.height)+'"/><SrcRect xOff="0" yOff="0" xSize="'+t.width+'" ySize="'+t.height+'"/><DstRect xOff="'+xOff+'" yOff="'+yOff+'" xSize="'+dstW+'" ySize="'+dstH+'"/></SimpleSource>'};
+ const bands=[1,2,3].map((n)=>'<VRTRasterBand dataType="Byte" band="'+n+'"><ColorInterp>'+(['Red','Green','Blue'][n-1])+'</ColorInterp>'+tiles.map((t,i)=>sourceForBand(t,i,n)).join('')+'</VRTRasterBand>').join('');
+ const gt=[minX,px,0,maxY,0,-py].join(',');
+ return {xml:'<VRTDataset rasterXSize="'+width+'" rasterYSize="'+height+'"><SRS>'+xmlEscape(prj)+'</SRS><GeoTransform>'+gt+'</GeoTransform>'+bands+'</VRTDataset>',width,height,px,py,minX,maxY,prj};
+}
+async function process(){
+ if(busy||!selectedZips.length)return;busy=true;renderFiles();mergeBtn.textContent='Preparing…';showStatus('Reading ZIP files…');setProgress(3);
+ try{
+  const allEntries=[];
+  for(let i=0;i<selectedZips.length;i++){const zip=await JSZip.loadAsync(selectedZips[i]);const entries=Object.values(zip.files).filter(e=>!e.dir);for(const entry of entries){const ext=entry.name.toLowerCase().split('.').pop();if(['png','pgw','prj'].includes(ext)){const blob=await entry.async('blob');allEntries.push({name:entry.name,ext,blob,zipIndex:i})}}setProgress(5+20*(i+1)/selectedZips.length)}
+  const pngs=allEntries.filter(e=>e.ext==='png');if(!pngs.length)throw new Error('No PNG images were found inside the selected ZIP files.');
+  const tiles=[];
+  for(let i=0;i<pngs.length;i++){const p=pngs[i],pgw=findSibling(allEntries.filter(x=>x.zipIndex===p.zipIndex),p.name,'.pgw'),prj=findSibling(allEntries.filter(x=>x.zipIndex===p.zipIndex),p.name,'.prj');if(!pgw||!prj)throw new Error('Missing matching .PGW or .PRJ for '+p.name+'. Each PNG needs a matching world file and projection file.');const wf=worldFile(await pgw.blob.text()),size=await getImageSize(p.blob);tiles.push({...size,wf,prj:await prj.blob.text(),fileName:'tile_'+String(i+1).padStart(4,'0')+'.png',blob:p.blob});}
+  showStatus('Checking '+tiles.length+' image tiles…');setProgress(35);
+  const vrt=buildVrt(tiles);if(!gdalPromise){showStatus('Loading the geospatial engine (first load can take a little while)…');gdalPromise=initGdalJs({path:'https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package',useWorker:false,logHandler:(m)=>{if(m)console.log('[GDAL]',m)}})}
+  const Gdal=await gdalPromise;
+  const virtualFiles=tiles.map(t=>new File([t.blob],t.fileName,{type:'image/png'}));virtualFiles.push(new File([vrt.xml],'mosaic.vrt',{type:'application/xml'}));
+  showStatus('Building the mosaic and writing the GeoTIFF…');setProgress(48);
+  const opened=await Gdal.open(virtualFiles);const mosaic=opened.datasets.find(d=>d.path&&d.path.toLowerCase().endsWith('mosaic.vrt'))||opened.datasets.find(d=>d.name&&d.name.toLowerCase().includes('mosaic.vrt'));
+  if(!mosaic){const detail=(opened.errors||[]).join('\n');throw new Error('GDAL could not open the mosaic definition. '+detail)}
+  // Reproject source Web Mercator imagery into GDA94 / MGA Zone 50 (EPSG:28350),
+  // matching the uploaded image coordinates around longitude 115.25 E, latitude 33.67 S.
+  // Do not create a TFW from the source grid: those coordinates would be wrong after reprojection.
+  const outPath=await Gdal.gdalwarp(mosaic,[
+    '-of','GTiff','-overwrite',
+    '-t_srs','EPSG:28350',
+    '-r','bilinear',
+    '-co','TILED=YES','-co','COMPRESS=DEFLATE','-co','BIGTIFF=IF_SAFER',
+    '-dstalpha'
+  ],'eve_gis_mosaic');
+  setProgress(85);const bytes=await Gdal.getFileBytes(outPath);if(!bytes||!bytes.length)throw new Error('The GeoTIFF was created without readable output bytes.');
+  const targetPrj='PROJCS["GDA_1994_MGA_Zone_50",GEOGCS["GCS_GDA_1994",DATUM["D_GDA_1994",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000],PARAMETER["False_Northing",10000000],PARAMETER["Central_Meridian",117],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0],UNIT["Meter",1]]';
+  const bundle=new JSZip();bundle.file('eve_gis_mosaic.tif',bytes);bundle.file('eve_gis_mosaic.prj',targetPrj+'\\n');const bundleBlob=await bundle.generateAsync({type:'blob',compression:'DEFLATE'});const url=URL.createObjectURL(bundleBlob);const a=document.createElement('a');a.href=url;a.download='eve_gis_mosaic_CAD_bundle.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  setProgress(100);showStatus('Mosaic created successfully.\nTiles merged: '+tiles.length+'\nOutput size: '+vrt.width.toLocaleString()+' × '+vrt.height.toLocaleString()+' pixels\nDownloaded: eve_gis_mosaic_CAD_bundle.zip\nGeoTIFF reprojection: GDA94 / MGA Zone 50 (EPSG:28350). The TIFF embeds its projected coordinates; the PRJ sidecar identifies the projection.','good');
+  if(Gdal.close)try{Gdal.close(mosaic)}catch(e){}
+ }catch(err){console.error(err);showStatus((err&&err.message?err.message:String(err))+'\n\nYour original ZIP files have not been changed.','bad')}finally{busy=false;mergeBtn.textContent='Merge into one GeoTIFF';renderFiles();setTimeout(()=>{if(!statusEl.classList.contains('bad')){progress.hidden=true;bar.style.width='0%'}},1200)}
+}
+mergeBtn.onclick=process;
+</script>
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
+<script>
+const traceBtn=document.getElementById('traceRoads'),dxfBtn=document.getElementById('downloadDxf'),dxfStatus=document.getElementById('dxfStatus'),preview=document.getElementById('tracePreview'),pctx=preview.getContext('2d'),thresholdInput=document.getElementById('edgeThreshold'),minLenInput=document.getElementById('minLen');
+let tracedEntities=[],traceBusy=false;
+thresholdInput.oninput=()=>document.getElementById('edgeVal').textContent=thresholdInput.value;
+minLenInput.oninput=()=>document.getElementById('minLenVal').textContent=minLenInput.value+' pixels';
+function dxfStatusMsg(s,type=''){dxfStatus.className='status'+(type?' '+type:'');dxfStatus.textContent=s}
+function syncTraceButton(){traceBtn.disabled=busy||traceBusy||!selectedZips.length}
+const renderFilesOriginal=renderFiles;
+renderFiles=function(){renderFilesOriginal();syncTraceButton()};
+function prjLooksWebMercator(s){return /3857|Pseudo.?Mercator|Web.?Mercator|Mercator_Auxiliary_Sphere/i.test(s)}
+if(typeof proj4!=='undefined'&&!proj4.defs('EPSG:28350'))proj4.defs('EPSG:28350','+proj=utm +zone=50 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
+function edgeTrace(data,w,h,threshold,minLength){
+ const gray=new Uint8Array(w*h);
+ for(let i=0,j=0;i<data.length;i+=4,j++)gray[j]=(data[i]*299+data[i+1]*587+data[i+2]*114)/1000;
+ const mag=new Uint8Array(w*h);
+ for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;
+  const gx=-gray[i-w-1]+gray[i-w+1]-2*gray[i-1]+2*gray[i+1]-gray[i+w-1]+gray[i+w+1];
+  const gy=-gray[i-w-1]-2*gray[i-w]-gray[i-w+1]+gray[i+w-1]+2*gray[i+w]+gray[i+w+1];
+  mag[i]=Math.min(255,Math.hypot(gx,gy)/4);
+ }
+ const active=new Uint8Array(w*h);for(let i=0;i<mag.length;i++)if(mag[i]>=threshold)active[i]=1;
+ // Greedily trace connected edge pixels into short editable polylines, limiting branching.
+ const seen=new Uint8Array(w*h),lines=[];let visits=0;
+ for(let start=0;start<active.length;start++){if(!active[start]||seen[start])continue;
+  const component=[],stack=[start];seen[start]=1;
+  while(stack.length&&component.length<250000){const idx=stack.pop();component.push(idx);const x=idx%w,y=(idx/w)|0;
+   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const xx=x+dx,yy=y+dy;if(xx<1||xx>=w-1||yy<1||yy>=h-1)continue;const ni=yy*w+xx;if(active[ni]&&!seen[ni]){seen[ni]=1;stack.push(ni)}}}
+  if(component.length<minLength)continue;
+  // Keep a spatially ordered chain: nearest unused neighbour; isolated branches are split into separate short runs.
+  const remain=new Set(component),chains=[];
+  while(remain.size){let cur=remain.values().next().value;remain.delete(cur);const chain=[cur];let guard=0;
+   while(guard++<component.length){const x=cur%w,y=(cur/w)|0;let next=-1,best=Infinity;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const ni=(y+dy)*w+(x+dx);if(remain.has(ni)){const score=(dx*dx+dy*dy)+(Math.abs(dx)+Math.abs(dy)===2?0.15:0);if(score<best){best=score;next=ni}}}
+    if(next<0)break;remain.delete(next);chain.push(next);cur=next;
+   }
+   if(chain.length>=minLength)chains.push(chain);
+  }
+  for(const c of chains)lines.push(c.map(i=>({x:i%w,y:(i/w)|0})));
+  visits+=component.length;if(visits>1800000)break;
+ }
+ return lines;
+}
+function drawTracePreview(image,lines){pctx.clearRect(0,0,preview.width,preview.height);pctx.fillStyle='#e8edf2';pctx.fillRect(0,0,preview.width,preview.height);const scale=Math.min(preview.width/image.width,preview.height/image.height);const ox=(preview.width-image.width*scale)/2,oy=(preview.height-image.height*scale)/2;pctx.drawImage(image,ox,oy,image.width*scale,image.height*scale);pctx.fillStyle='#f03b4f';for(const line of lines){for(let i=0;i<line.length;i++){const p=line[i];pctx.fillRect(ox+p.x*scale,oy+p.y*scale,Math.max(1,scale),Math.max(1,scale))}}}
+function dxfPair(code,value){return code+'\n'+value+'\n'}
+function makeDxf(entities,crs){
+ // Use AutoCAD R12 ASCII DXF (AC1009): the older POLYLINE/VERTEX entity
+ // is more widely supported by MicroStation than newer LWPOLYLINE entities.
+ const usable=entities.filter(e=>e.points&&e.points.length>=2);
+ let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+ for(const e of usable)for(const p of e.points){if(!Number.isFinite(p.x)||!Number.isFinite(p.y))continue;if(p.x<minX)minX=p.x;if(p.x>maxX)maxX=p.x;if(p.y<minY)minY=p.y;if(p.y>maxY)maxY=p.y}
+ if(!Number.isFinite(minX)){minX=0;maxX=0;minY=0;maxY=0}
+ let out='';
+ out+=dxfPair(0,'SECTION')+dxfPair(2,'HEADER')+
+ dxfPair(9,'$ACADVER')+dxfPair(1,'AC1009')+
+ dxfPair(9,'$EXTMIN')+dxfPair(10,minX.toFixed(3))+dxfPair(20,minY.toFixed(3))+dxfPair(30,0)+
+ dxfPair(9,'$EXTMAX')+dxfPair(10,maxX.toFixed(3))+dxfPair(20,maxY.toFixed(3))+dxfPair(30,0)+
+ dxfPair(0,'ENDSEC');
+ out+=dxfPair(0,'SECTION')+dxfPair(2,'TABLES')+
+ dxfPair(0,'TABLE')+dxfPair(2,'LTYPE')+dxfPair(70,1)+
+ dxfPair(0,'LTYPE')+dxfPair(2,'CONTINUOUS')+dxfPair(70,0)+dxfPair(3,'Solid line')+dxfPair(72,65)+dxfPair(73,0)+dxfPair(40,0)+
+ dxfPair(0,'ENDTAB')+
+ dxfPair(0,'TABLE')+dxfPair(2,'LAYER')+dxfPair(70,2)+
+ dxfPair(0,'LAYER')+dxfPair(2,'ROAD_CANDIDATE')+dxfPair(70,0)+dxfPair(62,1)+dxfPair(6,'CONTINUOUS')+
+ dxfPair(0,'LAYER')+dxfPair(2,'FOOTPATH_CANDIDATE')+dxfPair(70,0)+dxfPair(62,5)+dxfPair(6,'CONTINUOUS')+
+ dxfPair(0,'ENDTAB')+dxfPair(0,'ENDSEC')+
+ dxfPair(999,'Coordinate system EPSG:'+crs+'; units are metres. Verify drawing CRS before design use.')+
+ dxfPair(0,'SECTION')+dxfPair(2,'ENTITIES');
+ for(const e of usable){
+  out+=dxfPair(0,'POLYLINE')+dxfPair(8,e.layer||'ROAD_CANDIDATE')+dxfPair(66,1)+dxfPair(70,0)+dxfPair(10,0)+dxfPair(20,0)+dxfPair(30,0);
+  for(const p of e.points){if(!Number.isFinite(p.x)||!Number.isFinite(p.y))continue;out+=dxfPair(0,'VERTEX')+dxfPair(8,e.layer||'ROAD_CANDIDATE')+dxfPair(10,p.x.toFixed(3))+dxfPair(20,p.y.toFixed(3))+dxfPair(30,0)+dxfPair(70,0)}
+  out+=dxfPair(0,'SEQEND')+dxfPair(8,e.layer||'ROAD_CANDIDATE');
+ }
+ out+=dxfPair(0,'ENDSEC')+dxfPair(0,'EOF');
+ return out
+}
+async function loadTraceTiles(){
+ const result=[];
+ for(const zipFile of selectedZips){const zip=await JSZip.loadAsync(zipFile);const entries=Object.values(zip.files).filter(e=>!e.dir);const pngs=entries.filter(e=>e.name.toLowerCase().endsWith('.png'));
+  for(const p of pngs){const pgw=findSibling(entries,p.name,'.pgw'),prj=findSibling(entries,p.name,'.prj');if(!pgw||!prj)throw new Error('Missing matching PGW or PRJ for '+p.name);const wf=worldFile(await pgw.async('string')),prjText=await prj.async('string');if(!prjLooksWebMercator(prjText))throw new Error('This DXF tracer currently supports Web Mercator source tiles (EPSG:3857). Unsupported projection in '+p.name+'.');const blob=await p.async('blob'),url=URL.createObjectURL(blob);try{const img=await createImageBitmap(blob),canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const cx=canvas.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0);const pixels=cx.getImageData(0,0,img.width,img.height);result.push({name:p.name,wf,prjText,img,canvas,pixels,width:img.width,height:img.height,url})}catch(e){URL.revokeObjectURL(url);throw e}}
+ }
+ return result;
+}
+traceBtn.onclick=async()=>{if(traceBusy||!selectedZips.length)return;traceBusy=true;syncTraceButton();dxfBtn.disabled=true;tracedEntities=[];try{
+ dxfStatusMsg('Reading georeferenced images from ZIP files…');const tiles=await loadTraceTiles();if(!tiles.length)throw new Error('No PNG images found.');let total=0,previewDone=false;const minLen=Number(minLenInput.value),threshold=Number(thresholdInput.value),target=document.getElementById('dxfCrs').value,entities=[];
+ for(let ti=0;ti<tiles.length;ti++){const t=tiles[ti];dxfStatusMsg('Tracing tile '+(ti+1)+' of '+tiles.length+': '+t.name);await new Promise(r=>setTimeout(r,20));const lines=edgeTrace(t.pixels.data,t.width,t.height,threshold,minLen);total+=lines.length;
+  const transform=target==='28350'&&typeof proj4!=='undefined'?(xy)=>proj4('EPSG:3857','EPSG:28350',xy): (xy)=>xy;
+  for(const line of lines){const points=[];let last=null;for(let j=0;j<line.length;j+=Math.max(1,Math.floor(line.length/80))){const p=line[j];const mapXY=[t.wf.C+t.wf.A*p.x,t.wf.F+t.wf.E*p.y];const q=transform(mapXY);if(Number.isFinite(q[0])&&Number.isFinite(q[1])&&(!last||Math.hypot(q[0]-last.x,q[1]-last.y)>0.001)){points.push({x:q[0],y:q[1]});last=points[points.length-1]}}if(points.length>=2)entities.push({layer:'ROAD_CANDIDATE',points})}
+  if(!previewDone){drawTracePreview(t.img,lines);previewDone=true}t.img.close();URL.revokeObjectURL(t.url);
+ }
+ tracedEntities=entities;dxfBtn.disabled=!entities.length;dxfStatusMsg('Trace complete. '+entities.length.toLocaleString()+' candidate polylines from '+tiles.length+' tile(s). Red pixels show detected edges on the first tile. Lines are on layer ROAD_CANDIDATE. Please inspect, delete false detections, and redraw missing road/footpath edges in CAD. Coordinate output: '+(target==='28350'?'GDA94 / MGA Zone 50 (EPSG:28350)':'WGS 84 / Web Mercator (EPSG:3857)')+'.','good');
+ }catch(e){console.error(e);dxfStatusMsg(e.message||String(e),'bad')}finally{traceBusy=false;syncTraceButton()}};
+dxfBtn.onclick=()=>{if(!tracedEntities.length)return;const crs=document.getElementById('dxfCrs').value;const content=makeDxf(tracedEntities,crs);const blob=new Blob([content],{type:'application/dxf'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=crs==='28350'?'eve_road_footpath_candidates_MGA94_Zone50.dxf':'eve_road_footpath_candidates_WebMercator.dxf';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)};
+</script>
+<script src="/stable-v3/drafting-promotion.js?v=20261014" defer></script>
+<script src="../site-editor.js?v=20261016" defer></script>
+</body></html>
