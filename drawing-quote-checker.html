@@ -204,7 +204,7 @@ $('compare').addEventListener('click',async()=>{
  try{
   setProgress(5,'Reading the PDFs…');$('status').textContent='Preparing drawing and quote documents…';
   const [dr,qr]=await Promise.all([readPdf(d,'drawing',4),readPdf(q,'quote',3)]);
-  setProgress(62,'Reading drawing CU callouts and DQM Compatible Units…');$('status').textContent='The Comparing drawing CU quantities with DQM Compatible Units quantities.';
+  setProgress(62,'Reading drawing CU callouts and DQM Compatible Units…');$('status').textContent='Comparing drawing CU quantities with DQM Compatible Units quantities.';
   let estimatedProgress=62,elapsedSeconds=0;progressTimer=setInterval(()=>{elapsedSeconds+=1;const step=estimatedProgress<78?1:(estimatedProgress<86?(elapsedSeconds%2===0?1:0):0);estimatedProgress=Math.min(88,estimatedProgress+step);let label='Reading drawing CU callouts and DQM Compatible Units…';if(estimatedProgress>=78)label='Checking quantities and matching quote items…';if(estimatedProgress>=86)label='Waiting for CU comparison fallback. This indicator is not a live measure of completed work.';setProgress(estimatedProgress,label);},1000);
   const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets,drawingTextChars:dr.chars,quoteTextChars:qr.chars,drawingPages:dr.pageCount,sourceDrawingPages:dr.sourcePageCount,drawingTextTruncated:dr.truncated,quoteTextTruncated:qr.truncated,drawingTruncatedPages:dr.truncatedPages,quoteTruncatedPages:qr.truncatedPages};
   let result=null,lastError=null;const maxAttempts=2;
