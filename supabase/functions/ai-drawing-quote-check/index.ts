@@ -249,7 +249,7 @@ function cuAIItems(input:any,drawing:boolean):any[] {
  return Array.from(map.values());
 }
 function cuCompare(drawingItems:any[],quoteItems:any[],meta:any={}):any {
- const quoteMap=new Map<string,any>(quoteItems.map(item=>[cuNorm(item.code),item])),drawingKeys=new Set(drawingItems.map(item=>cuNorm(item.code)));
+ const quoteMap=new Map<string,any>(quoteItems.map((item:any)=>[cuNorm(item.code),item] as [string,any])),drawingKeys=new Set<string>(drawingItems.map((item:any)=>cuNorm(item.code)));
  const discrepancies:any[]=[],matched:any[]=[],used=new Set<string>();
  for(const d of drawingItems){
   const resolved=cuResolve(d,quoteMap,drawingKeys),q=resolved?quoteMap.get(resolved.key):null;
