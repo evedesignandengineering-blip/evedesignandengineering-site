@@ -267,10 +267,34 @@ function cuResolve(d:any,quoteMap:Map<string,any>,drawingKeys:Set<string>):any|n
  const candidates=Array.from(quoteMap.keys()).filter(candidate=>candidate.startsWith(key)||key.startsWith(candidate));
  return candidates.length===1?{key:candidates[0],confidence:"medium",note:"Matched a unique DQM code variant with a truncated or omitted suffix."}:null;
 }
+function cuConfusableSubstitution(aValue:unknown,bValue:unknown):any|null {
+ const a=cuNorm(aValue),b=cuNorm(bValue);
+ if(!a||!b||a===b||a.length!==b.length)return null;
+ const groups=[["S","5"],["I","1","L"],["O","0","Q"],["Z","2"],["B","8"],["G","6"]];
+ const substitutions:string[]=[];
+ for(let i=0;i<a.length;i++){if(a[i]===b[i])continue;const group=groups.find(chars=>chars.includes(a[i])&&chars.includes(b[i]));if(!group)return null;substitutions.push(a[i]+"→"+b[i]);}
+ return substitutions.length&&substitutions.length<=2?{substitutions,from:a,to:b}:null;
+}
+function cuCorrectConfusableDrawingCodes(items:any[],referenceItems:any[]):any[] {
+ const refs=new Map<string,any>();
+ for(const candidate of referenceItems||[]){const key=cuNorm(candidate?.code);if(key&&!refs.has(key))refs.set(key,candidate);}
+ return (items||[]).map(item=>{
+  if(!item?.code)return item;
+  const original=String(item.code),key=cuNorm(original);
+  if(refs.has(key))return item;
+  const candidates:Array<{key:string;item:any;match:any}>=[];
+  for(const [candidateKey,candidate] of refs.entries()){const match=cuConfusableSubstitution(original,candidate.code);if(match)candidates.push({key:candidateKey,item:candidate,match});}
+  if(candidates.length!==1)return item;
+  const winner=candidates[0],correction={from:original,to:String(winner.item.code),substitutions:winner.match.substitutions,basis:"unique DQM/source CU code after lookalike-character comparison"};
+  const marker="[CODE RECOGNITION: "+correction.from+" corrected to "+correction.to+" ("+correction.substitutions.join(", ")+") using the unique reference CU code]";
+  const evidence=(String(item.evidence||"")+" "+marker).trim().slice(0,1400);
+  return {...item,code:String(winner.item.code),original_code:item.original_code||original,code_correction:correction,evidence,confidence:"medium"};
+ });
+}
 function cuMergeInventories(primary:any[],supplemental:any[]){
  const out=(primary||[]).map(item=>({...item})),byKey=new Map<string,any>();
  for(const item of out){const key=cuNorm(item?.code);if(key)byKey.set(key,item);}
- for(const item of supplemental||[]){const key=cuNorm(item?.code);if(!key)continue;const existing=byKey.get(key);if(!existing){const copy={...item};out.push(copy);byKey.set(key,copy);continue;}const pageValues=[...(Array.isArray(existing.source_pages)?existing.source_pages:[]),existing.page,...(Array.isArray(item.source_pages)?item.source_pages:[]),item.page].map(Number).filter(n=>Number.isInteger(n)&&n>0);if(pageValues.length)existing.source_pages=Array.from(new Set(pageValues)).sort((a,b)=>a-b);if(Number.isFinite(Number(item.quantity))){existing.quantity=Number(item.quantity);existing.unit=item.unit||existing.unit;existing.occurrences=item.occurrences||existing.occurrences;existing.confidence=item.confidence||"high";existing.quantity_method="explicit-cu-source-parser";}if(item.evidence)existing.evidence=item.evidence;}
+ for(const item of supplemental||[]){const key=cuNorm(item?.code);if(!key)continue;const existing=byKey.get(key);if(!existing){const copy={...item};out.push(copy);byKey.set(key,copy);continue;}const pageValues=[...(Array.isArray(existing.source_pages)?existing.source_pages:[]),existing.page,...(Array.isArray(item.source_pages)?item.source_pages:[]),item.page].map(Number).filter(n=>Number.isInteger(n)&&n>0);if(pageValues.length)existing.source_pages=Array.from(new Set(pageValues)).sort((a,b)=>a-b);if(Number.isFinite(Number(item.quantity))){existing.quantity=Number(item.quantity);existing.unit=item.unit||existing.unit;existing.occurrences=item.occurrences||existing.occurrences;existing.confidence=item.confidence||"high";existing.quantity_method="explicit-cu-source-parser";}if(item.original_code)existing.original_code=item.original_code;if(item.code_correction){existing.code_correction=item.code_correction;existing.confidence="medium";}if(item.evidence)existing.evidence=item.evidence;}
  return out;
 }
 function cuFindExplicitCuEvidence(input:string,codeValue:unknown):any|null {
@@ -529,10 +553,11 @@ function cuCompare(drawingItems:any[],quoteItems:any[],meta:any={}):any {
  const discrepancies:any[]=[],matched:any[]=[],used=new Set<string>();
  for(const d of drawingItems){
   const resolved=cuResolve(d,quoteMap,drawingKeys),q=resolved?quoteMap.get(resolved.key):null;
+   const correctionNote=d.code_correction?" OCR code correction: "+d.code_correction.from+" → "+d.code_correction.to+" ("+d.code_correction.substitutions.join(", ")+"); visually confirm.":"";
   if(!q){discrepancies.push({status:"MISSING_FROM_QUOTE",severity:"high",confidence:d.confidence||"high",drawing_item:d.code,drawing_quantity:d.quantity,drawing_unit:d.unit||"EA",expected_quantity:d.quantity,expected_unit:d.unit||"EA",quote_item:null,quote_quantity:null,quote_unit:d.unit||"EA",difference:d.code+" is explicitly listed in the drawing CU callout(s) but is not present in the DQM Compatible Units table."});continue;}
   used.add(resolved.key);const expected=Number(d.quantity),actual=Number(q.quantity),unit=d.unit||"EA";
-  if(Math.abs(expected-actual)>1e-9)discrepancies.push({status:"QUANTITY_MISMATCH",severity:"high",confidence:resolved.confidence,drawing_item:d.code,drawing_quantity:expected,drawing_unit:unit,expected_quantity:expected,expected_unit:unit,quote_item:q.code,quote_quantity:actual,quote_unit:q.unit||unit,difference:"Drawing CU callout(s) total "+expected+" "+unit+" across "+(d.occurrences||1)+" occurrence(s); DQM Compatible Units rows total "+actual+" across "+(q.row_count||1)+" row(s). "+resolved.note});
-  else matched.push({drawing_item:d.code,drawing_quantity:expected,quote_item:q.code,quote_quantity:actual,note:resolved.note,confidence:resolved.confidence});
+  if(Math.abs(expected-actual)>1e-9)discrepancies.push({status:"QUANTITY_MISMATCH",severity:"high",confidence:resolved.confidence,drawing_item:d.code,drawing_quantity:expected,drawing_unit:unit,expected_quantity:expected,expected_unit:unit,quote_item:q.code,quote_quantity:actual,quote_unit:q.unit||unit,difference:"Drawing CU callout(s) total "+expected+" "+unit+" across "+(d.occurrences||1)+" occurrence(s); DQM Compatible Units rows total "+actual+" across "+(q.row_count||1)+" row(s). "+resolved.note+correctionNote});
+  else matched.push({drawing_item:d.code,drawing_quantity:expected,quote_item:q.code,quote_quantity:actual,note:resolved.note+correctionNote,confidence:d.code_correction?"medium":resolved.confidence});
  }
  const extras=quoteItems.filter(item=>!used.has(cuNorm(item.code))).map(item=>({item:item.code,quantity:item.quantity,reason:"Quote-only Compatible Unit not listed in drawing CU callouts; ignored as requested."}));
  const missing=discrepancies.filter(x=>x.status==="MISSING_FROM_QUOTE").length,qty=discrepancies.filter(x=>x.status==="QUANTITY_MISMATCH").length;
@@ -546,11 +571,13 @@ Deno.serve(async(req:Request)=>{
  if(!dt.trim()&&!di.length)return json({error:"No readable drawing text or page images were provided."},400,o);if(!qt.trim()&&!qi.length)return json({error:"No readable quote text or page images were provided."},400,o);
  const parsedDrawingCu=cuExtractDrawingItems(dt),parsedQuoteCu=cuExtractQuoteItems(qt),drawingCoverage=cuDrawingCoverage(dt,parsedDrawingCu,b.declaredDrawingSheets,b.drawingSheetSelectionWarning);
  if(parsedDrawingCu.length&&parsedQuoteCu.length&&!b.drawingTextTruncated&&!b.quoteTextTruncated&&!drawingCoverage.needs_fallback){
-  const directReport=cuCompare(parsedDrawingCu,parsedQuoteCu,{model:"deterministic-cu-reconciliation",ai_attempted_models:0,drawing_text_length:dt.length,quote_text_length:qt.length,declared_drawing_sheets:b.declaredDrawingSheets??null,frontend_extracted_drawing_chars:b.drawingTextChars??dt.length,frontend_extracted_quote_chars:b.quoteTextChars??qt.length,drawing_pages:b.drawingPages??null,source_drawing_pages:b.sourceDrawingPages??null,drawing_text_truncated:!!b.drawingTextTruncated,quote_text_truncated:!!b.quoteTextTruncated,drawing_truncated_pages:b.drawingTruncatedPages??0,quote_truncated_pages:b.quoteTruncatedPages??0,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null});
+  const correctedParsedDrawingCu=cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu),directCodeCorrections=correctedParsedDrawingCu.filter(item=>item.code_correction).map(item=>item.code_correction);
+  const directReport=cuCompare(correctedParsedDrawingCu,parsedQuoteCu,{model:"deterministic-cu-reconciliation",ai_attempted_models:0,code_corrections:directCodeCorrections,drawing_text_length:dt.length,quote_text_length:qt.length,declared_drawing_sheets:b.declaredDrawingSheets??null,frontend_extracted_drawing_chars:b.drawingTextChars??dt.length,frontend_extracted_quote_chars:b.quoteTextChars??qt.length,drawing_pages:b.drawingPages??null,source_drawing_pages:b.sourceDrawingPages??null,drawing_text_truncated:!!b.drawingTextTruncated,quote_text_truncated:!!b.quoteTextTruncated,drawing_truncated_pages:b.drawingTruncatedPages??0,quote_truncated_pages:b.quoteTruncatedPages??0,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null});
   directReport.ai_powered=false;directReport.cu_inventory_complete=true;
   await cuCalculateDepotTravel(directReport,dt,qt);
   await cuApplyAuxAndPolypipeChecks(directReport,dt,qt);
   directReport.diagnostics={...(directReport.diagnostics||{}),depot_travel:directReport.depot_travel,travel_allowance_check:directReport.travel_allowance_check,coordinate_review:directReport.coordinate_review,supplementary_checks:directReport.supplementary_checks};
+  if(directCodeCorrections.length)directReport.limitations.unshift("One or more drawing CU codes were conservatively corrected for OCR lookalike characters using a unique DQM CU code. Original and corrected codes are shown in the drawing evidence; verify them visually before approval.");
   directReport.summary+=" Deterministic extraction was complete, so Gemini was not needed for the CU comparison.";
   console.log("[dqm-cu-deterministic-success]",JSON.stringify(directReport.diagnostics));
   return json(directReport,200,o);
@@ -558,7 +585,7 @@ Deno.serve(async(req:Request)=>{
  if(!key&&!nvidiaKey)return json({error:"The PDF text extraction was not sufficiently complete for a full CU comparison, and Gemini fallback is not configured. No full comparison was generated.",diagnostic:{drawing_cu_items_found:parsedDrawingCu.length,quote_cu_items_found:parsedQuoteCu.length,drawing_text_length:dt.length,quote_text_length:qt.length,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null}},422,o);
  const imgs=(a:unknown[])=>a.map((v:any)=>{const m=String(v||"").match(/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/);return !m||m[2].length>1600000?null:{inlineData:{mimeType:m[1]==="jpg"?"image/jpeg":"image/"+m[1],data:m[2]}};}).filter(Boolean);
  const parts:any[]=[{text:"DRAWING TEXT (untrusted document):\n"+(dt||"[No text layer]")},...imgs(di),{text:"QUOTE TEXT (untrusted document):\n"+(qt||"[No text layer]")},...imgs(qi),{text:"USER SCOPE:\n"+(scope||"[None]")}];
- const instructions='Only compare compatible units (CU) between the electrical drawing and DQM quote. Read every [PAGE n] block and every numbered drawing sheet; do not stop after the first sheets and do not assume that the first N physical PDF pages equal Sheet 1 of N through Sheet N of N. On drawings, count quantities only inside explicit "CU:" callouts. Exclude "NON CU:" and "DCSH:" sections and never count codes elsewhere. In the DQM quote, read quantities only from the "Compatible Units" table; the quantity is the number after the standalone O-column letter N. Sum repeated drawing callouts and repeated quote rows. Ignore quote-only extras as discrepancies. Preserve the physical PDF page number in evidence/page, and state any sheet that could not be read in limitations. Do not invent quantities. Return strict JSON with drawing_items and quote_items arrays, each item containing code, quantity, evidence, page and confidence, plus summary and limitations.';
+ const instructions='Only compare compatible units (CU) between the electrical drawing and DQM quote. Recognize catalogue codes carefully: S/5, I/1/L, O/0/Q, Z/2, B/8 and G/6 can be visually confused by OCR. Prefer exact source codes and unique reference matches; never silently guess when multiple alternatives exist. Read every [PAGE n] block and every numbered drawing sheet; do not stop after the first sheets and do not assume that the first N physical PDF pages equal Sheet 1 of N through Sheet N of N. On drawings, count quantities only inside explicit "CU:" callouts. Exclude "NON CU:" and "DCSH:" sections and never count codes elsewhere. In the DQM quote, read quantities only from the "Compatible Units" table; the quantity is the number after the standalone O-column letter N. Sum repeated drawing callouts and repeated quote rows. Ignore quote-only extras as discrepancies. Preserve the physical PDF page number in evidence/page, and state any sheet that could not be read in limitations. Do not invent quantities. Return strict JSON with drawing_items and quote_items arrays, each item containing code, quantity, evidence, page and confidence, plus summary and limitations.';
  // Quota-aware order from current AI Studio limits: prioritize Flash-Lite models with remaining daily quota; skip Gemini 3 Flash/3.6/3.8 while their RPD caps are exceeded; skip Gemma 4 26B while TPM is exceeded.
  const batches=[["gemini-3.5-flash-lite","gemini-3.1-flash-lite"],["gemini-2.5-flash-lite"],["gemini-2.5-flash"],["gemma-4-31b-it"]],start=Date.now();
  let selected="",result:any=null,raw="",finishReason="UNKNOWN";const statuses:number[]=[];let tried=0;
@@ -589,18 +616,22 @@ Deno.serve(async(req:Request)=>{
  }
  if(!result)return json({error:"The CU tables could not be read reliably from both PDFs. No quantity comparison was generated, to avoid false discrepancies.",attempted_models:tried,diagnostic:{drawing_cu_items_found:parsedDrawingCu.length,quote_cu_items_found:parsedQuoteCu.length,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null,finishReason,elapsed_ms:Date.now()-start,provider_statuses:statuses,model_batches:batches,maximum_fallback_window_ms:100000}},422,o);
  const aiDrawingItems=cuAIItems(result.drawing_items,true,dt),aiQuoteItems=cuAIItems(result.quote_items,false);
- const drawingNeedsAI=!!b.drawingTextTruncated||drawingCoverage.needs_fallback||!!b.drawingSheetSelectionWarning;
- const aiDrawingCu=drawingNeedsAI?cuMergeInventories(aiDrawingItems,parsedDrawingCu):(parsedDrawingCu.length?parsedDrawingCu:aiDrawingItems);
+  const drawingNeedsAI=!!b.drawingTextTruncated||drawingCoverage.needs_fallback||!!b.drawingSheetSelectionWarning;
+  const referenceDrawingCodes=cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu);
+  const aiDrawingCorrected=cuCorrectConfusableDrawingCodes(aiDrawingItems,parsedQuoteCu.length?parsedQuoteCu:aiQuoteItems);
+  const aiDrawingCu=drawingNeedsAI?cuMergeInventories(aiDrawingCorrected,referenceDrawingCodes):(referenceDrawingCodes.length?referenceDrawingCodes:aiDrawingCorrected);
+  const fallbackCodeCorrections=aiDrawingCu.filter(item=>item.code_correction).map(item=>item.code_correction);
  const aiQuoteCu=b.quoteTextTruncated?aiQuoteItems:(parsedQuoteCu.length?parsedQuoteCu:aiQuoteItems);
  if(!aiDrawingCu.length||!aiQuoteCu.length)return json({error:"Gemini returned a response, but one CU inventory was not sufficiently evidenced. No quantity comparison was generated.",diagnostic:{drawing_cu_items_found:aiDrawingCu.length,quote_cu_items_found:aiQuoteCu.length,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null,model:selected,finishReason,provider_statuses:statuses}},422,o);
  const finalDrawingCoverage=cuDrawingCoverage(dt,aiDrawingCu,b.declaredDrawingSheets,b.drawingSheetSelectionWarning);
- const fallbackReport=cuCompare(aiDrawingCu,aiQuoteCu,{model:selected,ai_fallback_used:true,ai_attempted_models:tried,model_elapsed_ms:Date.now()-start,drawing_text_length:dt.length,quote_text_length:qt.length,drawing_pages:b.drawingPages??null,source_drawing_pages:b.sourceDrawingPages??null,declared_drawing_sheets:b.declaredDrawingSheets??null,drawing_cu_coverage:finalDrawingCoverage,drawing_sheet_map:b.drawingSheetMap??null});
+ const fallbackReport=cuCompare(aiDrawingCu,aiQuoteCu,{model:selected,ai_fallback_used:true,ai_attempted_models:tried,model_elapsed_ms:Date.now()-start,drawing_text_length:dt.length,quote_text_length:qt.length,drawing_pages:b.drawingPages??null,source_drawing_pages:b.sourceDrawingPages??null,declared_drawing_sheets:b.declaredDrawingSheets??null,drawing_cu_coverage:finalDrawingCoverage,drawing_sheet_map:b.drawingSheetMap??null,code_corrections:fallbackCodeCorrections});
  fallbackReport.ai_powered=true;fallbackReport.cu_inventory_complete=finalDrawingCoverage.complete;
  if(!finalDrawingCoverage.complete){fallbackReport.review_status="INCOMPLETE_DRAWING_CU_INVENTORY";fallbackReport.summary="WARNING: the drawing CU inventory could not be verified as complete across all declared sheets. "+fallbackReport.summary;fallbackReport.limitations.unshift("INCOMPLETE DRAWING CU INVENTORY: "+finalDrawingCoverage.message+" Do not treat this partial CU comparison as approval; verify all declared drawing sheets manually.");}
  await cuCalculateDepotTravel(fallbackReport,dt,qt);
  await cuApplyAuxAndPolypipeChecks(fallbackReport,dt,qt);
  fallbackReport.diagnostics={...(fallbackReport.diagnostics||{}),depot_travel:fallbackReport.depot_travel,travel_allowance_check:fallbackReport.travel_allowance_check,coordinate_review:fallbackReport.coordinate_review,supplementary_checks:fallbackReport.supplementary_checks};
- fallbackReport.limitations.unshift("Text-based CU extraction was incomplete or clipped; Gemini's CU-only inventory was used for any side flagged as clipped or not parsed. Verify every item against the PDF.");
+ if(fallbackCodeCorrections.length)fallbackReport.limitations.unshift("One or more drawing CU codes were conservatively corrected for OCR lookalike characters using a unique DQM/source CU code. Original and corrected codes are shown in the drawing evidence; verify them visually before approval.");
+  fallbackReport.limitations.unshift("Text-based CU extraction was incomplete or clipped; Gemini's CU-only inventory was used for any side flagged as clipped or not parsed. Verify every item against the PDF.");
  console.log("[dqm-cu-ai-fallback]",JSON.stringify(fallbackReport.diagnostics));
  return json(fallbackReport,200,o);
 });
