@@ -284,19 +284,13 @@ function cuProjectValue(quoteText:string,drawingText:string):{value:number|null;
  return {value:null,source:"project value could not be identified"};
 }
 function cuTotalInternalCost(quoteText:string):number|null {
- // AUX_005 is calculated against the DQM Compatible Units "Total Internal Cost", not the separate work-order Cost Breakdown.
+ // The user-specified AUX_005 basis is the DQM Cost Summary "Total" row, first column = Total Internal Costs.
+ // Do not substitute the smaller "Compatible Units" subtotal when the Total row is absent/unreadable.
  const summaryEnd=quoteText.search(/Cost\s+Breakdown/i),summary=summaryEnd>=0?quoteText.slice(0,summaryEnd):quoteText;
  for(const line of summary.split(/\r?\n/)){
-  if(!/(?:^|\|)\s*Compatible\s+Units\s*:/i.test(line))continue;
-  const money=cuTextMoneyValues(line);if(money.length&&money[0]>0)return money[0];
- }
- const occurrences=Array.from(quoteText.matchAll(/Compatible\s+Units/gi)),last=occurrences[occurrences.length-1];
- if(last){
-  const after=quoteText.slice((last.index??0)+last[0].length),end=after.search(/Non\s+Compatible\s+Unit\s+Items/i),table=end>=0?after.slice(0,end):after,rows=table.split(/\r?\n/);
-  for(let i=rows.length-1;i>=0;i--){
-   const money=cuTextMoneyValues(rows[i]);
-   if(money.length>=2&&money[0]>0&&Math.abs(money[0]-money[1])<0.05)return money[0];
-  }
+  if(!/^\s*Total\s*:/i.test(line))continue;
+  const money=cuTextMoneyValues(line);
+  if(money.length&&money[0]>0)return money[0];
  }
  return null;
 }
@@ -347,8 +341,8 @@ async function cuApplyAuxAndPolypipeChecks(report:any,drawingText:string,quoteTe
    cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",expected,a5,"EA","high","high","Total internal cost is $"+cost.toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})+". Subtract quoted AUX_005 allowance ("+a5+" × $174.13 = $"+actAmount.toFixed(2)+") to get adjusted cost $"+adjusted.toFixed(2)+". Expected AUX_005 is 4 × ceil(adjusted cost / $10,000) = "+expected+" units ($"+expAmount.toFixed(2)+"); quote has "+a5+" units ($"+actAmount.toFixed(2)+").");
   }else report.discrepancies=report.discrepancies.filter((entry:any)=>!(entry.status==="AUX_005_INTERNAL_COST_MISMATCH"&&cuNorm(entry.quote_item)==="AUX005"));
  }else if(a5!==null){
-  cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",null,a5,"EA","medium","low","AUX_005 is quoted at "+a5+" units, but DQM Compatible Units Total Internal Cost could not be reliably extracted. No expected quantity was assumed; manual verification is required.");
-  notes.push("AUX_005 calculation needs manual review because the Cost Breakdown total internal cost was not readable.");
+  cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",null,a5,"EA","medium","low","AUX_005 is quoted at "+a5+" units, but the DQM Cost Summary Total (first-column Total Internal Costs) could not be reliably extracted. No expected quantity was assumed; manual verification is required.");
+  notes.push("AUX_005 calculation needs manual review because the DQM Cost Summary Total Internal Costs value was not readable.");
  }
  const cn54Items=(Array.isArray(report.drawing_items)?report.drawing_items:[]).filter((item:any)=>/^CN54(?:_|[A-Z0-9]|$)/i.test(String(item.code??"")));
  const cn54Qty=cn54Items.reduce((sum:number,item:any)=>sum+(number(item.quantity??item.qty)||0),0);
@@ -397,7 +391,7 @@ async function cuApplyAuxAndPolypipeChecks(report:any,drawingText:string,quoteTe
  }
  const checks={
   project_value:{value:project.value,source:project.source,status:project.value===null?"NEEDS_REVIEW":a13===null?"NEEDS_REVIEW":(project.value<=50000?1:project.value<=200000?3:12)===a13?"PASS":"MISMATCH"},
-  aux_005:{internal_cost:cost,quoted_quantity:a5,expected_quantity:cost!==null&&a5!==null?(cost-174.13*a5<=0?0:4*Math.ceil((cost-174.13*a5)/10000)):null,status:cost===null||a5===null?"NEEDS_REVIEW":(cost-174.13*a5<=0?0:4*Math.ceil((cost-174.13*a5)/10000))===a5?"PASS":"MISMATCH"},
+  aux_005:{internal_cost:cost,total_internal_cost:cost,cost_source:"DQM Cost Summary Total row, first-column Total Internal Costs",quoted_quantity:a5,aux005_allowance_deducted:cost!==null&&a5!==null?Math.round(174.13*a5*100)/100:null,adjusted_total_internal_cost:cost!==null&&a5!==null?Math.round((cost-174.13*a5)*100)/100:null,formula:"Expected AUX_005 = 4 × ceil((DQM Total Internal Costs − quoted AUX_005 quantity × $174.13) / $10,000), minimum 0",expected_quantity:cost!==null&&a5!==null?(cost-174.13*a5<=0?0:4*Math.ceil((cost-174.13*a5)/10000)):null,status:cost===null||a5===null?"NEEDS_REVIEW":(cost-174.13*a5<=0?0:4*Math.ceil((cost-174.13*a5)/10000))===a5?"PASS":"MISMATCH"},
   cn54_cable_07:{drawing_cn54_quantity:cn54Qty,quoted_cable_07_quantity:quantity("CABLE_07"),expected_cable_07_quantity:cn54Qty*2,status:!cn54Items.length?"NOT_APPLICABLE":quantity("CABLE_07")===cn54Qty*2?"PASS":"MISMATCH"},
   polypipe:{drawing_callout_sizes_mm:pipeSizes,drilling_size_classes_checked:Array.from(checkedSizes)},
   drill_haul:{drilling_rows:drills.length,haul_rows:haulRows.length}
