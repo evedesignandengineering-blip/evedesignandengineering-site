@@ -301,13 +301,12 @@ function cuAIItems(input:any,drawing:boolean,sourceText=""):any[] {
   if(!item||!item.code||!Number.isFinite(Number(item.quantity)))continue;
   if(!drawing){filtered.push(item);continue;}
   const ev=String(item.evidence||"");
-  if(/\bNON\s*CU\s*:|\bDCSH\s*:/i.test(ev))continue;
-  // The model may omit "CU:" from its short evidence quote even when the inventory
-  // item came from a valid callout. Confirm it against the full extracted source text.
+  // Prefer positive verification against the full source, even if the model's nearby
+  // evidence excerpt also includes adjacent NON CU/DCSH text from the same PDF row.
   const found=cuFindExplicitCuEvidence(sourceText,item.code);
   if(found){
    filtered.push({...item,quantity:found.quantity,unit:found.unit||item.unit,page:found.page??item.page,source_pages:found.source_pages,evidence:found.evidence||ev,source_confirmed:true,confidence:"high",quantity_method:"source-cu-callout-validated"});
-  }else if(/\bCU\s*:/i.test(ev)){
+  }else if(!/\bNON\s*CU\s*:|\bDCSH\s*:/i.test(ev)&&/\bCU\s*:/i.test(ev)){
    filtered.push({...item,source_confirmed:false,confidence:item.confidence||"medium"});
   }
  }
