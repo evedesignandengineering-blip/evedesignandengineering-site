@@ -28,3 +28,44 @@ REGRESSION PURPOSE:
 QUOTE COMPARISON EXPECTATION:
 - The checker must report the above source-derived drawing items in the inventory before comparing them with the DQM Compatible Units table.
 - A partial/ambiguous six-sheet inventory must remain flagged and must not be reported as fully complete.
+
+
+OCR LOOKALIKE CODE RECOGNITION — EXPECTED BEHAVIOUR
+
+These code strings are controlled regression examples. Code correction is allowed only when the quote/source reference has a unique code that differs by no more than two substitutions from the lookalike groups S/5, I/1/L, O/0/Q, Z/2, B/8 and G/6. Punctuation is ignored for the code comparison.
+
+1. Detected: DAS_4M_KIT | Unique DQM CU code: DA5_4M_KIT
+   Expected: correct to DA5_4M_KIT, preserve original DAS_4M_KIT, record substitution S->5, and lower confidence to medium pending visual confirmation.
+
+2. Detected: DAI_3M_KIT | Unique DQM CU code: DA1_3M_KIT
+   Expected: correct to DA1_3M_KIT, record I->1.
+
+3. Detected: CN7O_25 | Unique DQM CU code: CN70_25
+   Expected: correct to CN70_25, record O->0.
+
+4. Detected: CNZ_25 | Unique DQM CU code: CN2_25
+   Expected: correct to CN2_25, record Z->2.
+
+5. Detected: DAB_4M_KIT | Unique DQM CU code: DA8_4M_KIT
+   Expected: correct to DA8_4M_KIT, record B->8.
+
+6. Detected: DAG_4M_KIT | Unique DQM CU code: DA6_4M_KIT
+   Expected: correct to DA6_4M_KIT, record G->6.
+
+7. Ambiguous: DAI_4M_KIT | Reference codes: DA1_4M_KIT and DAL_4M_KIT
+   Expected: do not auto-correct; retain DAI_4M_KIT and flag for review.
+
+8. Exact valid code: DAS_4M_KIT | Reference codes: DAS_4M_KIT and DA5_4M_KIT
+   Expected: exact DAS_4M_KIT wins; do not change it to DA5_4M_KIT.
+
+9. Unrelated typo: DA9_4M_KIT | Reference code: DA5_4M_KIT
+   Expected: do not auto-correct.
+
+10. More than two confusable substitutions: SIS_4M_KIT | Reference code: 515_4M_KIT
+    Expected: do not auto-correct; too many changes to be considered safe.
+
+REPORT REQUIREMENTS
+- Show the corrected code in the comparison but preserve the original OCR token.
+- Add a note that names both tokens and the substitution(s), e.g. DAS_4M_KIT -> DA5_4M_KIT (S->5).
+- Keep corrections at medium confidence and require visual confirmation.
+- Never change the production ai-drawing-quote-check function as part of this test.

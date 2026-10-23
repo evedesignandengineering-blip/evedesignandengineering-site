@@ -18,4 +18,6 @@ The test functions are separate function deployments but currently share the exi
 ## CU extraction correction
 The test backend does not discard an AI-proposed drawing CU merely because the model's short evidence field omitted the literal `CU:` label. It checks the complete extracted drawing text for the code/quantity inside explicit CU blocks; `NON CU:` and `DCSH:` blocks remain excluded. Text-confirmed repeated codes are aggregated from source text rather than adding the same aggregate multiple times.
 
-Regression cases and expected aggregation are in `tests/CU-CALLOUT-REGRESSION.txt`.
+Code-recognition now handles unique lookalike matches for S/5, I/1/L, O/0/Q, Z/2, B/8 and G/6. It changes at most two glyphs, only when the cleaned code lengths match and there is exactly one DQM/source reference candidate. The original detected token and correction are preserved in the report. Exact valid codes win, and ambiguous lookalikes remain uncorrected for manual review.
+
+Regression cases and expected aggregation/code correction behaviour are in `tests/CU-CALLOUT-REGRESSION.txt`.
