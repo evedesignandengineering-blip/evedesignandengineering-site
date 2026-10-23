@@ -499,12 +499,12 @@ Deno.serve(async(req:Request)=>{
  const imgs=(a:unknown[])=>a.map((v:any)=>{const m=String(v||"").match(/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/);return !m||m[2].length>1600000?null:{inlineData:{mimeType:m[1]==="jpg"?"image/jpeg":"image/"+m[1],data:m[2]}};}).filter(Boolean);
  const parts:any[]=[{text:"DRAWING TEXT (untrusted document):\n"+(dt||"[No text layer]")},...imgs(di),{text:"QUOTE TEXT (untrusted document):\n"+(qt||"[No text layer]")},...imgs(qi),{text:"USER SCOPE:\n"+(scope||"[None]")}];
  const instructions='Only compare compatible units (CU) between the electrical drawing and DQM quote. On drawings, count quantities only inside explicit "CU:" callouts. Exclude "NON CU:" and "DCSH:" sections and never count codes elsewhere. In the DQM quote, read quantities only from the "Compatible Units" table; the quantity is the number after the standalone O-column letter N. Sum repeated drawing callouts and repeated quote rows. Ignore quote-only extras as discrepancies. Do not invent quantities. Return strict JSON with drawing_items and quote_items arrays, each item containing code, quantity, evidence, page and confidence, plus summary and limitations.';
- const batches=[["gemini-3.1-flash-lite","gemini-3.5-flash-lite"],["gemini-3.8-flash","gemini-3.6-flash"]],start=Date.now();
+ const batches=[["gemini-3.1-flash-lite","gemini-3.5-flash-lite"],["gemini-3.8-flash","gemini-3.6-flash"],["gemma-4-26b-a4b-it","gemma-4-31b-it"],["gemini-3.7-flash","gemini-3-flash-preview","gemini-2.5-flash-lite","gemini-2.5-flash"]],start=Date.now();
  let selected="",result:any=null,raw="",finishReason="UNKNOWN";const statuses:number[]=[];let tried=0;
  async function callGemini(model:string){
   const c=new AbortController(),timer=setTimeout(()=>c.abort(),23000);
   try{
-   const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent",{method:"POST",headers:{"x-goog-api-key":key||"","Content-Type":"application/json"},signal:c.signal,body:JSON.stringify({systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],generationConfig:{temperature:0,maxOutputTokens:6500,responseMimeType:"application/json",thinkingConfig:{thinkingLevel:"low"}}})});
+   const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent",{method:"POST",headers:{"x-goog-api-key":key||"","Content-Type":"application/json"},signal:c.signal,body:JSON.stringify({systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],generationConfig:{temperature:0,maxOutputTokens:6500,responseMimeType:"application/json",thinkingConfig:{thinkingLevel:model.startsWith("gemma-4-")?"minimal":"low"}}})});
    if(!response.ok){statuses.push(response.status);console.error("[dqm-provider-status]",model,response.status);throw new Error("Provider HTTP "+response.status);}
    let data:any;try{data=await response.json();}catch(e){statuses.push(502);console.error("[dqm-provider-invalid-json]",model,String(e).slice(0,100));throw new Error("Invalid provider JSON");}
    const candidate=data.candidates?.[0],textOut=(candidate?.content?.parts||[]).map((x:any)=>x.text||"").join("").trim();
@@ -518,7 +518,7 @@ Deno.serve(async(req:Request)=>{
   }finally{clearTimeout(timer);}
  }
  for(const batch of batches){
-  if(result||Date.now()-start>62000)break;
+  if(result||Date.now()-start>100000)break;
   tried+=batch.length;
   console.log("[dqm-model-batch-start]",batch.join(","));
   const outcomes=await Promise.allSettled(batch.map(model=>callGemini(model)));
@@ -526,7 +526,7 @@ Deno.serve(async(req:Request)=>{
   if(success){result=success.value.obj;raw=success.value.textOut;selected=success.value.model;finishReason=success.value.reason;console.log("[dqm-model-batch-success]",selected);}
   else console.error("[dqm-model-batch-failed]",batch.join(","));
  }
- if(!result)return json({error:"The CU tables could not be read reliably from both PDFs. No quantity comparison was generated, to avoid false discrepancies.",attempted_models:tried,diagnostic:{drawing_cu_items_found:parsedDrawingCu.length,quote_cu_items_found:parsedQuoteCu.length,finishReason,elapsed_ms:Date.now()-start,provider_statuses:statuses,model_batches:batches}},422,o);
+ if(!result)return json({error:"The CU tables could not be read reliably from both PDFs. No quantity comparison was generated, to avoid false discrepancies.",attempted_models:tried,diagnostic:{drawing_cu_items_found:parsedDrawingCu.length,quote_cu_items_found:parsedQuoteCu.length,finishReason,elapsed_ms:Date.now()-start,provider_statuses:statuses,model_batches:batches,maximum_fallback_window_ms:100000}},422,o);
  const aiDrawingCu=b.drawingTextTruncated?cuAIItems(result.drawing_items,true):(parsedDrawingCu.length?parsedDrawingCu:cuAIItems(result.drawing_items,true));
  const aiQuoteCu=b.quoteTextTruncated?cuAIItems(result.quote_items,false):(parsedQuoteCu.length?parsedQuoteCu:cuAIItems(result.quote_items,false));
  if(!aiDrawingCu.length||!aiQuoteCu.length)return json({error:"Gemini returned a response, but one CU inventory was not sufficiently evidenced. No quantity comparison was generated.",diagnostic:{drawing_cu_items_found:aiDrawingCu.length,quote_cu_items_found:aiQuoteCu.length,model:selected,finishReason,provider_statuses:statuses}},422,o);
