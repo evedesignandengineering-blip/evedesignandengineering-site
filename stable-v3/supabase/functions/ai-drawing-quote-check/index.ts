@@ -8,11 +8,32 @@ const clean=(v:unknown,m=120000)=>String(v??"").slice(0,m), norm=(v:unknown)=>St
 const number=(v:unknown):number|null=>{if(typeof v==="number"&&Number.isFinite(v))return v;const m=String(v??"").replace(/,/g,"").match(/-?\d+(?:\.\d+)?/);return m?Number(m[0]):null;};
 const codeOf=(x:any)=>String(x?.code??x?.item_code??x?.drawing_item??x?.quote_item??""),qtyOf=(x:any)=>number(x?.quantity??x?.qty??x?.quote_quantity);
 const canonicalCode=(v:unknown)=>norm(String(v??"").replace(/CU$/i,""));
+function extractDesignerName(text:string):string {
+ const segments=String(text||"").split(/[\r\n|;]+/).map(value=>value.replace(/^\s*\[PAGE[^\]]*\]\s*/i,"").trim()).filter(Boolean);
+ const isFieldLabel=(value:string)=>/^(?:LEAD\s+DESIGNER(?:\s+NAME)?|DESIGNER(?:\s+NAME)?|DRAWING(?:\s+NO\.?)?|DWG\.?|DRG\.?|DRAWN\s+BY|DESIGNED\s+BY|SITE\s+ADDRESS|PROJECT\s+ADDRESS|ADDRESS|LOCATION|GEO\s+REF|LATITUDE|LONGITUDE|DATE|CHECKED\s+BY|APPROVED\s+BY|SHEET|REVISION|SCALE|CLIENT|PROJECT)\b/i.test(value);
+ for(let i=0;i<segments.length;i++){
+  const match=segments[i].match(/^DESIGNER(?:\s+NAME)?\b\s*(?::|=|-)?\s*(.*)$/i);
+  if(!match)continue;
+  const value=String(match[1]||"").trim();
+  if(value&&!isFieldLabel(value))return value.slice(0,70).replace(/[|,;]+$/,"").trim();
+  if(value)continue;
+  const next=segments[i+1]||"";
+  if(next&&!isFieldLabel(next))return next.slice(0,70).trim();
+ }
+ return "";
+}
+function applyPreferredDesigner(report:any,drawing:string,derived:any=extractProjectMetadata(drawing)):void {
+ if(!report.project_details||typeof report.project_details!=="object")report.project_details={};
+ const explicit=derived?.project_details?.designer;
+ if(explicit){report.project_details.designer=explicit;return;}
+ // Never fall back to a Lead Designer field if the drawing has no standalone Designer field.
+ if(/\bLEAD\s+DESIGNER(?:\s+NAME)?\b/i.test(drawing))delete report.project_details.designer;
+}
 function extractProjectMetadata(drawing:string){
  const text=drawing.replace(/\r/g,"");
  const pick=(patterns:RegExp[])=>{for(const re of patterns){const m=text.match(re);if(m?.[1])return m[1].replace(/\s+/g," ").trim().replace(/[|,;]+$/,"");}return "";};
  const drawingNumber=pick([/(?:DRAWING|DRAWING\s+NO\.?|DWG\.?|DRG\.?)\s*(?:NUMBER|NO\.?|#|ID)?\s*[:#=-]?\s*([A-Z]{0,5}\d{5,8}[A-Z0-9/-]*)/i,/(SP\d{6})/i]);
- const designer=pick([/(?:DESIGNED\s+BY|DRAWN\s+BY|DESIGNER)\s*[:=-]?\s*([^\n|]{2,70})/i]);
+ const designer=extractDesignerName(text);
  const address=pick([/(?:SITE\s+ADDRESS|PROJECT\s+ADDRESS|WORKS\s+LOCATION|SITE\s+LOCATION|LOCATION)\s*[:=-]?\s*([^\n|]{5,140})/i]);
  const field=(value:string)=>value?{value,confidence:"high"}:undefined;
  const details:any={};if(drawingNumber)details.drawing_number=field(drawingNumber);if(designer)details.designer=field(designer);if(address)details.address=field(address);
@@ -89,6 +110,7 @@ async function reconcile(r:any,drawing:string,quote:string){
   else if(item&&typeof item==="object"&&typeof item.value==="string"&&item.value.trim()&&!item.confidence)item.confidence="medium";
   if(derivedItem&&(!(r.project_details as any)[k]||!String((r.project_details as any)[k].value||"").trim()))(r.project_details as any)[k]=derivedItem;
  }
+ applyPreferredDesigner(r,drawing,derived);
  if(!r.geo_reference||typeof r.geo_reference!=="object")r.geo_reference=derived.geo_reference||{};
  else if(derived.geo_reference&&!Number.isFinite(number(r.geo_reference.latitude))&&!Number.isFinite(number(r.geo_reference.longitude)))r.geo_reference=derived.geo_reference;
  supplementDrawingInventory(r,drawing);
@@ -506,6 +528,7 @@ async function cuCalculateDepotTravel(report:any,drawingText:string,quoteText:st
  const derived=extractProjectMetadata(drawingText);
  if(!report.project_details||typeof report.project_details!=="object")report.project_details={};
  for(const key of ["drawing_number","designer"]){if(derived.project_details?.[key]&&!report.project_details[key])report.project_details[key]=derived.project_details[key];}
+ applyPreferredDesigner(report,drawingText,derived);
  const headerField=(label:RegExp):string=>{
   for(const rawLine of quoteText.split(/\r?\n/)){const parts=rawLine.split("|").map(part=>part.trim());for(let i=0;i<parts.length;i++){const match=parts[i].match(label);if(!match)continue;const inline=String(match[1]||"").replace(/\*+/g,"").trim();if(inline&&!/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(inline))return inline;for(let j=i+1;j<parts.length;j++){const candidate=parts[j].replace(/\*+/g,"").trim();if(!candidate||/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(candidate))break;return candidate;}}}
   return "";
