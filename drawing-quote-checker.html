@@ -214,8 +214,8 @@ $('compare').addEventListener('click',async()=>{
     const controller=new AbortController();let requestTimedOut=false;const requestTimeout=setTimeout(()=>{requestTimedOut=true;controller.abort();},120000);let response,body;
     try{
      response=await fetch(SUPABASE_URL+'/functions/v1/ai-drawing-quote-check',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+SUPABASE_ANON_KEY},body:JSON.stringify(payload),signal:controller.signal});
-     try{body=await response.json();}catch{if(requestTimedOut)throw new Error('The AI comparison timed out after 2 minutes. Retrying automatically.');throw new Error('The AI service returned an invalid response.');}
-    }catch(requestError){if(requestTimedOut)throw new Error('The AI comparison timed out after 2 minutes. Retrying automatically.');throw requestError;}finally{clearTimeout(requestTimeout);}
+     try{body=await response.json();}catch{if(requestTimedOut)throw new Error('The CU comparison timed out after 2 minutes. Retrying automatically.');throw new Error('The CU comparison service returned an invalid response.');}
+    }catch(requestError){if(requestTimedOut)throw new Error('The CU comparison timed out after 2 minutes. Retrying automatically.');throw requestError;}finally{clearTimeout(requestTimeout);}
     if(!response.ok){
      const error=new Error(body.error||('AI request failed ('+response.status+').'));error.status=response.status;
      if(response.status!==429&&attempt<maxAttempts&&(response.status===408||response.status>=500)){lastError=error;await new Promise(resolve=>setTimeout(resolve,1200));continue;}
@@ -229,7 +229,7 @@ $('compare').addEventListener('click',async()=>{
     await new Promise(resolve=>setTimeout(resolve,1200*attempt));
    }
   }
-  if(!result)throw lastError||new Error('AI comparison could not be completed after automatic retries.');
+  if(!result)throw lastError||new Error('CU comparison could not be completed after automatic retries.');
   if(progressTimer){clearInterval(progressTimer);progressTimer=null;}setProgress(100,'Comparison complete');renderReport(result);$('uploadWorkflow').style.display='none';$('status').style.display='none';$('progressPanel').style.display='none';$('uploadHeading').childNodes[0].textContent='1. Comparison complete ';$('clear').textContent='Clear Operation';$('compare').style.display='none';setUploadCollapsed(false);$('results').classList.remove('focus-result');void $('results').offsetWidth;$('results').classList.add('focus-result');$('results').scrollIntoView({behavior:'smooth',block:'start'});$('status').textContent='CU comparison completed. '+dr.pageCount+' of '+dr.sourcePageCount+' drawing PDF pages and '+qr.pageCount+' quote pages processed'+(dr.declaredSheets?' (drawing sheet count detected: '+dr.declaredSheets+')':'')+'; '+dr.ocrCount+' drawing and '+qr.ocrCount+' quote pages were considered for OCR.';
  }catch(e){if(progressTimer){clearInterval(progressTimer);progressTimer=null;}$('progressPanel').style.display='none';$('status').textContent='CU comparison could not be completed: '+e.message;}
  finally{btn.disabled=false;}
