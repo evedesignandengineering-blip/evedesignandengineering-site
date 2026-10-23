@@ -277,7 +277,7 @@ function cuFindExplicitCuEvidence(input:string,codeValue:unknown):any|null {
  const text=cuCompact(input),code=String(codeValue??"").trim();
  if(!code)return null;
  const events=Array.from(text.matchAll(/\b(?:NON\s*CU|DCSH)\s*:|\bCU\s*:/gi));
- const starts=events.filter(m=>/\bCU\s*:/i.test(m[0])&&!cuIsNonCuLabel(text,m.index??0));
+ const starts=events.filter(m=>/\bCU\s*:/i.test(m[0])&&!/^\s*NON\s*CU\s*:/i.test(m[0])&&!/^\s*DCSH\s*:/i.test(m[0])&&!cuIsNonCuLabel(text,m.index??0));
  const escaped=code.replace(/[.*+?^$()|[\]\\]/g,"\\$&");
  const expression=new RegExp("(?<![A-Z0-9])"+escaped+"(?![A-Z0-9])\\s*[x×]\\s*(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*(km|m|ea|each)?\\b","gi");
  let total=0,occurrences=0,unit="EA",firstEvidence="",sourcePages:number[]=[];
