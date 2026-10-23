@@ -1,0 +1,30 @@
+EVE STABLE VERSION 3 — CU CALLOUT REGRESSION FIXTURE
+
+TEST INPUT (as supplied by the user; three repeated callouts):
+[PAGE 2]
+CU: LU10 x 1
+CU: CN42 X 15m, CN73_LV25 x 3, CN54 x 2
+CU: CN42 X 15m, CN73_LV25 x 3, CN54 x 2
+CU: CN42 X 15m, CN73_LV25 x 3, CN54 x 2
+NON CU: CR0324 x 1
+DCSH: U08-4
+
+EXPECTED DRAWING CU TOTALS:
+- LU10: 1 EA
+- CN42: 45 m (15 m from each of 3 callouts)
+- CN73_LV25: 9 EA (3 from each of 3 callouts)
+- CN54: 6 EA (2 from each of 3 callouts)
+
+EXPECTED EXCLUSIONS:
+- CR0324 from the NON CU block must not enter the drawing CU inventory.
+- U08-4 / any items in DCSH must not enter the drawing CU inventory.
+
+REGRESSION PURPOSE:
+- Confirm a CU item is not filtered out only because the AI evidence snippet omits "CU:".
+- Confirm source-text evidence can restore the item and provide physical PDF page provenance.
+- Confirm repeated callouts sum once, without multiplying an AI aggregate again.
+- Confirm NON CU and DCSH are excluded.
+
+QUOTE COMPARISON EXPECTATION:
+- The checker must report the above source-derived drawing items in the inventory before comparing them with the DQM Compatible Units table.
+- A partial/ambiguous six-sheet inventory must remain flagged and must not be reported as fully complete.
