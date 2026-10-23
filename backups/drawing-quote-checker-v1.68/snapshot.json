@@ -1,0 +1,36 @@
+{
+  "snapshot_name": "EVE Drawing & Quote Checker Stable v1.68",
+  "snapshot_created_utc": "2026-10-23T00:55:21.606Z",
+  "website_repository": "evedesignandengineering-blip/evedesignandengineering-site",
+  "stable_branch": "stable/drawing-quote-checker-v1.68",
+  "frontend": {
+    "path": "drawing-quote-checker.html",
+    "version": "V1.68",
+    "blob_sha": "c0647d1a75f2991ad005dc997d21bd97f4f5fe31"
+  },
+  "shared_stylesheet": {
+    "path": "styles.css",
+    "blob_sha": "c1b255a25c2526341f3d051600a8fd5294407824"
+  },
+  "backend": {
+    "project_id": "hszkloepnewfkzdegfhl",
+    "function_slug": "ai-drawing-quote-check",
+    "deployed_version": 113,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "path": "supabase/functions/ai-drawing-quote-check/index.ts",
+    "blob_sha": "8d2d945175d60875f3c2ed650ebf90299a0643ea",
+    "model_priority": [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite",
+      "gemini-3.8-flash",
+      "gemini-3.6-flash"
+    ]
+  },
+  "notes": [
+    "The stable branch captures the complete repository state at the point this backup was created.",
+    "The backups folder also contains standalone copies of the frontend, shared stylesheet, and backend function source.",
+    "Supabase API keys/secrets are intentionally not copied into source control; current deployed project secrets remain configured in Supabase.",
+    "Rollback website files by restoring from this stable branch. Rollback the Edge Function by deploying the saved index.ts from this branch to function ai-drawing-quote-check in project hszkloepnewfkzdegfhl."
+  ]
+}
