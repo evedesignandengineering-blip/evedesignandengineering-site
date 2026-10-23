@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#153f61">
+<link rel="icon" type="image/svg+xml" href="/stable-v3/favicon.svg?v=20261020">
+<link rel="shortcut icon" href="/stable-v3/favicon.svg?v=20261020">
+<title>CAD Quantity Takeoff | EVE Design &amp; Engineering</title>
+<meta name="description" content="Calculate CAD drawing quantities and layer lengths from supported DXF files, with exportable results.">
+<link rel="canonical" href="https://evedesignandengineering.com/stable-v3/quantity-takeoff.html">
+<link rel="stylesheet" href="styles.css?v=20261018-audit">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package/gdal3.js" crossorigin="anonymous"></script>
+<style>
+:root{--navy:#102b46;--blue:#1e6aa8;--teal:#1c8a83;--ink:#172b3a;--muted:#657786;--line:#dce5eb;--bg:#f4f7fa;--white:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "DM Sans",Arial,sans-serif}.takeoff-hero{background:linear-gradient(115deg,#102b46,#174d72);color:white;padding:25px max(22px,calc((100% - 1180px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px}.takeoff-hero small{letter-spacing:.15em;text-transform:uppercase;color:#b8d8e8;font-size:11px;font-weight:700}.takeoff-hero h1{font:800 clamp(30px,4vw,42px)/1.1 Manrope;margin:10px 0 12px;letter-spacing:-.045em}.takeoff-hero p{margin:0;color:#d5e6ef;font:14px/1.7 "DM Sans",Arial,sans-serif}.drawing-units{font-size:13px;font-weight:700;border:1px solid #ffffff55;border-radius:8px;padding:9px 12px;white-space:nowrap}main{max-width:1180px;margin:28px auto;padding:0 20px}.intro{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:20px}.intro h2{margin:0;font:800 23px/1.2 Manrope;color:#09284b;letter-spacing:-.03em}.intro p{color:var(--muted);margin:4px 0 0;font:12px/1.6 "DM Sans",Arial,sans-serif}.status{font-size:12px;color:#126e60;background:#e1f5ef;border-radius:20px;padding:6px 10px;white-space:nowrap}.grid{display:grid;grid-template-columns:350px 1fr;gap:18px}.panel{background:white;border:1px solid var(--line);border-radius:14px;box-shadow:0 5px 20px #18344a08;overflow:hidden}.panelhead{padding:17px 19px;border-bottom:1px solid var(--line);font:800 13px/1.4 Manrope,sans-serif;color:#09284b}.panelbody{padding:19px}.drop{border:1.5px dashed #9fb8c8;border-radius:12px;padding:24px 14px;text-align:center;background:#f8fbfd;cursor:pointer;transition:.15s}.drop:hover,.drop.drag{border-color:var(--blue);background:#edf6fc}.drop .symbol{font-size:30px;color:var(--blue)}.drop strong{display:block;margin:8px 0 3px}.muted{color:var(--muted);font-size:12px}.file-name{margin-top:12px;font-size:13px;overflow-wrap:anywhere}.field{margin-top:18px}.field label{display:block;font:700 12px/1.4 "DM Sans",Arial,sans-serif;margin-bottom:6px}input[type=text],select{width:100%;padding:10px 11px;border:1px solid #cdd9e1;border-radius:8px;background:white;color:var(--ink);font:inherit}input[type=file]{display:none}.btn{border:0;border-radius:8px;padding:10px 14px;font:700 12px/1.4 "DM Sans",Arial,sans-serif;cursor:pointer}.primary{background:var(--blue);color:white}.primary:hover{background:#155887}.secondary{background:#eaf1f6;color:#20435a}.btn:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.notice{margin-top:14px;border-radius:9px;padding:11px 12px;font-size:12px;background:#fff6e5;color:#80521b;border:1px solid #f2dfb5}.notice.good{background:#eaf7f2;color:#17694f;border-color:#cbe9dc}.notice.error{background:#fff0ef;color:#9d3028;border-color:#f3d0cc}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}.stat{background:#f6f9fb;border-radius:9px;padding:12px}.stat span{display:block;color:var(--muted);font-size:11px}.stat strong{font-size:22px;letter-spacing:-.03em}.tabletools{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px}.tablewrap{overflow:auto;max-height:540px}table{width:100%;border-collapse:collapse;min-width:480px}th,td{text-align:left;padding:12px 16px;border-top:1px solid #e8eef2;font-size:13px}th{background:#f8fafc;color:#536978;font-size:11px;text-transform:uppercase;letter-spacing:.06em;position:sticky;top:0}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}.empty{text-align:center;padding:60px 25px;color:var(--muted)}.empty .symbol{font-size:36px;color:#9bb0bd}.empty h3{color:var(--ink);margin:10px 0 5px}.footer{color:#81919b;text-align:center;font-size:12px;padding:22px}@media(max-width:800px){.takeoff-hero{align-items:flex-start;flex-direction:column}.intro{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(3,1fr)}}
+</style>
+<style>
+/* Shared page-hero refinement: compact, consistent and high-contrast. */
+.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-top:clamp(28px,3.8vw,42px)!important;padding-bottom:clamp(26px,3.2vw,36px)!important;background:#153f61!important}
+.tools-hero h1,.portfolio-hero h1,.calc-hero h1,.takeoff-hero h1{line-height:1.12;text-wrap:balance}
+@media(max-width:620px){.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-left:6%!important;padding-right:6%!important}}
+</style>
+</head>
+<body>
+<div class="site">
+<header class="nav"><a class="brand" href="https://evedesignandengineering.com/stable-v3/#home" aria-label="EVE Design and Engineering main website"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><nav aria-label="Primary navigation"><a href="index.html#home">Home</a><a href="index.html#about">About</a><a href="index.html#services">Services</a><a href="portfolio.html">Portfolio</a><a class="active" href="tools.html">Tools</a><a href="index.html#contact">Contact</a></nav><a class="nav-cta" href="index.html#contact">Get in Touch <b>→</b></a></header>
+<section class="takeoff-hero"><div><small>EVE DESIGN &amp; ENGINEERING / CAD UTILITY</small><h1>CAD Quantity Takeoff</h1><p>Layer lengths and cell/block quantities, ready to export.</p></div><div class="drawing-units">DRAWING UNITS · METRES</div></section>
+<main>
+<div class="intro"><div><h2>Drawing quantity report</h2><p>Upload a CAD drawing to calculate lengths and object counts.</p></div><span class="status">● Local file processing</span></div>
+<div class="grid">
+<section class="panel"><div class="panelhead">1. Drawing file</div><div class="panelbody">
+<div class="drop" id="drop"><div class="symbol">⇧</div><strong>Drop your drawing here</strong><div class="muted">or click to browse · DXF and DGN V7</div><div class="muted">Your file stays in this browser</div><input id="file" type="file" accept=".dxf,.dgn,application/octet-stream"></div>
+<div class="file-name muted" id="filename">No file selected</div>
+<div class="field"><label for="filter">Filter layer or cell name (optional)</label><input id="filter" type="text" placeholder="e.g. sl-ug-cables_CN41"></div>
+<div class="field"><label for="precision">Length display</label><select id="precision"><option value="2">2 decimal places</option><option value="3">3 decimal places</option><option value="0">Whole metres</option></select></div>
+<div class="actions"><button class="btn primary" id="analyze" disabled>Analyse drawing</button><button class="btn secondary" id="clear">Clear</button></div>
+<div class="notice" id="notice">DXF is analysed in-browser. DGN extraction attempts a browser reader. Unsupported formats return an error rather than estimated quantities.</div>
+</div></section>
+<section class="panel"><div class="panelhead">2. Quantity schedule</div><div id="results">
+<div class="stats"><div class="stat"><span>Items found</span><strong id="items">—</strong></div><div class="stat"><span>Total length</span><strong id="length">—</strong></div><div class="stat"><span>Block instances</span><strong id="blocks">—</strong></div></div>
+<div class="tabletools"><strong id="tabletitle">Non-zero quantities</strong><div class="actions" style="margin:0"><button class="btn secondary" id="csv" disabled>Export CSV</button><button class="btn secondary" id="excel" disabled>Export Excel</button></div></div>
+<div class="tablewrap"><div class="empty" id="empty"><div class="symbol">▤</div><h3>Awaiting drawing</h3><p>Upload a DXF file and select Analyse drawing to generate your schedule.</p></div><table id="table" hidden><thead><tr><th>Layer / cell name</th><th>Type</th><th class="num">Quantity</th><th>Unit</th><th class="num">Elements</th></tr></thead><tbody id="tbody"></tbody></table></div>
+</div></section>
+</div>
+</main><div class="footer">EVE Design & Engineering · Check quantities against the source drawing before construction or procurement.</div>
+<script>
+const $=id=>document.getElementById(id);let chosen=null,rows=[];
+const drop=$('drop'),fileInput=$('file');
+drop.onclick=()=>fileInput.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('drag')};drop.ondragleave=()=>drop.classList.remove('drag');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('drag');if(e.dataTransfer.files[0])setFile(e.dataTransfer.files[0])};
+fileInput.onchange=()=>{if(fileInput.files[0])setFile(fileInput.files[0])};
+function setFile(f){chosen=f;$('filename').textContent=f.name+' · '+(f.size/1024/1024).toFixed(2)+' MB';$('analyze').disabled=false;$('notice').className='notice';$('notice').textContent=/\.dgn$/i.test(f.name)?'DGN detected. The browser reader will attempt legacy DGN V7. DGN V8 may need to be exported to DXF or DGN V7 in MicroStation if the reader cannot open it.':'DXF selected. Lengths are interpreted as metres as requested. Ensure the source drawing geometry is actually authored in metres.'; }
+function readPairs(text){const lines=text.replace(/\r/g,'').split('\n');const pairs=[];for(let i=0;i<lines.length-1;i+=2){const code=Number(lines[i].trim());if(Number.isFinite(code))pairs.push({code,value:lines[i+1].trim()})}return pairs}
+function parseDxf(text){
+ const p=readPairs(text);let i=0,section='',inEntities=false,entities=[],layers=new Set(),blocks=new Map();
+ while(i<p.length){const a=p[i++];if(a.code===0&&a.value==='SECTION'){const n=p[i++];section=n?.value==='ENTITIES'?'ENTITIES':n?.value||'';inEntities=section==='ENTITIES';continue}
+ if(a.code===0&&a.value==='ENDSEC'){inEntities=false;section='';continue}
+ if(a.code!==0)continue;const type=a.value;const ent=[];while(i<p.length&&p[i].code!==0)ent.push(p[i++]);if(section==='BLOCKS'&&type==='BLOCK'){const name=ent.find(x=>x.code===2)?.value;if(name)blocks.set(name,true)}if(inEntities){const get=c=>ent.filter(x=>x.code===c).map(x=>x.value);const layer=get(8)[0]||'0';layers.add(layer);entities.push({type,layer,ent})}}
+ const coords=e=>e.ent.filter(x=>[10,20,30,11,21,31].includes(x.code));
+ const len=(a,b)=>Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z);
+ const totalLen=e=>{const get=c=>e.ent.filter(x=>x.code===c).map(x=>Number(x.value));const x=get(10),y=get(20),z=get(30);if(e.type==='LINE'&&x.length>=1&&get(11).length){return len({x:x[0],y:y[0]||0,z:z[0]||0},{x:get(11)[0],y:get(21)[0]||0,z:get(31)[0]||0})}
+ if(e.type==='LWPOLYLINE'||e.type==='POLYLINE'){let pts=[];for(let j=0;j<e.ent.length;j++){if(e.ent[j].code===10){let pt={x:Number(e.ent[j].value),y:0,z:0};for(let k=j+1;k<e.ent.length&&e.ent[k].code!==10;k++){if(e.ent[k].code===20)pt.y=Number(e.ent[k].value);if(e.ent[k].code===30)pt.z=Number(e.ent[k].value)}pts.push(pt)}}let s=0;for(let j=1;j<pts.length;j++)s+=len(pts[j-1],pts[j]);if(pts.length>2&&get(70).some(v=>(Number(v)&1)===1))s+=len(pts[pts.length-1],pts[0]);return s}
+ if(e.type==='ARC'){const r=get(40)[0],start=get(50)[0],end=get(51)[0];if(r>=0&&start!==undefined&&end!==undefined){let d=(end-start+360)%360;return r*d*Math.PI/180}}
+ if(e.type==='CIRCLE')return 2*Math.PI*(get(40)[0]||0);
+ return 0};
+ const map=new Map();for(const e of entities){let key=e.layer+'|'+e.type,cur=map.get(key)||{name:e.layer,type:e.type,qty:0,count:0,unit:'ea'};cur.count++;const l=totalLen(e);if(l>0){cur.qty+=l;cur.unit='m';cur.type='Length · '+e.type}map.set(key,cur)}
+ const ins=new Map();for(const e of entities.filter(e=>e.type==='INSERT')){const name=e.ent.find(x=>x.code===2)?.value||'(unnamed block)';let key='CELL: '+name+'|Block';let c=ins.get(key)||{name:'CELL: '+name,type:'Block count',qty:0,count:0,unit:'ea'};c.qty++;c.count++;ins.set(key,c)}
+ return [...map.values(),...ins.values()].filter(r=>r.qty>0);
+}
+async function parseDgnBrowser(file){
+ if(typeof initGdalJs!=='function')throw new Error('The browser CAD reader could not load. Check your internet connection and retry.');
+ const describeCadError=e=>Array.isArray(e)?e.map(x=>x&&x.message?x.message:(x&&x.no!==undefined?'GDAL error code '+x.no+(x.message?': '+x.message:' (no diagnostic message)'):String(x))).join('; '):(e&&e.message?e.message:typeof e==='string'?e:JSON.stringify(e));
+ if(!window.__eveGdalPromise)window.__eveGdalPromise=Promise.resolve().then(()=>initGdalJs({path:'https://cdn.jsdelivr.net/npm/gdal3.js@2.8.1/dist/package',useWorker:false}));
+ let Gdal;
+ try { Gdal=await window.__eveGdalPromise; }
+ catch(e) { throw new Error('Browser CAD engine failed to initialise: '+describeCadError(e)+'. This is before the DGN file can be converted. Try a current Chrome/Edge browser and allow cdn.jsdelivr.net, or export the file to ASCII DXF in MicroStation/OpenRoads.'); }
+ $('notice').textContent='Opening DGN file…';
+ let opened;
+ try { opened=await Gdal.open(file); }
+ catch(e) { throw new Error('The browser CAD engine could not open this DGN file: '+describeCadError(e)+'. Automatic conversion cannot start until the DGN reader opens the source file. If this is a MicroStation V8 DGN, export it from MicroStation/OpenRoads as ASCII DXF, then upload the DXF here.'); }
+ if(!opened||!opened.datasets||!opened.datasets.length){const errors=opened&&opened.errors;const detail=errors&&errors.length?' GDAL reported: '+errors.map(x=>{try{if(typeof x==='string')return x;if(x&&x.message)return x.message;const s=JSON.stringify(x);return s&&s!=='{}'?s:'(empty driver message)'}catch(_){return String(x)}}).join('; '):' no driver details were returned';let drivers='';try{const ds=Gdal.drivers&&Gdal.drivers.vector;drivers=' Available vector drivers include DGN: '+(!!(ds&&(ds.DGN||ds.dgn)))+'; DXF: '+(!!(ds&&(ds.DXF||ds.dxf))+'.')}catch(_){}throw new Error('Could not open this DGN file.'+detail+drivers+' It may be DGN V8, which this browser build cannot read, or the file may be invalid. Try exporting it from MicroStation as ASCII DXF or legacy DGN V7, then upload the export.')}
+ const dataset=opened.datasets[0];
+ try {
+  // First convert the DGN to ASCII DXF in-browser, then use the app's tested DXF quantity parser.
+  // If the DXF writer cannot handle this drawing, fall back to GeoJSON extraction.
+  let dxfError=null;
+  try {
+   $('notice').textContent='Converting DGN to DXF for quantity analysis…';
+   const dxfOutput=await Gdal.ogr2ogr(dataset,['-f','DXF']);
+   const dxfBytes=await Gdal.getFileBytes(Array.isArray(dxfOutput)?dxfOutput[0]:dxfOutput);
+   const dxfText=new TextDecoder().decode(dxfBytes);
+   if(!/SECTION|ENTITIES/.test(dxfText.slice(0,100000)))throw new Error('The converter returned no readable DXF entities.');
+   const dxfRows=parseDxf(dxfText);
+   if(dxfRows.length){return dxfRows;}
+   dxfError=new Error('DGN-to-DXF conversion completed but no non-zero quantities were found.');
+  } catch(err) {
+   dxfError=err;
+  }
+  let output;
+  try { output=await Gdal.ogr2ogr(dataset,['-f','GeoJSON']); }
+  catch(err) {
+   const describe=e=>Array.isArray(e)?e.map(x=>x&&x.message?x.message:(x&&x.no!==undefined?'GDAL error code '+x.no+(x.message?': '+x.message:' (no diagnostic message)'):String(x))).join('; '):(e&&e.message?e.message:String(e));
+   let info='';try{const d=await Gdal.getInfo(dataset);info=' Dataset info: '+(typeof d==='string'?d:JSON.stringify(d)).slice(0,900)}catch(_){}
+   throw new Error('Automatic DGN-to-DXF conversion and geometry extraction both failed. DXF conversion: '+describe(dxfError)+'. Geometry extraction: '+describe(err)+'.'+info+' This browser reader can read legacy DGN V7 only; for DGN V8, export to ASCII DXF in MicroStation or OpenRoads and upload the DXF.');
+  }
+  const bytes=await Gdal.getFileBytes(Array.isArray(output)?output[0]:output);
+  const geo=JSON.parse(new TextDecoder().decode(bytes));
+  const grouped=new Map();
+  function pathLength(coords){let n=0;for(let i=1;i<coords.length;i++){const a=coords[i-1],b=coords[i];n+=Math.hypot((b[0]||0)-(a[0]||0),(b[1]||0)-(a[1]||0),(b[2]||0)-(a[2]||0));}return n}
+  function geomLength(g){if(!g)return 0;const a=g.coordinates;switch(g.type){case 'LineString':return pathLength(a);case 'MultiLineString':return a.reduce((s,x)=>s+pathLength(x),0);case 'Polygon':return a.reduce((s,x)=>s+pathLength(x),0);case 'MultiPolygon':return a.reduce((s,p)=>s+p.reduce((s,x)=>s+pathLength(x),0),0);case 'GeometryCollection':return (g.geometries||[]).reduce((s,x)=>s+geomLength(x),0);default:return 0}}
+  for(const f of (geo.features||[])){
+   const p=f.properties||{};const level=p.Level??p.level??p.Layer??p.layer??"Unassigned";const type=p.Type??p.type??"Element";const length=geomLength(f.geometry);
+   if(length>0){const key=String(level);const row=grouped.get(key)||{name:"Level "+level,type:"Length",qty:0,count:0,unit:"m"};row.qty+=length;row.count++;grouped.set(key,row)}
+   if(Number(type)===2||/cell/i.test(String(type))){const name="DGN cell / type "+type;const key="cell:"+name;const row=grouped.get(key)||{name:name,type:"Cell count",qty:0,count:0,unit:"ea"};row.qty++;row.count++;grouped.set(key,row)}
+  }
+  const result=[...grouped.values()].filter(x=>x.qty>0);if(!result.length)throw new Error('DGN opened, but no non-zero measurable linework or cell headers were extracted.');return result;
+ } finally {try{Gdal.close(dataset)}catch(e){}}
+}
+$('analyze').onclick=async()=>{if(!chosen)return;$('analyze').disabled=true;try{$('notice').className='notice';if(/\.dgn$/i.test(chosen.name)){rows=await parseDgnBrowser(chosen);render();$('notice').className='notice good';$('notice').textContent='DGN extraction complete. This browser reader primarily supports legacy DGN V7; this build does not include the proprietary DGN V8 driver. Verify units and compare totals with MicroStation.'}else{$('notice').textContent='Reading DXF geometry…';const text=await chosen.text();if(!/SECTION|ENTITIES/.test(text.slice(0,100000)))throw new Error('This does not appear to be an ASCII DXF file. Binary DXF is not supported; export as ASCII DXF and retry.');rows=parseDxf(text);if(!rows.length)throw new Error('No measurable non-zero entities were found.');render();$('notice').className='notice good';$('notice').textContent='Analysis complete. Verify units and unsupported entities before relying on the schedule.'}}catch(e){$('notice').className='notice error';let detail='';try{if(Array.isArray(e)){detail=e.map(x=>x&&x.message?x.message:(x&&x.no!==undefined?'GDAL error code '+x.no+(x.message?': '+x.message:' (no diagnostic message)'):String(x))).join('; ');if(!detail)detail='The CAD reader returned an empty error.'}else{detail=e&&e.message?e.message:typeof e==='string'?e:JSON.stringify(e)}}catch(_){detail=String(e)}$('notice').textContent='DGN/DXF analysis failed: '+(detail||'Unknown browser error. Open browser developer tools for details.');console.error('EVE quantity takeoff error:',e)}finally{$('analyze').disabled=!chosen}};
+function visibleRows(){const q=$('filter').value.trim().toLowerCase();return rows.filter(r=>r.qty>0&&(!q||r.name.toLowerCase().includes(q)))}
+function render(){const data=visibleRows();$('empty').hidden=data.length>0;$('table').hidden=!data.length;$('tbody').innerHTML='';const precision=Number($('precision').value);for(const r of data){const tr=document.createElement('tr');for(const [value,cls] of [[r.name,''],[r.type,''],[r.qty.toLocaleString(undefined,{minimumFractionDigits:r.unit==='m'?precision:0,maximumFractionDigits:precision}),'num'],[r.unit,''],[r.count.toLocaleString(),'num']]){const td=document.createElement('td');td.textContent=value;td.className=cls;tr.appendChild(td)}$('tbody').appendChild(tr)}$('items').textContent=data.length;$('length').textContent=data.filter(r=>r.unit==='m').reduce((s,r)=>s+r.qty,0).toLocaleString(undefined,{maximumFractionDigits:2});$('blocks').textContent=data.filter(r=>r.type==='Block count').reduce((s,r)=>s+r.count,0);$('csv').disabled=$('excel').disabled=!data.length;$('tabletitle').textContent='Non-zero quantities ('+data.length+')'}
+$('filter').oninput=render;$('precision').onchange=render;
+function exportData(){return visibleRows().map(r=>({'Layer / cell name':r.name,'Type':r.type,'Quantity':Number(r.qty.toFixed(3)),'Unit':r.unit,'Element count':r.count}))}
+$('csv').onclick=()=>{const d=exportData();const keys=Object.keys(d[0]);const csv=[keys.join(','),...d.map(r=>keys.map(k=>'"'+String(r[k]).replace(/"/g,'""')+'"').join(','))].join('\r\n');download(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}),'eve-quantity-takeoff.csv')};
+$('excel').onclick=()=>{const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(exportData()),'Quantities');XLSX.writeFile(wb,'eve-quantity-takeoff.xlsx')};
+function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href)}
+$('clear').onclick=()=>{chosen=null;rows=[];fileInput.value='';$('filename').textContent='No file selected';$('analyze').disabled=true;$('notice').className='notice';$('notice').textContent='DXF files are analysed in-browser. Direct DGN parsing requires a DGN-capable conversion/processing service; this static version will identify DGN uploads but will not invent quantities.';$('items').textContent=$('length').textContent=$('blocks').textContent='—';render()};
+</script><footer><a class="footer-brand" href="https://evedesignandengineering.com/stable-v3/#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="index.html#home">Home</a><a href="portfolio.html">Portfolio</a><a href="tools.html">Tools</a><a href="index.html#contact">Contact</a></nav></footer></div><script src="/stable-v3/drafting-promotion.js?v=20261014" defer></script>
+<script src="/stable-v3/site-editor.js?v=20261016" defer></script>
+</body></html>
