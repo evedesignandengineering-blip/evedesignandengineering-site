@@ -11,14 +11,24 @@ const canonicalCode=(v:unknown)=>norm(String(v??"").replace(/CU$/i,""));
 function extractProjectMetadata(drawing:string){
  const text=drawing.replace(/\r/g,"");
  const pick=(patterns:RegExp[])=>{for(const re of patterns){const m=text.match(re);if(m?.[1])return m[1].replace(/\s+/g," ").trim().replace(/[|,;]+$/,"");}return "";};
- const drawingNumber=pick([/(?:DRAWING|DRAWING\s+NO\.?|DWG\.?|DRG\.?)\s*(?:NUMBER|NO\.?|#|ID)?\s*[:#=-]?\s*([A-Z]{0,5}\d{5,8}[A-Z0-9/-]*)/i,/(\bSP\d{6}\b)/i]);
+ const drawingNumber=pick([/(?:DRAWING|DRAWING\s+NO\.?|DWG\.?|DRG\.?)\s*(?:NUMBER|NO\.?|#|ID)?\s*[:#=-]?\s*([A-Z]{0,5}\d{5,8}[A-Z0-9/-]*)/i,/(SP\d{6})/i]);
  const designer=pick([/(?:DESIGNED\s+BY|DRAWN\s+BY|DESIGNER)\s*[:=-]?\s*([^\n|]{2,70})/i]);
  const address=pick([/(?:SITE\s+ADDRESS|PROJECT\s+ADDRESS|WORKS\s+LOCATION|SITE\s+LOCATION|LOCATION)\s*[:=-]?\s*([^\n|]{5,140})/i]);
  const field=(value:string)=>value?{value,confidence:"high"}:undefined;
  const details:any={};if(drawingNumber)details.drawing_number=field(drawingNumber);if(designer)details.designer=field(designer);if(address)details.address=field(address);
- const lat=pick([/(?:LATITUDE|LAT)\s*[:=]?\s*(-?\d{1,2}\.\d{4,})/i]),lon=pick([/(?:LONGITUDE|LON|LONG)\s*[:=]?\s*(-?\d{1,3}\.\d{4,})/i]);
- const latNum=number(lat),lonNum=number(lon);
- return {project_details:details,geo_reference:Number.isFinite(latNum)&&Number.isFinite(lonNum)&&Math.abs(latNum!)<=90&&Math.abs(lonNum!)<=180?{latitude:latNum,longitude:lonNum,source:"explicit drawing coordinate"}:null};
+ const readCoordinate=(axis:"lat"|"lon"):{value:number;format:string;raw:string}|null=>{
+  const label=axis==="lat"?"(?:LATITUDE|LAT)":"(?:LONGITUDE|LONG|LON)";
+  const dmsRe=new RegExp("\\b"+label+"\\s*\\.?[^0-9]{0,12}(\\d{1,3})\\s*[°^º]\\s*(\\d{1,2})\\s*['′]\\s*(\\d{1,2}(?:\\.\\d+)?)\\s*['′]{0,2}\\s*([NSEW])","i");
+  const dms=text.match(dmsRe);
+  if(dms){const degrees=Number(dms[1]),minutes=Number(dms[2]),seconds=Number(dms[3]),hemi=dms[4].toUpperCase();if(minutes<60&&seconds<60){let value=degrees+minutes/60+seconds/3600;if(hemi==="S"||hemi==="W")value=-value;if(Math.abs(value)<=(axis==="lat"?90:180))return {value,format:"degrees-minutes-seconds",raw:dms[0]};}}
+  const decimalRe=new RegExp("\\b"+label+"\\s*\\.?\\s*(?:(?:[:=]\\s*)|(?:[-–]\\s+))?([+-]?\\d{1,3}\\.\\d{4,})\\s*([NSEW])?","i");
+  const dec=text.match(decimalRe);
+  if(dec){let value=Number(dec[1]);const hemi=String(dec[2]||"").toUpperCase();if(hemi==="S"||hemi==="W")value=-Math.abs(value);else if(hemi==="N"||hemi==="E")value=Math.abs(value);if(Math.abs(value)<=(axis==="lat"?90:180))return {value,format:"decimal-degrees",raw:dec[0]};}
+  return null;
+ };
+ const lat=readCoordinate("lat"),lon=readCoordinate("lon");
+ const geoReference=lat&&lon?{latitude:lat.value,longitude:lon.value,source:"explicit drawing GEO REF",coordinate_format:lat.format===lon.format?lat.format:"mixed",latitude_text:lat.raw,longitude_text:lon.raw}:null;
+ return {project_details:details,geo_reference:geoReference};
 }
 function supplementDrawingInventory(r:any,drawing:string){
  if(!Array.isArray(r.drawing_items))r.drawing_items=[];
@@ -40,18 +50,31 @@ function supplementDrawingInventory(r:any,drawing:string){
 }
 async function ensureDepotCoordinates(r:any,drawing:string){
  const geo=r.geo_reference&&typeof r.geo_reference==="object"?r.geo_reference:{};
- let lat=number(geo.latitude??geo.lat),lon=number(geo.longitude??geo.lon??geo.lng);
- if(Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat!)<=90&&Math.abs(lon!)<=180){r.geo_reference={...geo,latitude:lat,longitude:lon};return;}
+ const lat=number(geo.latitude??geo.lat),lon=number(geo.longitude??geo.lon??geo.lng);
+ const valid=Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat!)<=90&&Math.abs(lon!)<=180;
+ const withinWaEnvelope=valid&&lat!>=-35.5&&lat!<=-13&&lon!>=112&&lon!<=129;
+ if(valid&&withinWaEnvelope){r.geo_reference={...geo,latitude:lat,longitude:lon};return;}
+ const drawingReference=valid?{latitude:lat,longitude:lon,source:geo.source||"coordinate supplied in report",latitude_text:geo.latitude_text,longitude_text:geo.longitude_text}:null;
+ const coordinateOutOfWa=valid&&!withinWaEnvelope;
+ if(coordinateOutOfWa)r.coordinate_review={status:"DRAWING_COORDINATE_CONFLICT",drawing_reference:drawingReference,message:"The drawing GEO REF is outside the expected Western Australia area. It is retained for review; the checker will use the DQM site address only if that address can be geocoded reliably."};
  const p=r.project_details&&typeof r.project_details==="object"?r.project_details:{};
  const addr=String(p.address?.value??p.address??"").trim();
- if(!addr||addr.length<6)return;
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3500);
+ if(!addr||addr.length<6){if(coordinateOutOfWa)r.geo_reference={};return;}
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
  try{
   const url="https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=au&q="+encodeURIComponent(addr);
   const response=await fetch(url,{signal:controller.signal,headers:{"User-Agent":"EVE-Design-Quote-Checker/1.0 (project metadata lookup)","Accept":"application/json"}});
-  if(!response.ok)return;const rows=await response.json();const found=rows?.[0];const glat=number(found?.lat),glon=number(found?.lon);
-  if(Number.isFinite(glat)&&Number.isFinite(glon)&&Math.abs(glat!)<=90&&Math.abs(glon!)<=180)r.geo_reference={latitude:glat,longitude:glon,source:"geocoded drawing site address",matched_address:found.display_name||addr};
- }catch{}finally{clearTimeout(timer);}
+  if(!response.ok){if(coordinateOutOfWa)r.geo_reference={};return;}
+  const rows=await response.json(),found=rows?.[0],glat=number(found?.lat),glon=number(found?.lon);
+  const geocodedInWa=Number.isFinite(glat)&&Number.isFinite(glon)&&glat!>=-35.5&&glat!<=-13&&glon!>=112&&glon!<=129;
+  if(geocodedInWa){
+   r.geo_reference={latitude:glat,longitude:glon,source:coordinateOutOfWa?"DQM site-address geocode; drawing GEO REF flagged outside WA bounds":"geocoded drawing site address",matched_address:found.display_name||addr,...(coordinateOutOfWa?{drawing_geo_reference:drawingReference}:{})};
+   if(coordinateOutOfWa)r.coordinate_review={status:"DRAWING_COORDINATE_CONFLICT",drawing_reference:drawingReference,routing_coordinates:{latitude:glat,longitude:glon,source:"DQM site-address geocode",matched_address:found.display_name||addr},message:"The drawing's GEO REF is outside the expected Western Australia area and does not agree with the WA job location. Depot routing uses the geocoded DQM site address, while the drawing coordinate is retained here for correction."};
+  }else if(coordinateOutOfWa){
+   r.geo_reference={};
+   r.coordinate_review={status:"DRAWING_COORDINATE_CONFLICT",drawing_reference:drawingReference,message:"The drawing GEO REF is outside the expected Western Australia area and the DQM site address could not be geocoded. Depot travel cannot be calculated safely until the project location is corrected."};
+  }else if(!valid&&Number.isFinite(glat)&&Number.isFinite(glon)&&Math.abs(glat!)<=90&&Math.abs(glon!)<=180)r.geo_reference={latitude:glat,longitude:glon,source:"geocoded drawing site address",matched_address:found.display_name||addr};
+ }catch{if(coordinateOutOfWa)r.geo_reference={};}finally{clearTimeout(timer);}
 }
 function lineQty(s:string):number|null{const a=s.match(/(?:qty|quantity)\s*[:=]?\s*(\d+(?:,\d{3})*(?:\.\d+)?)/i);if(a)return number(a[1]);const b=s.match(/\bN\s+(\d+(?:,\d{3})*(?:\.\d+)?)(?=\s+(?:\d|Y\b|N\b|\$|\||$))/i);return b?number(b[1]):null;}
 function rowFor(lines:string[],code:string){const c=norm(code);return lines.find(l=>lineQty(l)!==null&&l.split(/[|\t]+/).some(cell=>norm(cell.trim().split(/\s+/)[0])===c))||lines.find(l=>lineQty(l)!==null&&norm(l).startsWith(c))||null;}
@@ -391,41 +414,27 @@ async function cuCalculateDepotTravel(report:any,drawingText:string,quoteText:st
  if(!report.project_details||typeof report.project_details!=="object")report.project_details={};
  for(const key of ["drawing_number","designer"]){if(derived.project_details?.[key]&&!report.project_details[key])report.project_details[key]=derived.project_details[key];}
  const headerField=(label:RegExp):string=>{
-  for(const rawLine of quoteText.split(/\r?\n/)){
-   const parts=rawLine.split("|").map(part=>part.trim());
-   for(let i=0;i<parts.length;i++){
-    const match=parts[i].match(label);if(!match)continue;
-    const inline=String(match[1]||"").replace(/\*+/g,"").trim();
-    if(inline&&!/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(inline))return inline;
-    for(let j=i+1;j<parts.length;j++){
-     const candidate=parts[j].replace(/\*+/g,"").trim();
-     if(!candidate||/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(candidate))break;
-     return candidate;
-    }
-   }
-  }
+  for(const rawLine of quoteText.split(/\r?\n/)){const parts=rawLine.split("|").map(part=>part.trim());for(let i=0;i<parts.length;i++){const match=parts[i].match(label);if(!match)continue;const inline=String(match[1]||"").replace(/\*+/g,"").trim();if(inline&&!/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(inline))return inline;for(let j=i+1;j<parts.length;j++){const candidate=parts[j].replace(/\*+/g,"").trim();if(!candidate||/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(candidate))break;return candidate;}}}
   return "";
  };
- const title=headerField(/^\s*Job\s+Title\s*:\s*(.*)$/i).replace(/\s+/g," ").trim();
- const quoteAddress=headerField(/^\s*Address\s*:\s*(.*)$/i).replace(/\s+/g," ").trim();
+ const title=headerField(/^\s*Job\s+Title\s*:\s*(.*)$/i).replace(/\s+/g," ").trim(),quoteAddress=headerField(/^\s*Address\s*:\s*(.*)$/i).replace(/\s+/g," ").trim();
  const titleLooksLikeAddress=/\b\d+\s+.+\b(?:ST|STREET|RD|ROAD|DR|DRIVE|AVE|AVENUE|HWY|HIGHWAY|CT|COURT|CRES|CRESCENT|WAY|LN|LANE)\b/i.test(title);
- const existingAddress=String(report.project_details.address?.value??report.project_details.address??"").trim();
- const isDrawingLabel=/\b(?:LOCATION\s+PLAN|SITE\s+PLAN|AREA\s+PLAN|KEY\s+PLAN)\b/i.test(existingAddress);
- const selectedAddress=titleLooksLikeAddress?title:quoteAddress||title;
- const preferredAddress=selectedAddress?selectedAddress+( /\bWA\b/i.test(selectedAddress)?"":", WA"):"";
+ const existingAddress=String(report.project_details.address?.value??report.project_details.address??"").trim(),isDrawingLabel=/\b(?:LOCATION\s+PLAN|SITE\s+PLAN|AREA\s+PLAN|KEY\s+PLAN)\b/i.test(existingAddress);
+ const selectedAddress=titleLooksLikeAddress?title:quoteAddress||title,preferredAddress=selectedAddress?selectedAddress+(/\bWA\b/i.test(selectedAddress)?"":", WA"):"";
  if((!existingAddress||isDrawingLabel)&&preferredAddress)report.project_details.address={value:preferredAddress,confidence:"high",source:"DQM quote job title/address"};
  else if(!report.project_details.address&&preferredAddress)report.project_details.address={value:preferredAddress,confidence:"medium",source:"DQM quote job title/address"};
- if(!report.geo_reference||typeof report.geo_reference!=="object")report.geo_reference=derived.geo_reference||{};
- else if(derived.geo_reference&&!Number.isFinite(number(report.geo_reference.latitude))&&!Number.isFinite(number(report.geo_reference.longitude)))report.geo_reference=derived.geo_reference;
+ if(derived.geo_reference)report.geo_reference=derived.geo_reference;
+ else if(!report.geo_reference||typeof report.geo_reference!=="object")report.geo_reference={};
  await ensureDepotCoordinates(report,drawingText);
  const geo=report.geo_reference||{},lat=number(geo.latitude??geo.lat),lon=number(geo.longitude??geo.lon??geo.lng);
  const travelItems=(Array.isArray(report.quote_items)?report.quote_items:[]).filter((item:any)=>/\bTRAV(?:EL)?\s*(?:OH|UG)[_\s-]*0*\d+\b/i.test(String(item.code??item.item_code??""))&&Number.isFinite(number(item.quantity??item.qty)));
+ const makeUncalculatedItems=(status:string)=>travelItems.map((item:any)=>({code:String(item.code??item.item_code),description:String(item.description||""),quoted_quantity:number(item.quantity??item.qty),expected_quantity:null,unit:"km",factor:null,road_distance_km:null,difference_km:null,status,message:report.coordinate_review?.message||"A reliable one-way driving route is not available; expected travel has not been guessed."}));
  if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat!)>90||Math.abs(lon!)>180){
-  report.depot_travel={depot_name:"Not determined",depot:"Not determined",distance_km:null,source:"site coordinates unavailable"};
-  report.travel_allowance_check={status:"NEEDS_LOCATION",travel_items_found:travelItems.length,message:"Could not establish reliable project coordinates from the drawing/quote address; no straight-line travel quantity has been substituted."};
+  report.depot_travel={depot_name:"Not determined",depot:"Not determined",distance_km:null,source:"reliable WA site coordinates unavailable",project_latitude:null,project_longitude:null};
+  const coordinateMessage=report.coordinate_review?.message;
+  report.travel_allowance_check={status:"NEEDS_LOCATION",travel_items_found:travelItems.length,items:makeUncalculatedItems("NEEDS_LOCATION"),message:coordinateMessage||"Could not establish reliable project coordinates from the drawing GEO REF or DQM site address; no straight-line distance has been substituted."};
   if(!Array.isArray(report.limitations))report.limitations=[];
-  report.limitations.push("Depot travel could not be calculated because a reliable project location could not be established.");
-  return;
+  report.limitations.push(coordinateMessage||"Depot travel could not be calculated because a reliable project location could not be established.");return;
  }
  const depots:[string,number,number][]=[
   ["Forrestdale",-32.136882,115.951940],["Rural Northam",-31.652603,116.697103],["Kalgoorlie",-30.787083,121.422549],
@@ -434,46 +443,33 @@ async function cuCalculateDepotTravel(report:any,drawingText:string,quoteText:st
   ["Kondinin",-32.457851,118.265403],["Merredin",-31.491310,118.241399],["Geraldton",-28.768415,114.647471],
   ["Jurien Bay",-30.297442,115.050616],["Moora",-30.630986,116.029825]
  ];
- const radians=(n:number)=>n*Math.PI/180;
- const haversine=(a:number,b:number,c:number,d:number)=>{const x=radians(c-a),y=radians(d-b),v=Math.sin(x/2)**2+Math.cos(radians(a))*Math.cos(radians(c))*Math.sin(y/2)**2;return 6371*2*Math.atan2(Math.sqrt(v),Math.sqrt(1-v));};
+ const radians=(n:number)=>n*Math.PI/180,haversine=(a:number,b:number,c:number,d:number)=>{const x=radians(c-a),y=radians(d-b),v=Math.sin(x/2)**2+Math.cos(radians(a))*Math.cos(radians(c))*Math.sin(y/2)**2;return 6371*2*Math.atan2(Math.sqrt(v),Math.sqrt(1-v));};
  const nearest=depots.map(d=>({d,straight:haversine(lat!,lon!,d[1],d[2])})).sort((a,b)=>a.straight-b.straight).slice(0,3);
- const routes=await Promise.all(nearest.map(async x=>{
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),4500);
-  try{
-   const url="https://router.project-osrm.org/route/v1/driving/"+lon+","+lat+";"+x.d[2]+","+x.d[1]+"?overview=false";
-   const response=await fetch(url,{signal:controller.signal});
-   if(!response.ok)return null;
-   const data=await response.json(),metres=data.routes?.[0]?.distance;
-   return typeof metres==="number"?{name:x.d[0],distance_km:metres/1000}:null;
-  }catch{return null;}finally{clearTimeout(timer);}
- }));
+ const routes=await Promise.all(nearest.map(async x=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),4500);try{const url="https://router.project-osrm.org/route/v1/driving/"+lon+","+lat+";"+x.d[2]+","+x.d[1]+"?overview=false",response=await fetch(url,{signal:controller.signal});if(!response.ok)return null;const data=await response.json(),metres=data.routes?.[0]?.distance;return typeof metres==="number"?{name:x.d[0],latitude:x.d[1],longitude:x.d[2],straight_line_distance_km:x.straight,distance_km:metres/1000}:null;}catch{return null;}finally{clearTimeout(timer);}}));
  const routed=routes.filter(Boolean).sort((a:any,b:any)=>a.distance_km-b.distance_km)[0] as any;
  if(!routed){
-  report.depot_travel={depot_name:nearest[0].d[0],depot:nearest[0].d[0],distance_km:null,source:"nearest depot by coordinates; driving route unavailable"};
-  report.travel_allowance_check={status:"NEEDS_ROUTE",travel_items_found:travelItems.length,message:"OSRM driving route was unavailable. No straight-line distance was used to calculate travel quantities."};
+  const nearestDepot=nearest[0];
+  report.depot_travel={depot_name:nearestDepot.d[0],depot:nearestDepot.d[0],distance_km:null,straight_line_distance_km:Math.round(nearestDepot.straight*10)/10,depot_latitude:nearestDepot.d[1],depot_longitude:nearestDepot.d[2],source:"nearest supplied depot coordinate; driving route unavailable",project_latitude:lat,project_longitude:lon,project_coordinate_source:geo.source||"drawing/quote coordinates"};
+  report.travel_allowance_check={status:"NEEDS_ROUTE",travel_items_found:travelItems.length,items:makeUncalculatedItems("NEEDS_ROUTE"),nearest_depot:nearestDepot.d[0],nearest_straight_line_distance_km:Math.round(nearestDepot.straight*10)/10,message:"The nearest supplied depot by coordinates is "+nearestDepot.d[0]+" ("+Math.round(nearestDepot.straight*10)/10+" km straight-line), but the driving-route service did not return a road distance. No straight-line distance has been used to calculate travel quantities."};
   if(!Array.isArray(report.limitations))report.limitations=[];
-  report.limitations.push("Depot was approximated from project coordinates, but driving distance was unavailable; travel quantities were not calculated.");
-  return;
+  report.limitations.push("The nearest depot coordinate was identified, but its driving distance was unavailable; travel quantities are shown as not calculated instead of being guessed.");return;
  }
  const roadKm=routed.distance_km,roundedRoadKm=Math.round(roadKm*10)/10;
- report.depot_travel={depot_name:routed.name,depot:routed.name,distance_km:roundedRoadKm,unrounded_distance_km:roadKm,source:"OSRM driving route",project_latitude:lat,project_longitude:lon};
- report.travel_allowance_check={status:"CHECKED",travel_items_found:travelItems.length,road_distance_km:roundedRoadKm,formula:"standard OH/UG travel = road km × 2; switching crew TRAV OH_007 = road km × 6; expected quantities rounded to whole km."};
- let mismatchCount=0;
+ report.depot_travel={depot_name:routed.name,depot:routed.name,distance_km:roundedRoadKm,unrounded_distance_km:roadKm,straight_line_distance_km:Math.round(routed.straight_line_distance_km*10)/10,depot_latitude:routed.latitude,depot_longitude:routed.longitude,source:"OSRM driving route between supplied depot coordinates and project coordinates",project_latitude:lat,project_longitude:lon,project_coordinate_source:geo.source||"drawing/quote coordinates",matched_address:geo.matched_address||null,nearest_depot_candidates:routes.map((r:any)=>({depot:r.name,distance_km:Math.round(r.distance_km*10)/10,straight_line_distance_km:Math.round(r.straight_line_distance_km*10)/10})).sort((a:any,b:any)=>a.distance_km-b.distance_km)};
+ const comparisonItems:any[]=[];let mismatchCount=0,matchCount=0;
  for(const item of travelItems){
-  const code=String(item.code??item.item_code),quantity=number(item.quantity??item.qty);
-  if(quantity===null)continue;
+  const code=String(item.code??item.item_code),quantity=number(item.quantity??item.qty);if(quantity===null)continue;
   const switching=/\bTRAV(?:EL)?\s*OH[_\s-]*0*007\b/i.test(code)||/switch(?:ing)?\s*crew/i.test(String(item.description||""));
-  const factor=switching?6:2,expected=Math.round(roadKm*factor),difference=Math.abs(quantity-expected),tolerance=switching?15:5;
-  if(difference<tolerance)continue;
-  mismatchCount++;
-  report.discrepancies.push({status:"DEPOT_TRAVEL_MISMATCH",severity:"high",confidence:"high",drawing_item:"Depot travel allowance",drawing_quantity:expected,drawing_unit:"km",expected_quantity:expected,expected_unit:"km",quote_item:code,quote_quantity:quantity,quote_unit:"km",difference:"Quoted travel allowance does not match the nearest depot driving distance. "+routed.name+" road route: "+roundedRoadKm+" km × "+factor+" = "+expected+" km expected; quote has "+quantity+" km."});
+  const factor=switching?6:2,expected=Math.round(roadKm*factor),difference=Math.abs(quantity-expected),tolerance=switching?15:5,status=difference<tolerance?"MATCH":"MISMATCH";
+  if(status==="MATCH")matchCount++;else mismatchCount++;
+  comparisonItems.push({code,description:String(item.description||""),quoted_quantity:quantity,expected_quantity:expected,unit:"km",factor,road_distance_km:roundedRoadKm,difference_km:Math.round(difference*10)/10,tolerance_km:tolerance,status,formula:roundedRoadKm+" km one-way road distance × "+factor+" = "+expected+" km expected"});
+  if(status==="MATCH")continue;
+  report.discrepancies.push({status:"DEPOT_TRAVEL_MISMATCH",severity:"high",confidence:"high",drawing_item:"Depot travel allowance",drawing_quantity:expected,drawing_unit:"km",expected_quantity:expected,expected_unit:"km",quote_item:code,quote_quantity:quantity,quote_unit:"km",difference:"Quoted travel allowance differs from the nearest depot driving distance. "+routed.name+" road route: "+roundedRoadKm+" km × "+factor+" = "+expected+" km expected; quote has "+quantity+" km (difference "+Math.round(difference*10)/10+" km; tolerance "+tolerance+" km)."});
  }
- report.travel_allowance_check.mismatches=mismatchCount;
- report.travel_allowance_check.message=mismatchCount?mismatchCount+" travel allowance(s) differ from the calculated driving-distance allowance.":"Travel allowance quantities are within the existing tolerance.";
+ report.travel_allowance_check={status:"CHECKED",travel_items_found:travelItems.length,road_distance_km:roundedRoadKm,nearest_depot:routed.name,straight_line_distance_km:Math.round(routed.straight_line_distance_km*10)/10,formula:"Standard OH/UG travel = one-way road km × 2; switching crew travel = one-way road km × 2 × 3 (× 6); expected quantities rounded to whole km.",items:comparisonItems,mismatches:mismatchCount,matches:matchCount,message:travelItems.length?(mismatchCount?mismatchCount+" of "+travelItems.length+" travel allowance(s) differ from calculated driving-distance allowances.":"All "+travelItems.length+" travel allowance(s) are within the existing tolerance."):"A nearest depot and driving distance were calculated, but no travel CU rows were confidently extracted from the DQM Compatible Units table."};
  if(Array.isArray(report.ignored_quote_extras))report.ignored_quote_extras=report.ignored_quote_extras.filter((x:any)=>!/\bTRAV(?:EL)?\s*(?:OH|UG)[_\s-]*0*\d+\b/i.test(String(x.item||"")));
  if(mismatchCount)report.summary+=" Depot travel check: "+mismatchCount+" allowance mismatch(es) based on "+roundedRoadKm+" km road distance from "+routed.name+".";
 }
-
 function cuCompare(drawingItems:any[],quoteItems:any[],meta:any={}):any {
  const quoteMap=new Map<string,any>(quoteItems.map((item:any)=>[cuNorm(item.code),item] as [string,any])),drawingKeys=new Set<string>(drawingItems.map((item:any)=>cuNorm(item.code)));
  const discrepancies:any[]=[],matched:any[]=[],used=new Set<string>();
@@ -500,7 +496,7 @@ Deno.serve(async(req:Request)=>{
   directReport.ai_powered=false;
   await cuCalculateDepotTravel(directReport,dt,qt);
   await cuApplyAuxAndPolypipeChecks(directReport,dt,qt);
-  directReport.diagnostics={...(directReport.diagnostics||{}),depot_travel:directReport.depot_travel,travel_allowance_check:directReport.travel_allowance_check,supplementary_checks:directReport.supplementary_checks};
+  directReport.diagnostics={...(directReport.diagnostics||{}),depot_travel:directReport.depot_travel,travel_allowance_check:directReport.travel_allowance_check,coordinate_review:directReport.coordinate_review,supplementary_checks:directReport.supplementary_checks};
   directReport.summary+=" Deterministic extraction was complete, so Gemini was not needed for the CU comparison.";
   console.log("[dqm-cu-deterministic-success]",JSON.stringify(directReport.diagnostics));
   return json(directReport,200,o);
@@ -544,7 +540,7 @@ Deno.serve(async(req:Request)=>{
  fallbackReport.ai_powered=true;
  await cuCalculateDepotTravel(fallbackReport,dt,qt);
  await cuApplyAuxAndPolypipeChecks(fallbackReport,dt,qt);
- fallbackReport.diagnostics={...(fallbackReport.diagnostics||{}),depot_travel:fallbackReport.depot_travel,travel_allowance_check:fallbackReport.travel_allowance_check,supplementary_checks:fallbackReport.supplementary_checks};
+ fallbackReport.diagnostics={...(fallbackReport.diagnostics||{}),depot_travel:fallbackReport.depot_travel,travel_allowance_check:fallbackReport.travel_allowance_check,coordinate_review:fallbackReport.coordinate_review,supplementary_checks:fallbackReport.supplementary_checks};
  fallbackReport.limitations.unshift("Text-based CU extraction was incomplete or clipped; Gemini's CU-only inventory was used for any side flagged as clipped or not parsed. Verify every item against the PDF.");
  console.log("[dqm-cu-ai-fallback]",JSON.stringify(fallbackReport.diagnostics));
  return json(fallbackReport,200,o);
