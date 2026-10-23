@@ -151,15 +151,58 @@ async function readPdf(file, role, maxImages){
   if(complete){selectedPages=Array.from({length:declaredSheets},(_,i)=>map.get(i+1));}
   else{sheetSelectionWarning='The PDF declares '+declaredSheets+' drawing sheets but contains '+pages.length+' physical pages, and the title blocks did not identify every sheet number reliably. All physical pages were retained; verify the sheet mapping before relying on the CU comparison.';}
  }
- const ocrTargets=selectedPages.filter(p=>p.text.replace(/\s/g,'').length<35).map(p=>p.page);
+ function cuPageCuPairs(rawText){
+  const text=String(rawText||"");
+  const events=Array.from(text.matchAll(/\b(?:NON\s*CU|DCSH)\s*:|\bCU\s*:/gi));
+  const starts=events.filter(m=>/\bCU\s*:/i.test(m[0])&&!/^\s*NON\s*CU\s*:/i.test(m[0])&&!/^\s*DCSH\s*:/i.test(m[0])&&!/NON\s*$/i.test(text.slice(Math.max(0,(m.index??0)-8),m.index??0)));
+  const pattern=/\b((?:(?:TRAV|OH|UG)\s+)?[A-Z][A-Z0-9_.\/-]*\d[A-Z0-9_.\/-]*)\s*[x×]\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(km|m|ea|each)?\b/gi;
+  const found=[];
+  for(const marker of starts){
+   const start=marker.index??0,next=events.find(e=>(e.index??-1)>start),end=next?(next.index??text.length):text.length,block=text.slice(start,end);
+   pattern.lastIndex=0;
+   for(const m of block.matchAll(pattern)){
+    const code=m[1].toUpperCase(),quantity=Number(m[2].replace(/,/g,'')),unit=String(m[3]||'EA').toUpperCase();
+    if(!code||!Number.isFinite(quantity))continue;
+    found.push({code,quantity,unit,key:code.replace(/[^A-Z0-9]/g,'')+'|'+quantity+'|'+unit,line:code+' x '+quantity+(unit==='EA'?'':' '+unit)});
+   }
+  }
+  return found;
+ }
+ function pageNeedsCuOcr(rawText){
+  const text=String(rawText||''),events=Array.from(text.matchAll(/\b(?:NON\s*CU|DCSH)\s*:|\bCU\s*:/gi));
+  const starts=events.filter(m=>/\bCU\s*:/i.test(m[0])&&!/^\s*NON\s*CU\s*:/i.test(m[0])&&!/^\s*DCSH\s*:/i.test(m[0])&&!/NON\s*$/i.test(text.slice(Math.max(0,(m.index??0)-8),m.index??0)));
+  const pattern=/\b[A-Z][A-Z0-9_.\/-]*\d[A-Z0-9_.\/-]*\s*[x×]\s*\d+(?:,\d{3})*(?:\.\d+)?\s*(?:km|m|ea|each)?\b/i;
+  return starts.some(marker=>{const start=marker.index??0,next=events.find(e=>(e.index??-1)>start),end=next?(next.index??text.length):text.length;return !pattern.test(text.slice(start+marker[0].length,end));});
+ }
+ // OCR is not limited to nearly blank pages: drawings often have a large readable text
+ // layer while the small CU callout text itself was flattened or reordered beyond parsing.
+ const ocrTargets=selectedPages.filter(p=>p.text.replace(/\s/g,'').length<35||(role==='drawing'&&pageNeedsCuOcr(p.text))).map(p=>p.page);
  if(ocrTargets.length&&window.Tesseract){
   const priorityPages=selectedPages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe/i.test(p.text)).map(p=>p.page);
-  const selected=[...new Set([...priorityPages,...ocrTargets])].slice(0,Math.min(12,selectedPages.length));let worker=null;
+  const selected=[...new Set([...ocrTargets,...priorityPages])].slice(0,Math.min(12,selectedPages.length));let worker=null;
   try{
    worker=await Tesseract.createWorker('eng');
    for(const n of selected){
     $('status').textContent='OCR reading scanned '+role+' page '+n+'…';
-    try{const page=await pdf.getPage(n);const vp=page.getViewport({scale:1.35});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;const result=await worker.recognize(canvas);const ocr=(result.data.text||'').trim();const pageEntry=selectedPages.find(p=>p.page===n);if(pageEntry&&ocr.length>pageEntry.text.length)pageEntry.text=ocr;canvas.width=canvas.height=1;}catch(e){console.warn('OCR failed on page',n,e);}
+    try{
+     const page=await pdf.getPage(n),vp=page.getViewport({scale:1.35}),canvas=document.createElement('canvas');
+     canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);
+     await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+     const result=await worker.recognize(canvas),ocr=(result.data.text||'').trim(),pageEntry=selectedPages.find(p=>p.page===n);
+     if(pageEntry&&ocr){
+      if(pageEntry.text.replace(/\s/g,'').length<35){pageEntry.text=ocr;}
+      else if(role==='drawing'){
+       // Merge only CU code/quantity pairs which OCR found but the PDF text layer did not.
+       // This avoids double-counting callouts that are present in both text and raster OCR.
+       const existingCounts=new Map();
+       for(const pair of cuPageCuPairs(pageEntry.text))existingCounts.set(pair.key,(existingCounts.get(pair.key)||0)+1);
+       const recovered=[];
+       for(const pair of cuPageCuPairs(ocr)){const nExisting=existingCounts.get(pair.key)||0;if(nExisting>0)existingCounts.set(pair.key,nExisting-1);else recovered.push(pair.line);}
+       if(recovered.length)pageEntry.text+='\n[OCR-RECOVERED-CU PAGE '+n+']\n'+recovered.map(line=>'CU: '+line).join('\n');
+      }
+     }
+     canvas.width=canvas.height=1;
+    }catch(e){console.warn('OCR failed on page',n,e);}
    }
   }catch(e){console.warn('OCR worker could not start',e);}
   finally{if(worker)try{await worker.terminate();}catch(e){console.warn('OCR worker cleanup failed',e);}}
