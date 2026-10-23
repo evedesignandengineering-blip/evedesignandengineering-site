@@ -1,0 +1,18 @@
+{
+  "backup_name": "EVE Drawing Quote Checker before AUX_005 total adjustment",
+  "saved_at_utc": "2026-10-23T01:54:48.383Z",
+  "branch": "stable/pre-aux005-total-calculation-v114",
+  "github_repository": "evedesignandengineering-blip/evedesignandengineering-site",
+  "frontend_path": "drawing-quote-checker.html",
+  "frontend_blob_sha": "f4b57e645ba9f0c4bd0cec57b708051098beba99",
+  "backend_path": "supabase/functions/ai-drawing-quote-check/index.ts",
+  "backend_blob_sha": "a97af56e6808c4c2e2c241094804b86d55579998",
+  "supabase_project": "hszkloepnewfkzdegfhl",
+  "edge_function": "ai-drawing-quote-check",
+  "deployed_version": 114,
+  "purpose": "Restore point immediately before changing AUX_005 input from Compatible Units subtotal to DQM quote Total internal-cost value.",
+  "current_aux005_input": "Compatible Units subtotal on the DQM Cost Summary (e.g. $20,615.38 for SP053602).",
+  "requested_aux005_input": "First Total value on the DQM Cost Summary, i.e. Total Internal Costs (e.g. $23,308.88 for SP053602).",
+  "formula_before_change": "Expected AUX_005 = 4 × ceil((input total - quoted AUX_005 quantity × $174.13) / $10,000), minimum 0.",
+  "note": "This branch preserves all repo files at the time of backup. Standalone copies below preserve exact current frontend and deployed backend source. Do not add secrets to source control."
+}
