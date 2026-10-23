@@ -269,8 +269,8 @@ Deno.serve(async(req:Request)=>{
  let b:any;try{b=await req.json();}catch{return json({error:"Expected JSON request body."},400,o);}const dt=clean(b.drawingText),qt=clean(b.quoteText),scope=clean(b.scope,8000),di=Array.isArray(b.drawingImages)?b.drawingImages.slice(0,7):[],qi=Array.isArray(b.quoteImages)?b.quoteImages.slice(0,5):[];
  if(!dt.trim()&&!di.length)return json({error:"No readable drawing text or page images were provided."},400,o);if(!qt.trim()&&!qi.length)return json({error:"No readable quote text or page images were provided."},400,o);
  const parsedDrawingCu=cuExtractDrawingItems(dt),parsedQuoteCu=cuExtractQuoteItems(qt);
- if(parsedDrawingCu.length&&parsedQuoteCu.length){
-  const directReport=cuCompare(parsedDrawingCu,parsedQuoteCu,{model:"deterministic-cu-reconciliation",ai_attempted_models:0,drawing_text_length:dt.length,quote_text_length:qt.length,declared_drawing_sheets:b.declaredDrawingSheets??null,frontend_extracted_drawing_chars:b.drawingTextChars??dt.length,frontend_extracted_quote_chars:b.quoteTextChars??qt.length,drawing_pages:b.drawingPages??null});
+ if(parsedDrawingCu.length&&parsedQuoteCu.length&&!b.drawingTextTruncated&&!b.quoteTextTruncated){
+  const directReport=cuCompare(parsedDrawingCu,parsedQuoteCu,{model:"deterministic-cu-reconciliation",ai_attempted_models:0,drawing_text_length:dt.length,quote_text_length:qt.length,declared_drawing_sheets:b.declaredDrawingSheets??null,frontend_extracted_drawing_chars:b.drawingTextChars??dt.length,frontend_extracted_quote_chars:b.quoteTextChars??qt.length,drawing_pages:b.drawingPages??null,source_drawing_pages:b.sourceDrawingPages??null,drawing_text_truncated:!!b.drawingTextTruncated,quote_text_truncated:!!b.quoteTextTruncated,drawing_truncated_pages:b.drawingTruncatedPages??0,quote_truncated_pages:b.quoteTruncatedPages??0});
   directReport.ai_powered=false;
   directReport.summary+=" Deterministic extraction was complete, so Gemini was not needed for this comparison.";
   console.log("[dqm-cu-deterministic-success]",JSON.stringify(directReport.diagnostics));
@@ -308,12 +308,12 @@ Deno.serve(async(req:Request)=>{
   else console.error("[dqm-model-batch-failed]",batch.join(","));
  }
  if(!result)return json({error:"The CU tables could not be read reliably from both PDFs. No quantity comparison was generated, to avoid false discrepancies.",attempted_models:tried,diagnostic:{drawing_cu_items_found:parsedDrawingCu.length,quote_cu_items_found:parsedQuoteCu.length,finishReason,elapsed_ms:Date.now()-start,provider_statuses:statuses,model_batches:batches}},422,o);
- const aiDrawingCu=parsedDrawingCu.length?parsedDrawingCu:cuAIItems(result.drawing_items,true);
- const aiQuoteCu=parsedQuoteCu.length?parsedQuoteCu:cuAIItems(result.quote_items,false);
+ const aiDrawingCu=b.drawingTextTruncated?cuAIItems(result.drawing_items,true):(parsedDrawingCu.length?parsedDrawingCu:cuAIItems(result.drawing_items,true));
+ const aiQuoteCu=b.quoteTextTruncated?cuAIItems(result.quote_items,false):(parsedQuoteCu.length?parsedQuoteCu:cuAIItems(result.quote_items,false));
  if(!aiDrawingCu.length||!aiQuoteCu.length)return json({error:"Gemini returned a response, but one CU inventory was not sufficiently evidenced. No quantity comparison was generated.",diagnostic:{drawing_cu_items_found:aiDrawingCu.length,quote_cu_items_found:aiQuoteCu.length,model:selected,finishReason,provider_statuses:statuses}},422,o);
  const fallbackReport=cuCompare(aiDrawingCu,aiQuoteCu,{model:selected,ai_fallback_used:true,ai_attempted_models:tried,model_elapsed_ms:Date.now()-start,drawing_text_length:dt.length,quote_text_length:qt.length});
  fallbackReport.ai_powered=true;
- fallbackReport.limitations.unshift("Text-based CU extraction was incomplete; Gemini's CU-only inventory was used only for the side that could not be extracted deterministically. Verify every item against the PDF.");
+ fallbackReport.limitations.unshift("Text-based CU extraction was incomplete or clipped; Gemini's CU-only inventory was used for any side flagged as clipped or not parsed. Verify every item against the PDF.");
  console.log("[dqm-cu-ai-fallback]",JSON.stringify(fallbackReport.diagnostics));
  return json(fallbackReport,200,o);
 });
