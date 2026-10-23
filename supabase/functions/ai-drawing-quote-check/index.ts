@@ -248,6 +248,131 @@ function cuAIItems(input:any,drawing:boolean):any[] {
  }
  return Array.from(map.values());
 }
+function cuTextMoneyValues(line:string):number[] {
+ const values:number[]=[];
+ for(const m of line.matchAll(/\$\s*([\d,]+(?:\.\d{2})?)/g)){const n=Number(m[1].replace(/,/g,""));if(Number.isFinite(n))values.push(n);}
+ return values;
+}
+function cuProjectValue(quoteText:string,drawingText:string):{value:number|null;source:string} {
+ const re=/(?:total\s+project\s+value|project\s+value|value\s+of\s+works)\D{0,45}\$?\s*([\d,]+(?:\.\d{1,2})?)/i;
+ for(const entry of [[quoteText,"explicit project value from DQM quote"],[drawingText,"explicit project value from drawing"]] as [string,string][]){const m=re.exec(entry[0]);if(m){const n=Number(m[1].replace(/,/g,""));if(Number.isFinite(n))return {value:n,source:entry[1]};}}
+ const end=quoteText.search(/Cost\s+Breakdown/i),summary=end>=0?quoteText.slice(0,end):quoteText;
+ for(const line of summary.split(/\r?\n/)){if(!/(?:^|\|)\s*Total\s*:/i.test(line))continue;const values=cuTextMoneyValues(line);if(values.length)return {value:values[0],source:"DQM quote Total used as project-value proxy because no explicit project value was found"};}
+ return {value:null,source:"project value could not be identified"};
+}
+function cuTotalInternalCost(quoteText:string):number|null {
+ const start=quoteText.search(/Cost\s+Breakdown/i);
+ if(start>=0){
+  const after=quoteText.slice(start+("Cost Breakdown").length),end=after.search(/Compatible\s+Units/i),section=end>=0?after.slice(0,end):after;
+  const rows=section.split(/\r?\n/);
+  for(let i=rows.length-1;i>=0;i--){const money=cuTextMoneyValues(rows[i]);if(money.length>=2&&money[0]>0&&Math.abs(money[0]-money[1])<0.05)return money[0];}
+ }
+ const explicit=/(?:total\s+internal\s+cost|internal\s+cost\s+total)\s*[:=]\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/i.exec(quoteText);
+ if(explicit){const n=Number(explicit[1].replace(/,/g,""));if(Number.isFinite(n)&&n>0)return n;}
+ return null;
+}
+function cuCodeItem(report:any,code:string):any|null {
+ const key=cuNorm(code),items=Array.isArray(report.quote_items)?report.quote_items:[];
+ return items.find((item:any)=>cuNorm(item.code??item.item_code)===key)||null;
+}
+function cuFindQuotedQuantity(report:any,code:string,quoteText:string):number|null {
+ const item=cuCodeItem(report,code),q=number(item?.quantity??item?.qty);if(q!==null)return q;
+ const key=cuNorm(code);
+ for(const line of cuCompact(quoteText).split(/\r?\n/)){const first=line.split("|")[0].trim().split(/\s+/)[0];if(cuNorm(first)===key){const value=cuQuoteQty(line);if(value!==null)return value;}}
+ return null;
+}
+function cuPipeDiameter(text:string):string|null {
+ const value=String(text??"").toUpperCase().replace(/,/g,"");
+ if(/\b400\s*HV\b|\b400HV\b/.test(value))return "160";
+ if(/\b120\s*[\/-]\s*240\s*MM\b|\b110\s*MM\b/.test(value))return "110";
+ if(/\b(?:1\s*[\/-]\s*16\s*[\/-]\s*25|16|25)\s*MM\b|\b63\s*MM\b/.test(value))return "63";
+ return null;
+}
+function cuExplicitPipeSizes(text:string):string[] {
+ const found:string[]=[];
+ const re=/\b(63|110|160)\s*MM\s*(?:\|\s*)?POLY\s*PIPE\b|\bPOLY\s*PIPE(?:\s*(?:SIZE|DIA(?:METER)?)\s*)?[:=-]?\s*(63|110|160)\s*MM\b/gi;
+ for(const m of text.matchAll(re)){const size=String(m[1]||m[2]);if(!found.includes(size))found.push(size);}
+ return found;
+}
+function cuAddSupplementary(report:any,status:string,item:string,expected:number|null,actual:number|null,unit:string,severity:string,confidence:string,detail:string):void {
+ if(!Array.isArray(report.discrepancies))report.discrepancies=[];
+ const key=cuNorm(item);
+ report.discrepancies=report.discrepancies.filter((entry:any)=>!(entry.status===status&&[entry.drawing_item,entry.quote_item].some(value=>cuNorm(value)===key)));
+ if(expected!==null&&actual!==null&&Math.abs(expected-actual)<1e-9)return;
+ report.discrepancies.push({status,severity,confidence,drawing_item:item,drawing_quantity:expected,drawing_unit:unit,expected_quantity:expected,expected_unit:unit,quote_item:item,quote_quantity:actual,quote_unit:unit,difference:detail});
+}
+async function cuApplyAuxAndPolypipeChecks(report:any,drawingText:string,quoteText:string):Promise<void> {
+ const notes:string[]=[],quoteClean=cuCompact(quoteText),drawingClean=cuCompact(drawingText),lines=quoteClean.split(/\r?\n/);
+ const quantity=(code:string)=>cuFindQuotedQuantity(report,code,quoteClean);
+ const project=cuProjectValue(quoteClean,drawingClean),a13=quantity("AUX_013");
+ if(project.value!==null&&a13!==null){
+  const expected=project.value<=50000?1:project.value<=200000?3:12;
+  cuAddSupplementary(report,"AUX_013_PROJECT_VALUE_MISMATCH","AUX_013",expected,a13,"EA","high","high","AUX_013 expected "+expected+" for project value $"+project.value.toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})+" ("+project.source+"); quote quantity is "+a13+".");
+ }else if(a13===null)notes.push("AUX_013 could not be checked because its DQM Compatible Units quantity was not confidently extracted.");
+ else cuAddSupplementary(report,"REVIEW_REQUIRED","AUX_013",null,a13,"EA","medium","low","AUX_013 quantity is "+a13+", but the project value could not be identified from the drawing or DQM quote. The project-value rule could not be verified.");
+ const cost=cuTotalInternalCost(quoteClean),a5=quantity("AUX_005");
+ if(cost!==null&&a5!==null){
+  const adjusted=cost-174.13*a5,expected=adjusted<=0?0:4*Math.ceil(adjusted/10000);
+  if(a5!==expected){
+   const expAmount=expected*174.13,actAmount=a5*174.13;
+   cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",expected,a5,"EA","high","high","Total internal cost is $"+cost.toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})+". Subtract quoted AUX_005 allowance ("+a5+" × $174.13 = $"+actAmount.toFixed(2)+") to get adjusted cost $"+adjusted.toFixed(2)+". Expected AUX_005 is 4 × ceil(adjusted cost / $10,000) = "+expected+" units ($"+expAmount.toFixed(2)+"); quote has "+a5+" units ($"+actAmount.toFixed(2)+").");
+  }else report.discrepancies=report.discrepancies.filter((entry:any)=>!(entry.status==="AUX_005_INTERNAL_COST_MISMATCH"&&cuNorm(entry.quote_item)==="AUX005"));
+ }else if(a5!==null){
+  cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",null,a5,"EA","medium","low","AUX_005 is quoted at "+a5+" units, but total internal cost could not be reliably extracted from the Cost Breakdown. No expected quantity was assumed; manual verification is required.");
+  notes.push("AUX_005 calculation needs manual review because the Cost Breakdown total internal cost was not readable.");
+ }
+ const cn54Items=(Array.isArray(report.drawing_items)?report.drawing_items:[]).filter((item:any)=>/^CN54(?:_|[A-Z0-9]|$)/i.test(String(item.code??"")));
+ const cn54Qty=cn54Items.reduce((sum:number,item:any)=>sum+(number(item.quantity??item.qty)||0),0);
+ if(cn54Items.length){
+  const expected=cn54Qty*2,actual=quantity("CABLE_07");
+  if(actual===null)cuAddSupplementary(report,"CN54X_CABLE_07X_MISMATCH","CABLE_07",expected,null,"EA","high","medium","Drawing CN54x quantities total "+cn54Qty+"; CABLE_07 must be twice that quantity ("+expected+"), but the DQM CABLE_07 quantity was not confidently read.");
+  else cuAddSupplementary(report,"CN54X_CABLE_07X_MISMATCH","CABLE_07",expected,actual,"EA","high","high","Each drawing CN54x unit requires 2 CABLE_07 units. Drawing CN54x total: "+cn54Qty+"; expected CABLE_07: "+expected+"; quote CABLE_07: "+actual+".");
+ }
+ // Cable-to-polypipe mapping: 1/16/25 mm -> 63 mm; 120/240 mm -> 110 mm; 400 HV -> 160 mm.
+ const drillRows=lines.filter(line=>/(?:DDRILL|DIRECTIONAL\s*DRILL|D.?DRILL)/i.test(line)&&cuQuoteQty(line)!==null);
+ const knownDrillCodes=new Set(drillRows.map(line=>(line.match(/^\s*((?:DDRILL|DIRECTIONAL\s*DRILL|D.?DRILL)[A-Z0-9_./-]*)/i)?.[1]||"").toUpperCase()).filter(Boolean));
+ for(const item of (Array.isArray(report.quote_items)?report.quote_items:[])){
+  const code=String(item.code??item.item_code??"").trim();
+  if(!/^(?:DDRILL|DIRECTIONAL\s*DRILL|D.?DRILL)/i.test(code)||knownDrillCodes.has(code.toUpperCase()))continue;
+  const q=number(item.quantity??item.qty);if(q===null)continue;
+  drillRows.push(code+" "+String(item.description||"")+" N "+q);knownDrillCodes.add(code.toUpperCase());
+ }
+ const pipeSizes=cuExplicitPipeSizes(drawingClean),checkedSizes=new Set<string>();
+ for(const line of drillRows){
+  const expectedSize=cuPipeDiameter(line);if(!expectedSize||checkedSizes.has(expectedSize))continue;checkedSizes.add(expectedSize);
+  if(pipeSizes.length&&!pipeSizes.includes(expectedSize)){
+   const actual=pipeSizes.length===1?Number(pipeSizes[0]):null;
+   cuAddSupplementary(report,"POLYPIPE_SIZE_MISMATCH","Required polypipe "+expectedSize+"mm",Number(expectedSize),actual,"mm","high","high","DQM drilling CU indicates cable class '"+line.trim().slice(0,160)+"', which maps to "+expectedSize+"mm polypipe. Explicit drawing polypipe callout(s) found: "+pipeSizes.join(", ")+"mm. Confirm the correct diameter is shown for this drill run.");
+  }else if(!pipeSizes.length)cuAddSupplementary(report,"REVIEW_REQUIRED","Polypipe "+expectedSize+"mm",Number(expectedSize),null,"mm","medium","low","DQM drilling CU indicates a cable class that maps to "+expectedSize+"mm polypipe, but no explicit diameter-labelled polypipe callout could be extracted from the drawing. Verify the plan or detail.");
+ }
+ // DDrill installation and haul must match by polypipe diameter, not by cable run length.
+ const haulRows=lines.filter(line=>/\bHAUL\b/i.test(line)&&cuQuoteQty(line)!==null);
+ const drills=drillRows.map(line=>{
+  const code=(line.match(/^\s*((?:DDRILL|DIRECTIONAL\s*DRILL|D.?DRILL)[A-Z0-9_./-]*)/i)?.[1]||"DDRILL").toUpperCase();
+  const fallback=cuCodeItem(report,code);
+  return {code,quantity:cuQuoteQty(line)??number(fallback?.quantity??fallback?.qty),diameter:cuPipeDiameter(line)};
+ }).filter(record=>record.quantity!==null);
+ for(const drill of drills){
+  if(!drill.diameter)continue;
+  const haul=haulRows.map(line=>({quantity:cuQuoteQty(line),diameter:cuPipeDiameter(line)})).filter(item=>item.diameter===drill.diameter&&item.quantity!==null);
+  if(!haul.length){cuAddSupplementary(report,"REVIEW_REQUIRED","DDrill/haul "+drill.diameter+"mm",Number(drill.quantity),null,"m","medium","medium","DQM includes "+drill.code+" for the "+drill.diameter+"mm polypipe class, but no matching haul row for that diameter was confidently identified. Verify that the haul quantity is present and equals the installation quantity ("+drill.quantity+").");continue;}
+  const haulQty=haul.reduce((sum:number,item:any)=>sum+Number(item.quantity),0),installQty=Number(drill.quantity);
+  cuAddSupplementary(report,"DRILL_HAUL_QUANTITY_MISMATCH","DDrill/haul "+drill.diameter+"mm",installQty,haulQty,"m","high","high","DDrill installation and haul quantities must match for "+drill.diameter+"mm polypipe. Installation rows total "+installQty+" m; matching haul rows total "+haulQty+" m.");
+ }
+ const checks={
+  project_value:{value:project.value,source:project.source,status:project.value===null?"NEEDS_REVIEW":a13===null?"NEEDS_REVIEW":(project.value<=50000?1:project.value<=200000?3:12)===a13?"PASS":"MISMATCH"},
+  aux_005:{internal_cost:cost,quoted_quantity:a5,expected_quantity:cost!==null&&a5!==null?(cost-174.13*a5<=0?0:4*Math.ceil((cost-174.13*a5)/10000)):null,status:cost===null||a5===null?"NEEDS_REVIEW":(cost-174.13*a5<=0?0:4*Math.ceil((cost-174.13*a5)/10000))===a5?"PASS":"MISMATCH"},
+  cn54_cable_07:{drawing_cn54_quantity:cn54Qty,quoted_cable_07_quantity:quantity("CABLE_07"),expected_cable_07_quantity:cn54Qty*2,status:!cn54Items.length?"NOT_APPLICABLE":quantity("CABLE_07")===cn54Qty*2?"PASS":"MISMATCH"},
+  polypipe:{drawing_callout_sizes_mm:pipeSizes,drilling_size_classes_checked:Array.from(checkedSizes)},
+  drill_haul:{drilling_rows:drills.length,haul_rows:haulRows.length}
+ };
+ report.supplementary_checks=checks;
+ report.diagnostics={...(report.diagnostics||{}),supplementary_checks:checks};
+ if(notes.length){if(!Array.isArray(report.limitations))report.limitations=[];report.limitations.push(...notes);}
+ const extra=report.discrepancies.filter((entry:any)=>/^AUX_|^(?:POLYPIPE_SIZE_MISMATCH|DRILL_HAUL_QUANTITY_MISMATCH|CN54X_CABLE_07X_MISMATCH)$/.test(String(entry.status)));
+ if(extra.length)report.summary+=" Supplementary checks flagged "+extra.length+" AUX/cable/polypipe item(s) for review.";
+}
+
 async function cuCalculateDepotTravel(report:any,drawingText:string,quoteText:string):Promise<void> {
  const derived=extractProjectMetadata(drawingText);
  if(!report.project_details||typeof report.project_details!=="object")report.project_details={};
@@ -361,7 +486,8 @@ Deno.serve(async(req:Request)=>{
   const directReport=cuCompare(parsedDrawingCu,parsedQuoteCu,{model:"deterministic-cu-reconciliation",ai_attempted_models:0,drawing_text_length:dt.length,quote_text_length:qt.length,declared_drawing_sheets:b.declaredDrawingSheets??null,frontend_extracted_drawing_chars:b.drawingTextChars??dt.length,frontend_extracted_quote_chars:b.quoteTextChars??qt.length,drawing_pages:b.drawingPages??null,source_drawing_pages:b.sourceDrawingPages??null,drawing_text_truncated:!!b.drawingTextTruncated,quote_text_truncated:!!b.quoteTextTruncated,drawing_truncated_pages:b.drawingTruncatedPages??0,quote_truncated_pages:b.quoteTruncatedPages??0});
   directReport.ai_powered=false;
   await cuCalculateDepotTravel(directReport,dt,qt);
-  directReport.diagnostics={...(directReport.diagnostics||{}),depot_travel:directReport.depot_travel,travel_allowance_check:directReport.travel_allowance_check};
+  await cuApplyAuxAndPolypipeChecks(directReport,dt,qt);
+  directReport.diagnostics={...(directReport.diagnostics||{}),depot_travel:directReport.depot_travel,travel_allowance_check:directReport.travel_allowance_check,supplementary_checks:directReport.supplementary_checks};
   directReport.summary+=" Deterministic extraction was complete, so Gemini was not needed for the CU comparison.";
   console.log("[dqm-cu-deterministic-success]",JSON.stringify(directReport.diagnostics));
   return json(directReport,200,o);
@@ -404,7 +530,8 @@ Deno.serve(async(req:Request)=>{
  const fallbackReport=cuCompare(aiDrawingCu,aiQuoteCu,{model:selected,ai_fallback_used:true,ai_attempted_models:tried,model_elapsed_ms:Date.now()-start,drawing_text_length:dt.length,quote_text_length:qt.length});
  fallbackReport.ai_powered=true;
  await cuCalculateDepotTravel(fallbackReport,dt,qt);
- fallbackReport.diagnostics={...(fallbackReport.diagnostics||{}),depot_travel:fallbackReport.depot_travel,travel_allowance_check:fallbackReport.travel_allowance_check};
+ await cuApplyAuxAndPolypipeChecks(fallbackReport,dt,qt);
+ fallbackReport.diagnostics={...(fallbackReport.diagnostics||{}),depot_travel:fallbackReport.depot_travel,travel_allowance_check:fallbackReport.travel_allowance_check,supplementary_checks:fallbackReport.supplementary_checks};
  fallbackReport.limitations.unshift("Text-based CU extraction was incomplete or clipped; Gemini's CU-only inventory was used for any side flagged as clipped or not parsed. Verify every item against the PDF.");
  console.log("[dqm-cu-ai-fallback]",JSON.stringify(fallbackReport.diagnostics));
  return json(fallbackReport,200,o);
