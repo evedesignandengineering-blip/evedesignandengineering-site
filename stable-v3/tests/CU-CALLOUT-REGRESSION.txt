@@ -73,3 +73,25 @@ REPORT REQUIREMENTS
 
 QUOTE-READ FALLBACK
 If the DQM Compatible Units text parser does not yield a unique reference candidate, a unique AI-read quote code may be used as a secondary reference. Parsed DQM rows take priority. An ambiguous candidate from the parsed table must never be overridden by the AI-read list.
+
+
+CROSS-SHEET AGGREGATION AFTER OCR CODE CORRECTION
+Input drawing snippets (some sheets read the character 1 as I):
+[PAGE 2 | SHEET 1 OF 6]
+CU: CN73_LV10/16 x 3
+[PAGE 3 | SHEET 2 OF 6]
+CU: CN73_LV10/16 x 3
+[PAGE 4 | SHEET 3 OF 6]
+CU: CN73_LVI0/16 x 3
+[PAGE 5 | SHEET 4 OF 6]
+CU: CN73_LV10/16 x 3
+[PAGE 6 | SHEET 5 OF 6]
+CU: CN73_LVI0/16 x 3
+DQM Compatible Units row: CN73_LV10/16 quantity 15
+
+EXPECTED:
+- Correct CN73_LVI0/16 to CN73_LV10/16 using the unique DQM CU reference.
+- Aggregate the five callouts across the numbered sheets as 15 ea.
+- Compare the 15 ea drawing total with 15 ea quoted and report a quantity match.
+- Display one drawing inventory row for CN73_LV10/16 with the combined quantity and all source pages.
+- Do not double-count the same source aggregate if the AI lists a CU more than once.
