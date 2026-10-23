@@ -252,11 +252,29 @@ async function cuCalculateDepotTravel(report:any,drawingText:string,quoteText:st
  const derived=extractProjectMetadata(drawingText);
  if(!report.project_details||typeof report.project_details!=="object")report.project_details={};
  for(const key of ["drawing_number","designer"]){if(derived.project_details?.[key]&&!report.project_details[key])report.project_details[key]=derived.project_details[key];}
- const title=(quoteText.match(/^\s*Job\s+Title\s*:\s*(.+)$/im)?.[1]||"").replace(/\*+/g,"").replace(/\s+/g," ").trim();
- const quoteAddress=(quoteText.match(/^\s*Address\s*:\s*(.+)$/im)?.[1]||"").replace(/\s+/g," ").trim();
+ const headerField=(label:RegExp):string=>{
+  for(const rawLine of quoteText.split(/\r?\n/)){
+   const parts=rawLine.split("|").map(part=>part.trim());
+   for(let i=0;i<parts.length;i++){
+    const match=parts[i].match(label);if(!match)continue;
+    const inline=String(match[1]||"").replace(/\*+/g,"").trim();
+    if(inline&&!/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(inline))return inline;
+    for(let j=i+1;j<parts.length;j++){
+     const candidate=parts[j].replace(/\*+/g,"").trim();
+     if(!candidate||/^(?:Quote Version|Option|Issue Date|Approval|Design Office|Construction Branch|Work Driver|Underlying Cause)\s*:/i.test(candidate))break;
+     return candidate;
+    }
+   }
+  }
+  return "";
+ };
+ const title=headerField(/^\s*Job\s+Title\s*:\s*(.*)$/i).replace(/\s+/g," ").trim();
+ const quoteAddress=headerField(/^\s*Address\s*:\s*(.*)$/i).replace(/\s+/g," ").trim();
+ const titleLooksLikeAddress=/\b\d+\s+.+\b(?:ST|STREET|RD|ROAD|DR|DRIVE|AVE|AVENUE|HWY|HIGHWAY|CT|COURT|CRES|CRESCENT|WAY|LN|LANE)\b/i.test(title);
  const existingAddress=String(report.project_details.address?.value??report.project_details.address??"").trim();
  const isDrawingLabel=/\b(?:LOCATION\s+PLAN|SITE\s+PLAN|AREA\s+PLAN|KEY\s+PLAN)\b/i.test(existingAddress);
- const preferredAddress=title?title+( /\bWA\b/i.test(title)?"":", WA"):quoteAddress;
+ const selectedAddress=titleLooksLikeAddress?title:quoteAddress||title;
+ const preferredAddress=selectedAddress?selectedAddress+( /\bWA\b/i.test(selectedAddress)?"":", WA"):"";
  if((!existingAddress||isDrawingLabel)&&preferredAddress)report.project_details.address={value:preferredAddress,confidence:"high",source:"DQM quote job title/address"};
  else if(!report.project_details.address&&preferredAddress)report.project_details.address={value:preferredAddress,confidence:"medium",source:"DQM quote job title/address"};
  if(!report.geo_reference||typeof report.geo_reference!=="object")report.geo_reference=derived.geo_reference||{};
