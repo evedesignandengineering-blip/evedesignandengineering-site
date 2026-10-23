@@ -275,6 +275,43 @@ function cuConfusableSubstitution(aValue:unknown,bValue:unknown):any|null {
  for(let i=0;i<a.length;i++){if(a[i]===b[i])continue;const group=groups.find(chars=>chars.includes(a[i])&&chars.includes(b[i]));if(!group)return null;substitutions.push(a[i]+"→"+b[i]);}
  return substitutions.length&&substitutions.length<=2?{substitutions,from:a,to:b}:null;
 }
+
+function cuAggregateCorrectedDrawingItems(input:any[]):any[] {
+ const groups=new Map<string,any>();
+ for(const parent of input||[]){
+  if(!parent||!parent.code)continue;
+  const code=String(parent.code).trim(),key=cuNorm(code);if(!key)continue;
+  const expanded=Array.isArray(parent.code_variants)&&parent.code_variants.length
+   ?parent.code_variants.map((variant:any)=>({...parent,...variant,code,code_variants:undefined,original_code:variant.original_code||variant.code||parent.original_code||code}))
+   :[{...parent,original_code:parent.original_code||code}];
+  if(!groups.has(key))groups.set(key,{code,description:parent.description||"CU item explicitly listed in a drawing CU callout",variants:new Map<string,any>(),code_corrections:[]});
+  const group=groups.get(key);
+  for(const item of expanded){
+   const original=String(item.original_code||item.code||code).trim(),originalKey=cuNorm(original)||key,quantity=Number(item.quantity);if(!Number.isFinite(quantity))continue;
+   const candidate={...item,original_code:original,quantity,occurrences:Math.max(1,Number(item.occurrences)||1),source_pages:Array.from(new Set([...(Array.isArray(item.source_pages)?item.source_pages:[]),item.page].map(Number).filter((v:number)=>Number.isInteger(v)&&v>0))).sort((a:number,b:number)=>a-b)};
+   const existing=group.variants.get(originalKey);
+   if(!existing)group.variants.set(originalKey,candidate);
+   else{
+    const oldSource=Boolean(existing.source_confirmed||/source-cu-callout|explicit-cu-source/i.test(String(existing.quantity_method||"")));
+    const newSource=Boolean(candidate.source_confirmed||/source-cu-callout|explicit-cu-source/i.test(String(candidate.quantity_method||"")));
+    if((newSource&&!oldSource)||(newSource===oldSource&&candidate.quantity>Number(existing.quantity)))group.variants.set(originalKey,{...existing,...candidate,quantity:candidate.quantity});
+    const retained=group.variants.get(originalKey);
+    retained.source_pages=Array.from(new Set([...(retained.source_pages||[]),...(candidate.source_pages||[])])).sort((a:number,b:number)=>a-b);
+    retained.occurrences=Math.max(Number(retained.occurrences)||1,Number(candidate.occurrences)||1);
+   }
+   const corrections=Array.isArray(item.code_corrections)?item.code_corrections:(item.code_correction?[item.code_correction]:[]);
+   for(const correction of corrections){const id=String(correction.from)+"|"+String(correction.to);if(!group.code_corrections.some((x:any)=>String(x.from)+"|"+String(x.to)===id))group.code_corrections.push(correction);}
+  }
+ }
+ const out:any[]=[];
+ for(const group of groups.values()){
+  const variants=Array.from(group.variants.values()),pages=Array.from(new Set(variants.flatMap((x:any)=>x.source_pages||[]))).sort((a:number,b:number)=>a-b),units=Array.from(new Set(variants.map((x:any)=>String(x.unit||"EA").toUpperCase())));
+  const corrections=group.code_corrections,evidence=Array.from(new Set(variants.map((x:any)=>String(x.evidence||"").trim()).filter(Boolean))).join(" | ").slice(0,1400);
+  out.push({code:group.code,description:group.description,quantity:Math.round(variants.reduce((n:number,x:any)=>n+Number(x.quantity||0),0)*1000)/1000,unit:units.length===1?units[0]:"MIXED",occurrences:variants.reduce((n:number,x:any)=>n+Math.max(1,Number(x.occurrences)||1),0),source_pages:pages,page:pages[0]??variants[0]?.page??null,evidence,confidence:corrections.length?"medium":(variants.some((x:any)=>String(x.confidence||"").toLowerCase()==="medium")?"medium":"high"),source_confirmed:variants.some((x:any)=>Boolean(x.source_confirmed)),quantity_method:"post-correction-code-aggregate",original_code:variants.length===1?variants[0].original_code:undefined,original_codes:variants.map((x:any)=>x.original_code),code_correction:corrections[0]||variants.find((x:any)=>x.code_correction)?.code_correction,code_corrections:corrections,code_variants:variants.map((x:any)=>({original_code:x.original_code,quantity:Number(x.quantity),unit:x.unit||"EA",occurrences:Math.max(1,Number(x.occurrences)||1),page:x.page??null,source_pages:x.source_pages||[],evidence:String(x.evidence||"").slice(0,700),confidence:x.confidence||"high",source_confirmed:Boolean(x.source_confirmed),quantity_method:x.quantity_method||null,code_correction:x.code_correction||null,code_corrections:x.code_corrections||undefined}))});
+ }
+ return out;
+}
+function cuMergeInventories(primary:any[],supplemental:any[]):any[]{return cuAggregateCorrectedDrawingItems([...(primary||[]),...(supplemental||[])]);}
 function cuCorrectConfusableDrawingCodes(items:any[],referenceItems:any[],fallbackReferenceItems:any[]=[]):any[] {
  const refs=new Map<string,any>();
  for(const candidate of referenceItems||[]){const key=cuNorm(candidate?.code);if(key&&!refs.has(key))refs.set(key,candidate);}
@@ -305,12 +342,6 @@ function cuCorrectConfusableDrawingCodes(items:any[],referenceItems:any[],fallba
   const evidence=(String(item.evidence||"")+" "+marker).trim().slice(0,1400);
   return {...item,code:String(winner.item.code),original_code:item.original_code||original,code_correction:correction,evidence,confidence:"medium"};
  });
-}
-function cuMergeInventories(primary:any[],supplemental:any[]){
- const out=(primary||[]).map(item=>({...item})),byKey=new Map<string,any>();
- for(const item of out){const key=cuNorm(item?.code);if(key)byKey.set(key,item);}
- for(const item of supplemental||[]){const key=cuNorm(item?.code);if(!key)continue;const existing=byKey.get(key);if(!existing){const copy={...item};out.push(copy);byKey.set(key,copy);continue;}const pageValues=[...(Array.isArray(existing.source_pages)?existing.source_pages:[]),existing.page,...(Array.isArray(item.source_pages)?item.source_pages:[]),item.page].map(Number).filter(n=>Number.isInteger(n)&&n>0);if(pageValues.length)existing.source_pages=Array.from(new Set(pageValues)).sort((a,b)=>a-b);if(Number.isFinite(Number(item.quantity))){existing.quantity=Number(item.quantity);existing.unit=item.unit||existing.unit;existing.occurrences=item.occurrences||existing.occurrences;existing.confidence=item.confidence||"high";existing.quantity_method="explicit-cu-source-parser";}if(item.original_code)existing.original_code=item.original_code;if(item.code_correction){existing.code_correction=item.code_correction;existing.confidence="medium";}if(item.evidence)existing.evidence=item.evidence;}
- return out;
 }
 function cuFindExplicitCuEvidence(input:string,codeValue:unknown):any|null {
  const text=cuCompact(input),code=String(codeValue??"").trim();
@@ -568,7 +599,7 @@ function cuCompare(drawingItems:any[],quoteItems:any[],meta:any={}):any {
  const discrepancies:any[]=[],matched:any[]=[],used=new Set<string>();
  for(const d of drawingItems){
   const resolved=cuResolve(d,quoteMap,drawingKeys),q=resolved?quoteMap.get(resolved.key):null;
-   const correctionNote=d.code_correction?" OCR code correction: "+d.code_correction.from+" → "+d.code_correction.to+" ("+d.code_correction.substitutions.join(", ")+"); visually confirm.":"";
+   const codeCorrections=Array.isArray(d.code_corrections)&&d.code_corrections.length?d.code_corrections:(d.code_correction?[d.code_correction]:[]);const correctionNote=codeCorrections.length?" OCR code correction"+(codeCorrections.length>1?"s":"")+": "+codeCorrections.map((x:any)=>x.from+" → "+x.to+" ("+(x.substitutions||[]).join(", ")+")").join("; ")+"; visually confirm.":"";
   if(!q){discrepancies.push({status:"MISSING_FROM_QUOTE",severity:"high",confidence:d.confidence||"high",drawing_item:d.code,drawing_quantity:d.quantity,drawing_unit:d.unit||"EA",expected_quantity:d.quantity,expected_unit:d.unit||"EA",quote_item:null,quote_quantity:null,quote_unit:d.unit||"EA",difference:d.code+" is explicitly listed in the drawing CU callout(s) but is not present in the DQM Compatible Units table."});continue;}
   used.add(resolved.key);const expected=Number(d.quantity),actual=Number(q.quantity),unit=d.unit||"EA";
   if(Math.abs(expected-actual)>1e-9)discrepancies.push({status:"QUANTITY_MISMATCH",severity:"high",confidence:resolved.confidence,drawing_item:d.code,drawing_quantity:expected,drawing_unit:unit,expected_quantity:expected,expected_unit:unit,quote_item:q.code,quote_quantity:actual,quote_unit:q.unit||unit,difference:"Drawing CU callout(s) total "+expected+" "+unit+" across "+(d.occurrences||1)+" occurrence(s); DQM Compatible Units rows total "+actual+" across "+(q.row_count||1)+" row(s). "+resolved.note+correctionNote});
@@ -586,7 +617,7 @@ Deno.serve(async(req:Request)=>{
  if(!dt.trim()&&!di.length)return json({error:"No readable drawing text or page images were provided."},400,o);if(!qt.trim()&&!qi.length)return json({error:"No readable quote text or page images were provided."},400,o);
  const parsedDrawingCu=cuExtractDrawingItems(dt),parsedQuoteCu=cuExtractQuoteItems(qt),drawingCoverage=cuDrawingCoverage(dt,parsedDrawingCu,b.declaredDrawingSheets,b.drawingSheetSelectionWarning);
  if(parsedDrawingCu.length&&parsedQuoteCu.length&&!b.drawingTextTruncated&&!b.quoteTextTruncated&&!drawingCoverage.needs_fallback){
-  const correctedParsedDrawingCu=cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu),directCodeCorrections=correctedParsedDrawingCu.filter(item=>item.code_correction).map(item=>item.code_correction);
+  const correctedParsedDrawingCu=cuAggregateCorrectedDrawingItems(cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu)),directCodeCorrections=correctedParsedDrawingCu.flatMap((item:any)=>Array.isArray(item.code_corrections)?item.code_corrections:(item.code_correction?[item.code_correction]:[]));
   const directReport=cuCompare(correctedParsedDrawingCu,parsedQuoteCu,{model:"deterministic-cu-reconciliation",ai_attempted_models:0,code_corrections:directCodeCorrections,drawing_text_length:dt.length,quote_text_length:qt.length,declared_drawing_sheets:b.declaredDrawingSheets??null,frontend_extracted_drawing_chars:b.drawingTextChars??dt.length,frontend_extracted_quote_chars:b.quoteTextChars??qt.length,drawing_pages:b.drawingPages??null,source_drawing_pages:b.sourceDrawingPages??null,drawing_text_truncated:!!b.drawingTextTruncated,quote_text_truncated:!!b.quoteTextTruncated,drawing_truncated_pages:b.drawingTruncatedPages??0,quote_truncated_pages:b.quoteTruncatedPages??0,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null});
   directReport.ai_powered=false;directReport.cu_inventory_complete=true;
   await cuCalculateDepotTravel(directReport,dt,qt);
@@ -632,10 +663,10 @@ Deno.serve(async(req:Request)=>{
  if(!result)return json({error:"The CU tables could not be read reliably from both PDFs. No quantity comparison was generated, to avoid false discrepancies.",attempted_models:tried,diagnostic:{drawing_cu_items_found:parsedDrawingCu.length,quote_cu_items_found:parsedQuoteCu.length,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null,finishReason,elapsed_ms:Date.now()-start,provider_statuses:statuses,model_batches:batches,maximum_fallback_window_ms:100000}},422,o);
  const aiDrawingItems=cuAIItems(result.drawing_items,true,dt),aiQuoteItems=cuAIItems(result.quote_items,false);
   const drawingNeedsAI=!!b.drawingTextTruncated||drawingCoverage.needs_fallback||!!b.drawingSheetSelectionWarning;
-  const referenceDrawingCodes=cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu,aiQuoteItems);
-  const aiDrawingCorrected=cuCorrectConfusableDrawingCodes(aiDrawingItems,parsedQuoteCu,aiQuoteItems);
-  const aiDrawingCu=drawingNeedsAI?cuMergeInventories(aiDrawingCorrected,referenceDrawingCodes):(referenceDrawingCodes.length?referenceDrawingCodes:aiDrawingCorrected);
-  const fallbackCodeCorrections=aiDrawingCu.filter(item=>item.code_correction).map(item=>item.code_correction);
+  const referenceDrawingCodes=cuAggregateCorrectedDrawingItems(cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu,aiQuoteItems));
+  const aiDrawingCorrected=cuAggregateCorrectedDrawingItems(cuCorrectConfusableDrawingCodes(aiDrawingItems,parsedQuoteCu,aiQuoteItems));
+  const aiDrawingCu=drawingNeedsAI?cuMergeInventories(referenceDrawingCodes,aiDrawingCorrected):(referenceDrawingCodes.length?referenceDrawingCodes:aiDrawingCorrected);
+  const fallbackCodeCorrections=aiDrawingCu.flatMap((item:any)=>Array.isArray(item.code_corrections)?item.code_corrections:(item.code_correction?[item.code_correction]:[]));
  const aiQuoteCu=b.quoteTextTruncated?aiQuoteItems:(parsedQuoteCu.length?parsedQuoteCu:aiQuoteItems);
  if(!aiDrawingCu.length||!aiQuoteCu.length)return json({error:"Gemini returned a response, but one CU inventory was not sufficiently evidenced. No quantity comparison was generated.",diagnostic:{drawing_cu_items_found:aiDrawingCu.length,quote_cu_items_found:aiQuoteCu.length,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null,model:selected,finishReason,provider_statuses:statuses}},422,o);
  const finalDrawingCoverage=cuDrawingCoverage(dt,aiDrawingCu,b.declaredDrawingSheets,b.drawingSheetSelectionWarning);
