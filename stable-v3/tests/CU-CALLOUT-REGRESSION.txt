@@ -69,3 +69,7 @@ REPORT REQUIREMENTS
 - Add a note that names both tokens and the substitution(s), e.g. DAS_4M_KIT -> DA5_4M_KIT (S->5).
 - Keep corrections at medium confidence and require visual confirmation.
 - Never change the production ai-drawing-quote-check function as part of this test.
+
+
+QUOTE-READ FALLBACK
+If the DQM Compatible Units text parser does not yield a unique reference candidate, a unique AI-read quote code may be used as a secondary reference. Parsed DQM rows take priority. An ambiguous candidate from the parsed table must never be overridden by the AI-read list.

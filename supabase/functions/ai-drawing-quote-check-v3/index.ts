@@ -275,17 +275,32 @@ function cuConfusableSubstitution(aValue:unknown,bValue:unknown):any|null {
  for(let i=0;i<a.length;i++){if(a[i]===b[i])continue;const group=groups.find(chars=>chars.includes(a[i])&&chars.includes(b[i]));if(!group)return null;substitutions.push(a[i]+"→"+b[i]);}
  return substitutions.length&&substitutions.length<=2?{substitutions,from:a,to:b}:null;
 }
-function cuCorrectConfusableDrawingCodes(items:any[],referenceItems:any[]):any[] {
+function cuCorrectConfusableDrawingCodes(items:any[],referenceItems:any[],fallbackReferenceItems:any[]=[]):any[] {
  const refs=new Map<string,any>();
  for(const candidate of referenceItems||[]){const key=cuNorm(candidate?.code);if(key&&!refs.has(key))refs.set(key,candidate);}
+ const fallbackRefs=new Map<string,any>();
+ for(const candidate of fallbackReferenceItems||[]){const key=cuNorm(candidate?.code);if(key&&!fallbackRefs.has(key))fallbackRefs.set(key,candidate);}
+ const pickUnique=(code:string,candidates:Map<string,any>)=>{
+  const matches:Array<{key:string;item:any;match:any}>=[];
+  for(const [candidateKey,candidate] of candidates.entries()){const match=cuConfusableSubstitution(code,candidate.code);if(match)matches.push({key:candidateKey,item:candidate,match});}
+  return matches;
+ };
  return (items||[]).map(item=>{
   if(!item?.code)return item;
   const original=String(item.code),key=cuNorm(original);
   if(refs.has(key))return item;
-  const candidates:Array<{key:string;item:any;match:any}>=[];
-  for(const [candidateKey,candidate] of refs.entries()){const match=cuConfusableSubstitution(original,candidate.code);if(match)candidates.push({key:candidateKey,item:candidate,match});}
+  let candidates=pickUnique(original,refs);
+  // A unique parsed-DQM match has priority. If it is ambiguous, do not let weaker
+  // model-read evidence override that ambiguity.
+  if(candidates.length>1)return item;
+  let referenceSource="parsed DQM CU table";
+  if(candidates.length===0){
+   if(fallbackRefs.has(key))return item;
+   candidates=pickUnique(original,fallbackRefs);
+   referenceSource="AI-read DQM CU table because parsed DQM text was insufficient";
+  }
   if(candidates.length!==1)return item;
-  const winner=candidates[0],correction={from:original,to:String(winner.item.code),substitutions:winner.match.substitutions,basis:"unique DQM/source CU code after lookalike-character comparison"};
+  const winner=candidates[0],correction={from:original,to:String(winner.item.code),substitutions:winner.match.substitutions,basis:"unique "+referenceSource+" code after lookalike-character comparison"};
   const marker="[CODE RECOGNITION: "+correction.from+" corrected to "+correction.to+" ("+correction.substitutions.join(", ")+") using the unique reference CU code]";
   const evidence=(String(item.evidence||"")+" "+marker).trim().slice(0,1400);
   return {...item,code:String(winner.item.code),original_code:item.original_code||original,code_correction:correction,evidence,confidence:"medium"};
@@ -617,8 +632,8 @@ Deno.serve(async(req:Request)=>{
  if(!result)return json({error:"The CU tables could not be read reliably from both PDFs. No quantity comparison was generated, to avoid false discrepancies.",attempted_models:tried,diagnostic:{drawing_cu_items_found:parsedDrawingCu.length,quote_cu_items_found:parsedQuoteCu.length,drawing_cu_coverage:drawingCoverage,drawing_sheet_map:b.drawingSheetMap??null,finishReason,elapsed_ms:Date.now()-start,provider_statuses:statuses,model_batches:batches,maximum_fallback_window_ms:100000}},422,o);
  const aiDrawingItems=cuAIItems(result.drawing_items,true,dt),aiQuoteItems=cuAIItems(result.quote_items,false);
   const drawingNeedsAI=!!b.drawingTextTruncated||drawingCoverage.needs_fallback||!!b.drawingSheetSelectionWarning;
-  const referenceDrawingCodes=cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu);
-  const aiDrawingCorrected=cuCorrectConfusableDrawingCodes(aiDrawingItems,parsedQuoteCu.length?parsedQuoteCu:aiQuoteItems);
+  const referenceDrawingCodes=cuCorrectConfusableDrawingCodes(parsedDrawingCu,parsedQuoteCu,aiQuoteItems);
+  const aiDrawingCorrected=cuCorrectConfusableDrawingCodes(aiDrawingItems,parsedQuoteCu,aiQuoteItems);
   const aiDrawingCu=drawingNeedsAI?cuMergeInventories(aiDrawingCorrected,referenceDrawingCodes):(referenceDrawingCodes.length?referenceDrawingCodes:aiDrawingCorrected);
   const fallbackCodeCorrections=aiDrawingCu.filter(item=>item.code_correction).map(item=>item.code_correction);
  const aiQuoteCu=b.quoteTextTruncated?aiQuoteItems:(parsedQuoteCu.length?parsedQuoteCu:aiQuoteItems);
