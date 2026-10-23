@@ -261,14 +261,20 @@ function cuProjectValue(quoteText:string,drawingText:string):{value:number|null;
  return {value:null,source:"project value could not be identified"};
 }
 function cuTotalInternalCost(quoteText:string):number|null {
- const start=quoteText.search(/Cost\s+Breakdown/i);
- if(start>=0){
-  const after=quoteText.slice(start+("Cost Breakdown").length),end=after.search(/Compatible\s+Units/i),section=end>=0?after.slice(0,end):after;
-  const rows=section.split(/\r?\n/);
-  for(let i=rows.length-1;i>=0;i--){const money=cuTextMoneyValues(rows[i]);if(money.length>=2&&money[0]>0&&Math.abs(money[0]-money[1])<0.05)return money[0];}
+ // AUX_005 is calculated against the DQM Compatible Units "Total Internal Cost", not the separate work-order Cost Breakdown.
+ const summaryEnd=quoteText.search(/Cost\s+Breakdown/i),summary=summaryEnd>=0?quoteText.slice(0,summaryEnd):quoteText;
+ for(const line of summary.split(/\r?\n/)){
+  if(!/(?:^|\|)\s*Compatible\s+Units\s*:/i.test(line))continue;
+  const money=cuTextMoneyValues(line);if(money.length&&money[0]>0)return money[0];
  }
- const explicit=/(?:total\s+internal\s+cost|internal\s+cost\s+total)\s*[:=]\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/i.exec(quoteText);
- if(explicit){const n=Number(explicit[1].replace(/,/g,""));if(Number.isFinite(n)&&n>0)return n;}
+ const occurrences=Array.from(quoteText.matchAll(/Compatible\s+Units/gi)),last=occurrences[occurrences.length-1];
+ if(last){
+  const after=quoteText.slice((last.index??0)+last[0].length),end=after.search(/Non\s+Compatible\s+Unit\s+Items/i),table=end>=0?after.slice(0,end):after,rows=table.split(/\r?\n/);
+  for(let i=rows.length-1;i>=0;i--){
+   const money=cuTextMoneyValues(rows[i]);
+   if(money.length>=2&&money[0]>0&&Math.abs(money[0]-money[1])<0.05)return money[0];
+  }
+ }
  return null;
 }
 function cuCodeItem(report:any,code:string):any|null {
@@ -318,7 +324,7 @@ async function cuApplyAuxAndPolypipeChecks(report:any,drawingText:string,quoteTe
    cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",expected,a5,"EA","high","high","Total internal cost is $"+cost.toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})+". Subtract quoted AUX_005 allowance ("+a5+" × $174.13 = $"+actAmount.toFixed(2)+") to get adjusted cost $"+adjusted.toFixed(2)+". Expected AUX_005 is 4 × ceil(adjusted cost / $10,000) = "+expected+" units ($"+expAmount.toFixed(2)+"); quote has "+a5+" units ($"+actAmount.toFixed(2)+").");
   }else report.discrepancies=report.discrepancies.filter((entry:any)=>!(entry.status==="AUX_005_INTERNAL_COST_MISMATCH"&&cuNorm(entry.quote_item)==="AUX005"));
  }else if(a5!==null){
-  cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",null,a5,"EA","medium","low","AUX_005 is quoted at "+a5+" units, but total internal cost could not be reliably extracted from the Cost Breakdown. No expected quantity was assumed; manual verification is required.");
+  cuAddSupplementary(report,"AUX_005_INTERNAL_COST_MISMATCH","AUX_005",null,a5,"EA","medium","low","AUX_005 is quoted at "+a5+" units, but DQM Compatible Units Total Internal Cost could not be reliably extracted. No expected quantity was assumed; manual verification is required.");
   notes.push("AUX_005 calculation needs manual review because the Cost Breakdown total internal cost was not readable.");
  }
  const cn54Items=(Array.isArray(report.drawing_items)?report.drawing_items:[]).filter((item:any)=>/^CN54(?:_|[A-Z0-9]|$)/i.test(String(item.code??"")));
@@ -352,12 +358,19 @@ async function cuApplyAuxAndPolypipeChecks(report:any,drawingText:string,quoteTe
   const fallback=cuCodeItem(report,code);
   return {code,quantity:cuQuoteQty(line)??number(fallback?.quantity??fallback?.qty),diameter:cuPipeDiameter(line)};
  }).filter(record=>record.quantity!==null);
+ const drillTotals=new Map<string,{quantity:number;codes:string[]}>();
  for(const drill of drills){
   if(!drill.diameter)continue;
-  const haul=haulRows.map(line=>({quantity:cuQuoteQty(line),diameter:cuPipeDiameter(line)})).filter(item=>item.diameter===drill.diameter&&item.quantity!==null);
-  if(!haul.length){cuAddSupplementary(report,"REVIEW_REQUIRED","DDrill/haul "+drill.diameter+"mm",Number(drill.quantity),null,"m","medium","medium","DQM includes "+drill.code+" for the "+drill.diameter+"mm polypipe class, but no matching haul row for that diameter was confidently identified. Verify that the haul quantity is present and equals the installation quantity ("+drill.quantity+").");continue;}
-  const haulQty=haul.reduce((sum:number,item:any)=>sum+Number(item.quantity),0),installQty=Number(drill.quantity);
-  cuAddSupplementary(report,"DRILL_HAUL_QUANTITY_MISMATCH","DDrill/haul "+drill.diameter+"mm",installQty,haulQty,"m","high","high","DDrill installation and haul quantities must match for "+drill.diameter+"mm polypipe. Installation rows total "+installQty+" m; matching haul rows total "+haulQty+" m.");
+  const current=drillTotals.get(drill.diameter)||{quantity:0,codes:[]};
+  current.quantity+=Number(drill.quantity);if(!current.codes.includes(drill.code))current.codes.push(drill.code);
+  drillTotals.set(drill.diameter,current);
+ }
+ for(const [diameter,installation] of drillTotals){
+  const haul=haulRows.map(line=>({quantity:cuQuoteQty(line),diameter:cuPipeDiameter(line)})).filter(item=>item.diameter===diameter&&item.quantity!==null);
+  const installQty=installation.quantity,label="DDrill/haul "+diameter+"mm";
+  if(!haul.length){cuAddSupplementary(report,"REVIEW_REQUIRED",label,installQty,null,"m","medium","medium","DQM includes "+installation.codes.join(", ")+" for the "+diameter+"mm polypipe class, but no matching haul row for that diameter was confidently identified. Verify that the haul quantity is present and equals the combined installation quantity ("+installQty+").");continue;}
+  const haulQty=haul.reduce((sum:number,item:any)=>sum+Number(item.quantity),0);
+  cuAddSupplementary(report,"DRILL_HAUL_QUANTITY_MISMATCH",label,installQty,haulQty,"m","high","high","DDrill installation and haul quantities must match for "+diameter+"mm polypipe. Combined installation rows total "+installQty+" m; matching haul rows total "+haulQty+" m.");
  }
  const checks={
   project_value:{value:project.value,source:project.source,status:project.value===null?"NEEDS_REVIEW":a13===null?"NEEDS_REVIEW":(project.value<=50000?1:project.value<=200000?3:12)===a13?"PASS":"MISMATCH"},
