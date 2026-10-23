@@ -1,0 +1,39 @@
+{
+  "name": "EVE Drawing & Quote Checker — Expanded AI Fallbacks V116",
+  "snapshot_time_utc": "2026-10-23T02:02:25.932Z",
+  "repository": "evedesignandengineering-blip/evedesignandengineering-site",
+  "stable_branch": "stable/drawing-quote-checker-model-fallbacks-v116",
+  "supabase_project": "hszkloepnewfkzdegfhl",
+  "edge_function": "ai-drawing-quote-check",
+  "deployed_version": 116,
+  "deployment_status": "ACTIVE",
+  "frontend_path": "drawing-quote-checker.html",
+  "frontend_blob_sha": "f4b57e645ba9f0c4bd0cec57b708051098beba99",
+  "backend_path": "supabase/functions/ai-drawing-quote-check/index.ts",
+  "backend_blob_sha": "d3f9a8afa83b88700ef4035cd0a853f78fcd466f",
+  "shared_stylesheet_path": "styles.css",
+  "shared_stylesheet_blob_sha": "c1b255a25c2526341f3d051600a8fd5294407824",
+  "model_fallback_batches": [
+    [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite"
+    ],
+    [
+      "gemini-3.8-flash",
+      "gemini-3.6-flash"
+    ],
+    [
+      "gemma-4-26b-a4b-it",
+      "gemma-4-31b-it"
+    ],
+    [
+      "gemini-3.7-flash",
+      "gemini-3-flash-preview",
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash"
+    ]
+  ],
+  "per_model_timeout_seconds": 23,
+  "total_model_fallback_window_seconds": 100,
+  "note": "Full repo snapshot plus standalone restore copies. Supabase secret values are not included."
+}
