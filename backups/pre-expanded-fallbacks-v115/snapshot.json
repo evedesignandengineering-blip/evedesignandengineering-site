@@ -1,0 +1,27 @@
+{
+  "snapshot_name": "EVE Drawing Quote Checker before expanded model fallback ladder",
+  "snapshot_time_utc": "2026-10-23T02:01:48.957Z",
+  "repository": "evedesignandengineering-blip/evedesignandengineering-site",
+  "branch": "stable/pre-expanded-model-fallbacks-v115",
+  "supabase_project": "hszkloepnewfkzdegfhl",
+  "edge_function": "ai-drawing-quote-check",
+  "deployed_version_at_snapshot": 115,
+  "frontend_path": "drawing-quote-checker.html",
+  "frontend_blob_sha": "f4b57e645ba9f0c4bd0cec57b708051098beba99",
+  "backend_path": "supabase/functions/ai-drawing-quote-check/index.ts",
+  "backend_blob_sha": "e6431541743f0fc1115fb8971b80b58e0d65cab7",
+  "stylesheet_path": "styles.css",
+  "stylesheet_blob_sha": "c1b255a25c2526341f3d051600a8fd5294407824",
+  "restore_reason": "Rollback point before adding fallback batches 3 and 4.",
+  "pre_change_batches": [
+    [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite"
+    ],
+    [
+      "gemini-3.8-flash",
+      "gemini-3.6-flash"
+    ]
+  ],
+  "note": "The existing root-level v115 code is also present unchanged in this full repository branch. Supabase secrets are not stored in GitHub."
+}
