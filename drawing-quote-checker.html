@@ -123,67 +123,68 @@ $('uploadHeading').addEventListener('click',()=>setUploadCollapsed(!$('uploadCar
 $('uploadHeading').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setUploadCollapsed(!$('uploadCard').classList.contains('is-collapsed'));}});
 async function readPdf(file, role, maxImages){
  const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;
- let pages=[],images=[],totalChars=0,declaredSheets=null,effectivePageCount=pdf.numPages;const ocrTargets=[];
+ let pages=[],images=[],totalChars=0,declaredSheets=null;const sheetVotes=new Map();
+ // Read every physical PDF page first. Numbered drawing sheets may be preceded by cover pages
+ // or followed by schedules, so never assume the first N PDF pages are Sheet 1 of N ... N of N.
  for(let n=1;n<=pdf.numPages;n++){
-  if(n>effectivePageCount)break;
   const page=await pdf.getPage(n);const content=await page.getTextContent();
-  // Reconstruct text by visual row and X position so separate PDF table columns stay distinguishable.
   const textItems=content.items.filter(item=>item.str&&item.str.trim()).map(item=>({text:item.str.trim(),x:Number(item.transform?.[4]||0),y:Number(item.transform?.[5]||0),width:Number(item.width||0)}));
   textItems.sort((a,b)=>b.y-a.y||a.x-b.x);
   const visualRows=[];
-  for(const item of textItems){
-   let row=visualRows.find(candidate=>Math.abs(candidate.y-item.y)<=3);
-   if(!row){row={y:item.y,items:[]};visualRows.push(row);}
-   row.items.push(item);
-  }
+  for(const item of textItems){let row=visualRows.find(candidate=>Math.abs(candidate.y-item.y)<=3);if(!row){row={y:item.y,items:[]};visualRows.push(row);}row.items.push(item);}
   visualRows.sort((a,b)=>b.y-a.y);
-  const lines=visualRows.map(row=>{
-   row.items.sort((a,b)=>a.x-b.x);let output='',rightEdge=null;
-   for(const item of row.items){
-    const gap=rightEdge===null?0:item.x-rightEdge;
-    output+=(rightEdge===null?'':gap>24?' | ':' ')+item.text;
-    rightEdge=Math.max(rightEdge===null?item.x:rightEdge,item.x+item.width);
-   }
-   return output.trim();
-  }).filter(Boolean);
-  let txt=lines.join('\n');
-  // A drawing title block such as “Sheet 1 of 06” defines how many drawing pages belong to this set.
-  if(role==='drawing'&&n<=3){
-   const match=txt.match(/(?:sheet|sht\.?)[\s#]*(?:no\.?\s*)?\d+\s*(?:of|\/)\s*0*(\d{1,3})\b/i);
-   if(match){const count=Number(match[1]);if(count>0&&count<=pdf.numPages){declaredSheets=count;effectivePageCount=Math.min(pdf.numPages,count);}}
+  const lines=visualRows.map(row=>{row.items.sort((a,b)=>a.x-b.x);let output='',rightEdge=null;for(const item of row.items){const gap=rightEdge===null?0:item.x-rightEdge;output+=(rightEdge===null?'':gap>24?' | ':' ')+item.text;rightEdge=Math.max(rightEdge===null?item.x:rightEdge,item.x+item.width);}return output.trim();}).filter(Boolean);
+  const txt=lines.join('\n');let sheetNumber=null,sheetCount=null;
+  if(role==='drawing'){
+   const found=Array.from(txt.matchAll(/\b(?:sheet|sht\.?)[\s#]*(?:no\.?\s*)?0*(\d{1,3})\s*(?:of|\/)\s*0*(\d{1,3})\b/gi)).filter(m=>Number(m[1])>0&&Number(m[2])>0&&Number(m[2])<=pdf.numPages&&Number(m[1])<=Number(m[2]));
+   const match=found.length?found[found.length-1]:null;
+   if(match){sheetNumber=Number(match[1]);sheetCount=Number(match[2]);sheetVotes.set(sheetCount,(sheetVotes.get(sheetCount)||0)+1);}
   }
-  totalChars+=txt.length;pages.push({page:n,text:txt});
-  if(txt.replace(/\s/g,'').length<35)ocrTargets.push(n);
+  pages.push({page:n,text:txt,sheetNumber,sheetCount});
  }
- // OCR only the pages included in the drawing set; reuse one worker to avoid repeated startup overhead.
+ if(role==='drawing'&&sheetVotes.size){declaredSheets=Array.from(sheetVotes.entries()).sort((a,b)=>b[1]-a[1]||b[0]-a[0])[0][0];}
+ let selectedPages=pages,sheetSelectionWarning='';
+ if(role==='drawing'&&declaredSheets&&pages.length>declaredSheets){
+  const map=new Map();
+  for(const p of pages){if(p.sheetCount===declaredSheets&&p.sheetNumber>=1&&p.sheetNumber<=declaredSheets&&!map.has(p.sheetNumber))map.set(p.sheetNumber,p);}
+  const complete=Array.from({length:declaredSheets},(_,i)=>i+1).every(n=>map.has(n));
+  if(complete){selectedPages=Array.from({length:declaredSheets},(_,i)=>map.get(i+1));}
+  else{sheetSelectionWarning='The PDF declares '+declaredSheets+' drawing sheets but contains '+pages.length+' physical pages, and the title blocks did not identify every sheet number reliably. All physical pages were retained; verify the sheet mapping before relying on the CU comparison.';}
+ }
+ const ocrTargets=selectedPages.filter(p=>p.text.replace(/\s/g,'').length<35).map(p=>p.page);
  if(ocrTargets.length&&window.Tesseract){
-  const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe/i.test(p.text)).map(p=>p.page);const selected=[...new Set([...priorityPages,...ocrTargets])].slice(0,5);let worker=null;
+  const priorityPages=selectedPages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe/i.test(p.text)).map(p=>p.page);
+  const selected=[...new Set([...priorityPages,...ocrTargets])].slice(0,Math.min(12,selectedPages.length));let worker=null;
   try{
    worker=await Tesseract.createWorker('eng');
    for(const n of selected){
     $('status').textContent='OCR reading scanned '+role+' page '+n+'…';
-    try{const page=await pdf.getPage(n);const vp=page.getViewport({scale:1.35});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;const result=await worker.recognize(canvas);const ocr=(result.data.text||'').trim();if(ocr.length>pages[n-1].text.length)pages[n-1].text=ocr;canvas.width=canvas.height=1;}catch(e){console.warn('OCR failed on page',n,e);}
+    try{const page=await pdf.getPage(n);const vp=page.getViewport({scale:1.35});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;const result=await worker.recognize(canvas);const ocr=(result.data.text||'').trim();const pageEntry=selectedPages.find(p=>p.page===n);if(pageEntry&&ocr.length>pageEntry.text.length)pageEntry.text=ocr;canvas.width=canvas.height=1;}catch(e){console.warn('OCR failed on page',n,e);}
    }
   }catch(e){console.warn('OCR worker could not start',e);}
   finally{if(worker)try{await worker.terminate();}catch(e){console.warn('OCR worker cleanup failed',e);}}
  }
- // Compact each page before applying the transport limit. CAD PDFs can contain huge alignment spaces before the CU callouts.
- const perPageBudget=Math.max(1200,Math.floor(110000/Math.max(1,pages.length)));let truncatedPages=0;
- const text=pages.map(p=>{
+ totalChars=selectedPages.reduce((sum,p)=>sum+(p.text||'').length,0);
+ // Budget text per page and preserve every page marker; no final global slice can silently
+ // cut off the last sheet. If a single page must be clipped, the backend will require fallback.
+ const textBudget=116000,perPageBudget=Math.max(300,Math.floor((textBudget-selectedPages.length*40)/Math.max(1,selectedPages.length)));let truncatedPages=0;
+ const text=selectedPages.map(p=>{
   const compacted=(p.text||'').split(/\r?\n/).map(line=>line.replace(/[ \t]{2,}/g,' ').trim()).filter(Boolean).join('\n');
   if(compacted.length>perPageBudget)truncatedPages++;
-  return '[PAGE '+p.page+']\n'+compacted.slice(0,perPageBudget);
- }).join('\n\n').slice(0,110000);
- // Render representative page images from the included pages only.
- const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\s*mm/i.test(p.text)).map(p=>p.page);
- const candidates=new Set(priorityPages.slice(0,maxImages));
- for(let i=1;i<=Math.min(maxImages,pages.length);i++){if(candidates.size<maxImages)candidates.add(i);}
- const sparse=pages.filter(p=>p.text.replace(/\s/g,'').length<100);
+  const sheetLabel=p.sheetNumber&&p.sheetCount?' | SHEET '+p.sheetNumber+' OF '+p.sheetCount:'';
+  return '[PAGE '+p.page+sheetLabel+']\n'+compacted.slice(0,perPageBudget);
+ }).join('\n\n');
+ // Render every selected sheet when it fits the image budget; visual evidence complements
+ // PDF text where CAD text order or small callouts cannot be reconstructed reliably.
+ const priorityPages=selectedPages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\s*mm/i.test(p.text)).map(p=>p.page);
+ const candidates=new Set(role==='drawing'&&selectedPages.length<=maxImages?selectedPages.map(p=>p.page):priorityPages.slice(0,maxImages));
+ for(const p of selectedPages){if(candidates.size>=maxImages)break;candidates.add(p.page);}
+ const sparse=selectedPages.filter(p=>p.text.replace(/\s/g,'').length<100);
  for(const p of sparse){if(candidates.size>=maxImages)break;candidates.add(p.page);}
  for(const n of [...candidates].slice(0,maxImages)){
   try{const page=await pdf.getPage(n);const base=page.getViewport({scale:1});const scale=Math.min(1.6,1400/base.width);const vp=page.getViewport({scale});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;images.push(canvas.toDataURL('image/jpeg',0.68));canvas.width=canvas.height=1;}catch(e){console.warn('Image render failed',n,e);}
  }
- return {text,images,pageCount:pages.length,sourcePageCount:pdf.numPages,declaredSheets,chars:totalChars,ocrCount:ocrTargets.length,textChars:text.length,truncatedPages,truncated:truncatedPages>0};
+ return {text,images,pageCount:selectedPages.length,sourcePageCount:pdf.numPages,declaredSheets,chars:totalChars,ocrCount:ocrTargets.length,textChars:text.length,truncatedPages,truncated:truncatedPages>0,sheetMap:selectedPages.map(p=>({pdfPage:p.page,sheetNumber:p.sheetNumber,sheetCount:p.sheetCount})),sheetSelectionWarning};
 }
 function projectDetailsReportMarkup(r){const p=r&&r.project_details&&typeof r.project_details==='object'?r.project_details:{};const fields=[['Drawing number',p.drawing_number],['Designer',p.designer],['Address',p.address]];const detected=fields.filter(([label,item])=>item&&typeof item==='object'&&typeof item.value==='string'&&item.value.trim()&&String(item.confidence||'').toLowerCase()==='high');if(!detected.length)return '';return '<section class="detected-project-details"><h3>Project details detected from drawing</h3><dl>'+detected.map(([label,item])=>'<div><dt>'+esc(label)+'</dt><dd>'+esc(item.value.trim())+'</dd></div>').join('')+'</dl></section>';}
 function renderReport(r){
@@ -201,6 +202,7 @@ function renderReport(r){
  const travelCheckText=travelCheck.message||travelCheck.status||'';
  const travelCheckHtml=travelCheckText?'<p class="muted travel-check-status">'+esc(travelCheckText)+'</p>':'';
  const coordinateReview=r.coordinate_review||{};
+  const drawingCoverage=r.diagnostics&&r.diagnostics.drawing_cu_coverage||{};const coverageIncomplete=r.cu_inventory_complete===false||drawingCoverage.complete===false;const coverageWarningHtml=coverageIncomplete?'<div class="notice cu-coverage-warning"><strong>WARNING: drawing CU inventory may be incomplete.</strong> '+esc(drawingCoverage.message||'The system could not verify CU extraction across every declared drawing sheet.')+' The comparison below is provisional. Do not use it as a completed check until every drawing sheet has been verified.</div>':'';
  const coordinateReviewHtml=coordinateReview.message?'<div class="notice coordinate-review"><strong>Coordinate check:</strong> '+esc(coordinateReview.message)+(coordinateReview.drawing_reference?'<br>Drawing GEO REF: '+esc(Number(coordinateReview.drawing_reference.latitude).toFixed(6))+', '+esc(Number(coordinateReview.drawing_reference.longitude).toFixed(6)):'')+(coordinateReview.routing_coordinates?'<br>Coordinates used for routing: '+esc(Number(coordinateReview.routing_coordinates.latitude).toFixed(6))+', '+esc(Number(coordinateReview.routing_coordinates.longitude).toFixed(6)):'')+'</div>':'';
  const travelItems=Array.isArray(travelCheck.items)?travelCheck.items:[];
  const travelComparisonRows=travelItems.map(item=>'<tr><td><strong>'+esc(item.code)+'</strong><br>'+esc(item.description||'')+'</td><td>'+esc(item.quoted_quantity===null||item.quoted_quantity===undefined?'—':String(item.quoted_quantity))+' km</td><td>'+esc(item.expected_quantity===null||item.expected_quantity===undefined?'Not calculated':String(item.expected_quantity)+' km')+'</td><td>'+esc(item.difference_km===null||item.difference_km===undefined?'—':String(item.difference_km)+' km')+'</td><td>'+pill(item.status==='MATCH'?'MATCHED':item.status==='MISMATCH'?'DEPOT_TRAVEL_MISMATCH':'REVIEW_REQUIRED')+'</td><td>'+esc(item.formula||item.message||'Road route required before a travel allowance can be calculated.')+'</td></tr>').join('');
@@ -209,7 +211,7 @@ function renderReport(r){
  const straightLineDistance=travel.straight_line_distance_km!==null&&travel.straight_line_distance_km!==undefined?Number(travel.straight_line_distance_km).toFixed(1)+' km':'Not available';
  const depotCoordinate=travel.depot_latitude!==null&&travel.depot_latitude!==undefined&&travel.depot_longitude!==null&&travel.depot_longitude!==undefined?Number(travel.depot_latitude).toFixed(6)+', '+Number(travel.depot_longitude).toFixed(6):'Not available';
  const coordinateSource=String(travel.project_coordinate_source||'Coordinate source not returned');
- const depotHtml=projectDetailsHtml+coordinateReviewHtml+'<div class="depot-summary"><span><b>CLOSEST DEPOT:</b> '+esc(depotName.toUpperCase())+'</span><span><b>ONE-WAY ROAD DISTANCE:</b> '+esc(depotDistance)+'</span><span><b>STRAIGHT-LINE DISTANCE:</b> '+esc(straightLineDistance)+'</span><span><b>DEPOT COORDINATES:</b> '+esc(depotCoordinate)+'</span><span><b>SITE COORDINATES USED:</b> '+esc(projectCoordinate)+'</span><span><b>COORDINATE SOURCE:</b> '+esc(coordinateSource)+'</span></div>'+travelCheckHtml+'<h2>2. Comparison results</h2><div class="stats"><div class="stat"><b>'+di.length+'</b><span>Drawing items identified</span></div><div class="stat"><b>'+ms.length+'</b><span>Matched items</span></div><div class="stat"><b id="activeDiscrepancyCount">'+ds.length+'</b><span>Discrepancies / review flags</span></div></div><p class="muted discrepancy-dismiss-hint">After manually checking a discrepancy, use × to remove it from this report and its exports.</p><h3>Discrepancies to review</h3><div class="table-wrap"><table id="discrepancyTable"><thead><tr><th>Status</th><th>Drawing item / quantity</th><th>Quote item / quantity</th><th>Reason</th><th>Priority / confidence</th></tr></thead><tbody>'+(discrepancyRows||'<tr><td colspan="5">No CU discrepancies identified. Verify matched items against the source PDFs before acceptance.</td></tr>')+'</tbody></table></div>'+travelComparisonHtml+'<h3>Matched items</h3><div class="table-wrap"><table><thead><tr><th>Drawing item</th><th>Drawing qty</th><th>Quote item</th><th>Quote qty</th><th>Notes</th></tr></thead><tbody>'+(matchedRows||'<tr><td colspan="5">No matching CU quantities returned.</td></tr>')+'</tbody></table></div><h3>Drawing CU items identified</h3><div class="table-wrap"><table><thead><tr><th>CU / code</th><th>Description</th><th>Qty</th><th>Unit</th><th>Source evidence</th></tr></thead><tbody>'+inventoryRows+'</tbody></table></div><h3>Quote-only extras ignored</h3><div class="table-wrap"><table><thead><tr><th>Quote item</th><th>Qty</th><th>Reason</th></tr></thead><tbody>'+(extrasRows||'<tr><td colspan="3">No quote-only extras listed.</td></tr>')+'</tbody></table></div><h3>Limitations / manual checks</h3><ul>'+((r.limitations||[]).map(x=>'<li>'+esc(x)+'</li>').join('')||'<li>Verify all quantities and codes against the original PDFs.</li>')+'</ul><div class="report-summary"><p><strong>CU comparison summary:</strong> '+esc(r.summary||'CU comparison completed.')+'</p><p class="muted">'+esc(r.note||'CU-only quantity comparison. Verify codes and quantities against the original PDFs before accepting a quote. This report is not engineering approval.')+'</p></div><div class="actions"><button class="btn" id="csv">Export CU comparison CSV</button><button class="btn secondary" id="print">Print / Save PDF report</button></div>'; $('results').innerHTML=depotHtml;
+ const depotHtml=coverageWarningHtml+projectDetailsHtml+coordinateReviewHtml+'<div class="depot-summary"><span><b>CLOSEST DEPOT:</b> '+esc(depotName.toUpperCase())+'</span><span><b>ONE-WAY ROAD DISTANCE:</b> '+esc(depotDistance)+'</span><span><b>STRAIGHT-LINE DISTANCE:</b> '+esc(straightLineDistance)+'</span><span><b>DEPOT COORDINATES:</b> '+esc(depotCoordinate)+'</span><span><b>SITE COORDINATES USED:</b> '+esc(projectCoordinate)+'</span><span><b>COORDINATE SOURCE:</b> '+esc(coordinateSource)+'</span></div>'+travelCheckHtml+'<h2>2. Comparison results</h2><div class="stats"><div class="stat"><b>'+di.length+'</b><span>Drawing items identified</span></div><div class="stat"><b>'+ms.length+'</b><span>Matched items</span></div><div class="stat"><b id="activeDiscrepancyCount">'+ds.length+'</b><span>Discrepancies / review flags</span></div></div><p class="muted discrepancy-dismiss-hint">After manually checking a discrepancy, use × to remove it from this report and its exports.</p><h3>Discrepancies to review</h3><div class="table-wrap"><table id="discrepancyTable"><thead><tr><th>Status</th><th>Drawing item / quantity</th><th>Quote item / quantity</th><th>Reason</th><th>Priority / confidence</th></tr></thead><tbody>'+(discrepancyRows||'<tr><td colspan="5">No CU discrepancies identified. Verify matched items against the source PDFs before acceptance.</td></tr>')+'</tbody></table></div>'+travelComparisonHtml+'<h3>Matched items</h3><div class="table-wrap"><table><thead><tr><th>Drawing item</th><th>Drawing qty</th><th>Quote item</th><th>Quote qty</th><th>Notes</th></tr></thead><tbody>'+(matchedRows||'<tr><td colspan="5">No matching CU quantities returned.</td></tr>')+'</tbody></table></div><h3>Drawing CU items identified</h3><div class="table-wrap"><table><thead><tr><th>CU / code</th><th>Description</th><th>Qty</th><th>Unit</th><th>Source evidence</th></tr></thead><tbody>'+inventoryRows+'</tbody></table></div><h3>Quote-only extras ignored</h3><div class="table-wrap"><table><thead><tr><th>Quote item</th><th>Qty</th><th>Reason</th></tr></thead><tbody>'+(extrasRows||'<tr><td colspan="3">No quote-only extras listed.</td></tr>')+'</tbody></table></div><h3>Limitations / manual checks</h3><ul>'+((r.limitations||[]).map(x=>'<li>'+esc(x)+'</li>').join('')||'<li>Verify all quantities and codes against the original PDFs.</li>')+'</ul><div class="report-summary"><p><strong>CU comparison summary:</strong> '+esc(r.summary||'CU comparison completed.')+'</p><p class="muted">'+esc(r.note||'CU-only quantity comparison. Verify codes and quantities against the original PDFs before accepting a quote. This report is not engineering approval.')+'</p></div><div class="actions"><button class="btn" id="csv">Export CU comparison CSV</button><button class="btn secondary" id="print">Print / Save PDF report</button></div>'; $('results').innerHTML=depotHtml;
  $('csv').onclick=()=>{const rows=[['Section','Status','Drawing item','Drawing qty','Drawing unit','Quote item','Quote qty','Quote unit','Difference / note','Severity','Confidence','Source page']];ds.forEach((x,index)=>{if(!closedDiscrepancies.has(index))rows.push(['Discrepancy',x.status,x.drawing_item,x.drawing_quantity,x.drawing_unit,x.quote_item,x.quote_quantity,x.quote_unit,x.difference,x.severity,x.confidence,'']);});ms.forEach(x=>rows.push(['Matched','MATCHED',x.drawing_item,x.drawing_quantity,'',x.quote_item,x.quote_quantity,'',x.note,'',x.confidence,'']));di.forEach(x=>rows.push(['Drawing inventory','',x.code,x.quantity,x.unit,'','','',x.description,'',x.confidence,x.page]));ex.forEach(x=>rows.push(['Ignored quote extra','IGNORED','', '', '',x.item,x.quantity,'',x.reason,'','','']));travelItems.forEach(x=>rows.push(['Depot travel allowance',x.status,'One-way road distance',x.road_distance_km,'km',x.code,x.quoted_quantity,'km',x.formula||x.message||('Expected '+x.expected_quantity+' km; variance '+x.difference_km+' km'),'','', '']));const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='eve-ai-drawing-quote-comparison.csv';a.click();URL.revokeObjectURL(a.href);};
  const discrepancyTable=$('discrepancyTable');if(discrepancyTable){discrepancyTable.addEventListener('click',event=>{const dismiss=event.target.closest('[data-dismiss-discrepancy]');if(!dismiss)return;const index=Number(dismiss.getAttribute('data-dismiss-discrepancy'));if(!Number.isInteger(index)||index<0||index>=ds.length||closedDiscrepancies.has(index))return;closedDiscrepancies.add(index);dismiss.closest('tr')?.remove();const count=$('activeDiscrepancyCount');if(count)count.textContent=String(ds.length-closedDiscrepancies.size);const tbody=discrepancyTable.querySelector('tbody');if(tbody&&!tbody.querySelector('tr'))tbody.innerHTML='<tr><td colspan="5">All discrepancies have been manually dismissed from this report.</td></tr>';});}
  $('print').onclick=()=>window.print();
@@ -220,10 +222,10 @@ $('compare').addEventListener('click',async()=>{
  const btn=$('compare');btn.disabled=true;let progressTimer=null;
  try{
   setProgress(5,'Reading the PDFs…');$('status').textContent='Preparing drawing and quote documents…';
-  const [dr,qr]=await Promise.all([readPdf(d,'drawing',4),readPdf(q,'quote',3)]);
+  const [dr,qr]=await Promise.all([readPdf(d,'drawing',9),readPdf(q,'quote',3)]);
   setProgress(62,'Reading drawing CU callouts and DQM Compatible Units…');$('status').textContent='Comparing drawing CU quantities with DQM Compatible Units quantities.';
   let estimatedProgress=62,elapsedSeconds=0;progressTimer=setInterval(()=>{elapsedSeconds+=1;const step=estimatedProgress<78?1:(estimatedProgress<86?(elapsedSeconds%2===0?1:0):0);estimatedProgress=Math.min(88,estimatedProgress+step);let label='Reading drawing CU callouts and DQM Compatible Units…';if(estimatedProgress>=78)label='Checking quantities and matching quote items…';if(estimatedProgress>=86)label='Waiting for CU comparison fallback. This indicator is not a live measure of completed work.';setProgress(estimatedProgress,label);},1000);
-  const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets,drawingTextChars:dr.chars,quoteTextChars:qr.chars,drawingPages:dr.pageCount,sourceDrawingPages:dr.sourcePageCount,drawingTextTruncated:dr.truncated,quoteTextTruncated:qr.truncated,drawingTruncatedPages:dr.truncatedPages,quoteTruncatedPages:qr.truncatedPages};
+  const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets,drawingTextChars:dr.chars,quoteTextChars:qr.chars,drawingPages:dr.pageCount,sourceDrawingPages:dr.sourcePageCount,drawingTextTruncated:dr.truncated,quoteTextTruncated:qr.truncated,drawingTruncatedPages:dr.truncatedPages,quoteTruncatedPages:qr.truncatedPages,drawingSheetMap:dr.sheetMap,drawingSheetSelectionWarning:dr.sheetSelectionWarning};
   let result=null,lastError=null;const maxAttempts=2;
   for(let attempt=1;attempt<=maxAttempts;attempt++){
    try{
