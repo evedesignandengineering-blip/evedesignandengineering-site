@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#153f61">
+<link rel="icon" type="image/svg+xml" href="/stable-v3/favicon.svg?v=20261020">
+<link rel="shortcut icon" href="/stable-v3/favicon.svg?v=20261020">
+<title>Drawing & Quote Checker | EVE Design & Engineering</title><meta name="description" content="Compare electrical design drawing CU items, materials and quantities against a quote.">
+<link rel="canonical" href="https://evedesignandengineering.com/stable-v3/drawing-quote-checker.html">
+<link rel="stylesheet" href="styles.css?v=20261018-audit"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+:root{--navy:#09284b;--blue:#2f6ea4;--line:#d8e2ec;--muted:#607184}.checker-version{display:inline-block;margin:10px 0 0;padding:4px 9px;border:1px solid rgba(255,255,255,.35);border-radius:4px;color:#d6e8f7;font-size:12px;font-weight:700;letter-spacing:.04em}*{box-sizing:border-box}body{margin:0;background:#f3f6f9;color:#152b43;font-family:'DM Sans',sans-serif}.nav{background:#fff}.wrap{max-width:1200px;margin:auto;padding:34px 22px 70px}.calc-hero{padding:48px 5.6% 42px;background:linear-gradient(120deg,#082b4d,#174e79);color:#fff}.calc-hero small{font-size:10px;letter-spacing:.12em;font-weight:700;color:#b8d8ef}.calc-hero h1{font:800 clamp(30px,4vw,42px)/1.1 Manrope;margin:10px 0 12px;letter-spacing:-.045em}.calc-hero p{max-width:650px;color:#e3edf5;font-size:14px;line-height:1.7;margin:0}.eyebrow{font-size:11px;letter-spacing:.13em;font-weight:700;color:#b9d8ef}.hero h1{font:800 clamp(25px,3.2vw,34px)/1.1 Manrope;margin:5px 0 7px;letter-spacing:-.035em}.hero p{max-width:760px;color:#e3edf5;font-size:12px;line-height:1.5;margin:0}.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:23px;margin-bottom:18px;box-shadow:0 5px 18px #09284b08;transition:padding .4s ease,box-shadow .4s ease,transform .4s ease}.card.collapsible{overflow:hidden}.card.collapsible.is-collapsed{padding:14px 20px}.card.collapsible.is-collapsed .card-content{display:none}.card.collapsible>h2[role=button]{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;user-select:none}.card.collapsible>h2[role=button]:focus-visible{outline:2px solid #2f6ea4;outline-offset:4px;border-radius:4px}.heading-hint{font:600 11px 'DM Sans',sans-serif;color:#607184;background:#edf3f8;border-radius:6px;padding:5px 8px;white-space:nowrap}.card.collapsible.is-collapsed .heading-hint{content:'Expand uploads'}.card.focus-result{animation:resultFocus .8s ease}@keyframes resultFocus{0%{transform:translateY(8px) scale(.985)}45%{transform:translateY(0) scale(1.006);box-shadow:0 12px 34px #2f6ea42a}100%{transform:translateY(0) scale(1)}}.reason strong{font-weight:800;color:#082b4d;background:#eaf3fb;padding:1px 3px;border-radius:3px}.reason strong.required-qty{color:#a51f1f;background:#ffe4e4;padding:2px 5px;border-radius:4px;font-weight:900}.expected-qty{display:inline;color:#b42323;font:inherit;font-weight:400;background:none;border:0;border-radius:0;padding:0;margin:0}.depot-panel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.depot-metric{padding:15px;border:1px solid #cdddea;border-radius:10px;background:#f4f9fd}.depot-metric span{display:block;color:#607184;font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700}.depot-metric strong{display:block;color:#09284b;font:800 22px Manrope;margin-top:5px}.depot-metric small{display:block;color:#607184;font-size:12px;margin-top:4px;overflow-wrap:anywhere}.depot-summary{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin:0 0 16px;padding:9px 12px;border:1px solid #d8e2ec;border-radius:7px;background:#f4f8fb;color:#234765;font-size:12px}.depot-summary b{color:#09284b}.report-summary{margin-top:24px;padding-top:14px;border-top:1px solid #d8e2ec;font-size:13px;line-height:1.65}.report-summary p{margin:0 0 9px}@media(max-width:700px){.depot-panel{grid-template-columns:1fr 1fr}}.card h2{font:800 19px Manrope;margin:0 0 8px;color:var(--navy)}.muted{color:var(--muted);font-size:13px;line-height:1.6}.upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}.drop{border:1.5px dashed #9bb4c9;border-radius:10px;padding:19px;background:#f9fbfd;transition:background .18s ease,border-color .18s ease,box-shadow .18s ease}.drop.drag-over{background:#eaf4fc;border-color:#2f6ea4;box-shadow:0 0 0 3px #2f6ea41c}.drop.drag-over label{color:#174e79}.drop label{display:block;font-weight:700;margin-bottom:9px}.drop input{width:100%;font-size:13px}.filename{font-size:12px;color:#49647d;margin-top:8px;overflow-wrap:anywhere}.scope{width:100%;min-height:125px;border:1px solid #cbd7e2;border-radius:8px;padding:12px;font:13px/1.6 'DM Sans';resize:vertical}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.btn{border:0;border-radius:7px;padding:12px 17px;background:var(--blue);color:#fff;font-weight:700;cursor:pointer}.btn.secondary{background:#e7eef5;color:#163e61}.btn:disabled{opacity:.5;cursor:wait}.status{font-size:13px;margin-top:12px;color:#42627d}.progress-panel{display:none;margin-top:16px;padding:14px;background:#f5f8fb;border:1px solid var(--line);border-radius:9px}.progress-label{display:flex;justify-content:space-between;gap:12px;font-size:13px;font-weight:600;color:#234765;margin-bottom:9px}.progress-track{height:10px;background:#dce6ef;border-radius:999px;overflow:hidden}.progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#2f6ea4,#62a5d4);background-size:200% 100%;border-radius:999px;transition:width .6s ease;animation:progressShimmer 1.8s linear infinite;position:relative}.progress-fill:after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,#ffffff66 48%,transparent 75%);transform:translateX(-100%);animation:progressGlint 1.7s ease-in-out infinite}@keyframes progressShimmer{to{background-position:-200% 0}}@keyframes progressGlint{to{transform:translateX(100%)}}.progress-hint{font-size:11px;color:var(--muted);margin-top:7px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.stat{padding:16px;background:#f5f8fb;border:1px solid var(--line);border-radius:9px}.stat b{font:800 25px Manrope;display:block;color:var(--navy)}.stat span{font-size:12px;color:var(--muted)}.table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px;min-width:780px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #e3eaf0;vertical-align:top}th{background:#edf3f8;color:#234765;font-size:11px;text-transform:uppercase;letter-spacing:.04em}td strong{color:#122e49}.pill{display:inline-block;border-radius:20px;padding:4px 8px;font-size:11px;font-weight:700}.bad{background:#ffe8e5;color:#a52d22}.warn{background:#fff2d6;color:#865500}.good{background:#dcf6e9;color:#17633f}.neutral{background:#e9eef3;color:#53677a}.notice{background:#fff8e8;border-left:3px solid #e0a12d;padding:12px 14px;font-size:12px;line-height:1.6;color:#6e5526;margin-top:15px}.empty{padding:28px;text-align:center;color:#6b7e8f;font-size:13px}.scope-default{background:#f8fafc;border:1px solid #e1e8ef;border-radius:8px;padding:12px;margin-top:12px;font-size:12px;line-height:1.7}.small{font-size:11px;color:#708093}@media(max-width:700px){.upload-grid{grid-template-columns:1fr}.wrap{padding:22px 14px 45px}.card{padding:17px}.stats{grid-template-columns:1fr 1fr}.calc-hero{padding:40px 7%}}
+
+.project-details{margin-top:8px;padding:15px;border:1px solid #d8e2ec;border-radius:9px;background:#f8fbfd}.project-details h3{margin:0 0 6px;font:800 17px Manrope;color:#09284b}.project-details-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}.project-details-grid label{display:block;margin-bottom:6px;font-size:11px;font-weight:800;letter-spacing:.04em;color:#234765}.project-details-grid input{width:100%;min-width:0;border:1px solid #cbd7e2;border-radius:7px;padding:10px 11px;font:13px 'DM Sans',sans-serif;background:#fff;color:#152b43}.project-details-grid input:focus{outline:2px solid #9bc5e4;outline-offset:1px}.project-report{padding:12px 14px;margin:0 0 16px;border:1px solid #d8e2ec;border-radius:8px;background:#f8fbfd}.project-report h3{margin:0 0 9px;font:800 14px Manrope;color:#09284b}.project-report-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 18px;font-size:12px}.project-report-grid b{color:#234765}.project-report-grid span{overflow-wrap:anywhere}@media(max-width:700px){.project-details-grid,.project-report-grid{grid-template-columns:1fr}}
+</style><style>
+/* Shared page-hero refinement: compact, consistent and high-contrast. */
+.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-top:clamp(28px,3.8vw,42px)!important;padding-bottom:clamp(26px,3.2vw,36px)!important;background:#153f61!important}
+.tools-hero h1,.portfolio-hero h1,.calc-hero h1,.takeoff-hero h1{line-height:1.12;text-wrap:balance}
+@media(max-width:620px){.tools-hero,.portfolio-hero,.calc-hero,.takeoff-hero{padding-left:6%!important;padding-right:6%!important}}
+</style>
+
+<style>
+.detected-project-details{margin:0 0 18px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:#f7fafc}.detected-project-details h3{margin:0 0 10px}.detected-project-details dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 18px;margin:0}.detected-project-details dl div{min-width:0}.detected-project-details dt{font-size:.76rem;font-weight:800;letter-spacing:.035em;text-transform:uppercase;color:var(--muted)}.detected-project-details dd{margin:3px 0 0;font-weight:650;overflow-wrap:anywhere}@media print{.detected-project-details{background:#fff!important;border:1px solid #cbd5df!important;padding:3mm!important;margin-bottom:3mm!important}.detected-project-details h3{font-size:10pt!important}.detected-project-details dl{gap:2mm 4mm}}
+/* Print-only report layout: exclude the on-screen upload workflow and use compact, print-safe spacing. */
+.print-offer{display:none}.reset-actions{justify-content:flex-end;margin-top:12px}.reset-actions .btn{display:inline-flex}
+@media print{
+  @page{size:auto;margin:8mm}
+  html,body{background:#fff!important;color:#172b3d!important;font-size:9pt!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{margin:0!important}
+  .nav,.calc-hero,#uploadCard,.actions,.btn,button,.status,.progress-panel,.heading-hint,.site-editor,.drafting-promotion,.promo-banner{display:none!important}
+  .site,main.wrap{display:block!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important}
+  .print-offer{display:block!important;margin:0 0 7mm!important;padding:0 0 3mm!important;border:0!important;border-bottom:1px solid #b8c9d8!important;border-radius:0!important;background:#fff!important;break-inside:avoid}
+  .print-offer .offer-kicker{display:none!important}
+  .print-offer h2{margin:0!important;font-size:15pt!important;line-height:1.15!important;font-weight:800!important;color:#09284b!important}
+  .print-offer .offer-rate{display:none!important}
+  .print-offer p{display:none!important}
+  .card{padding:3mm!important;margin:0 0 3mm!important;border:1px solid #d8e2ec!important;border-radius:1.5mm!important;box-shadow:none!important;overflow:visible!important;break-inside:auto!important}
+  .card h2{margin:0 0 2mm!important;font-size:11pt!important;line-height:1.2!important}
+  .muted{font-size:8pt!important;line-height:1.35!important}
+  .report-summary{margin-top:3mm!important;padding-top:2mm!important;font-size:8pt!important;line-height:1.35!important}
+  .report-summary p{margin:0 0 1.5mm!important}
+  .stats{gap:2mm!important;margin:2mm 0!important}
+  .stat{padding:2mm!important;border-radius:1mm!important}
+  .stat b{font-size:15pt!important}
+  .stat span{font-size:7.5pt!important}
+  .depot-panel{gap:2mm!important;margin:2mm 0!important}
+  .depot-metric{padding:2mm!important;border-radius:1mm!important}
+  .depot-metric strong{font-size:13pt!important;margin-top:1mm!important}
+  .depot-metric small,.depot-metric span{font-size:7pt!important}
+  .depot-summary{gap:1mm 3mm!important;margin:0 0 2mm!important;padding:2mm!important;font-size:7.5pt!important}
+  .table-wrap{overflow:visible!important}
+  table{width:100%!important;min-width:0!important;table-layout:fixed!important;border-collapse:collapse!important;font-size:7.2pt!important}
+  th,td{padding:1.2mm 1.4mm!important;line-height:1.22!important;overflow-wrap:anywhere!important;word-break:normal!important;vertical-align:top!important}
+  th{font-size:6.5pt!important;letter-spacing:0!important}
+  tr{break-inside:avoid!important;page-break-inside:avoid!important}
+  .pill{padding:.4mm 1.2mm!important;font-size:6.5pt!important}
+  .notice{margin-top:2mm!important;padding:2mm 2.5mm!important;font-size:7pt!important;line-height:1.3!important}
+  .empty{padding:4mm!important}
+  a{color:inherit!important;text-decoration:none!important}
+}
+.discrepancy-status-cell{position:relative;padding-right:30px!important}.discrepancy-status-content{padding-top:2px}.dismiss-discrepancy{position:absolute;top:5px;right:5px;display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;min-width:21px;padding:0;border:1px solid #c8d3de;border-radius:50%;background:#fff;color:#667789;font:600 17px/1 Arial,sans-serif;cursor:pointer;opacity:.82}.dismiss-discrepancy:hover,.dismiss-discrepancy:focus-visible{background:#ffe8e5;border-color:#d99a94;color:#a52d22;opacity:1;outline:2px solid #9bc5e4;outline-offset:1px}.discrepancy-dismiss-hint{margin:0 0 8px;font-size:11px}@media print{.dismiss-discrepancy,.discrepancy-dismiss-hint{display:none!important}}
+</style>
+</head><body><div class="site">
+<header class="nav"><a class="brand" href="https://evedesignandengineering.com/stable-v3/#home" aria-label="EVE home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><nav aria-label="Primary navigation"><a href="index.html#home">Home</a><a href="portfolio.html">Portfolio</a><a class="active" href="tools.html">Tools</a><a href="index.html#contact">Contact</a></nav><a class="nav-cta" href="index.html#contact">Get in Touch <b>→</b></a></header>
+<section class="calc-hero"><small>EVE DESIGN &amp; ENGINEERING / QUALITY CHECK</small><h1>EVE DESIGN & ENGINEERING — CU COMPARISON CHECKER</h1><p class="checker-version">Checker version Stable Version 3 (TEST)</p><p>Compare drawing CU quantities with the DQM Compatible Units table, with supplementary AUX, depot-travel, cable/polypipe and DDrill haul checks.</p></section>
+<main class="wrap">
+<section class="card collapsible" id="uploadCard"><h2 id="uploadHeading" role="button" tabindex="0" aria-expanded="true" aria-controls="uploadContent" title="Click to collapse or expand uploads">1. Upload the two PDFs <span class="heading-hint" aria-hidden="true">Click to collapse</span></h2><div class="card-content" id="uploadContent"><p class="muted">The checker reads digital PDF text and compares explicit drawing CU callouts against the DQM quote’s Compatible Units table. Repeated CU codes are totalled. NON CU and DCSH notes are excluded. Selected images/text are sent to EVE’s secure Supabase function; Gemini is used when text extraction is incomplete or clipped. Original PDFs and reports are not saved.</p>
+<div id="uploadWorkflow"><div class="upload-grid"><div class="drop"><label for="drawing">Design drawing PDF</label><input id="drawing" type="file" accept="application/pdf,.pdf"><div id="drawingName" class="filename">No drawing selected</div></div><div class="drop"><label for="quote">Quote output PDF</label><input id="quote" type="file" accept="application/pdf,.pdf"><div id="quoteName" class="filename">No quote selected</div></div></div>
+<div class="actions"><button class="btn" id="compare">Run CU comparison</button></div><div id="status" class="status" role="status">Choose both PDF files to begin.</div>
+<div id="progressPanel" class="progress-panel" aria-live="polite"><div class="progress-label"><span id="progressText">Preparing comparison…</span><span id="progressPercent">0%</span></div><div class="progress-track" role="progressbar" aria-label="CU comparison progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressTrack"><div class="progress-fill" id="progressFill"></div></div><div class="progress-hint">Progress is an estimate; PDF extraction, road routing and optional AI fallback time can vary with document complexity.</div></div></div><div class="actions reset-actions"><button class="btn secondary" id="clear" type="button">Clear Operation</button></div></section>
+
+<section class="print-offer" aria-label="Report heading"><h2>EVE DESIGN & ENGINEERING — CU COMPARISON CHECKER</h2></section>
+<section class="card" id="results"><h2>2. Comparison results</h2><div class="empty">Upload both PDFs and run the CU comparison. The report compares drawing CU callouts with DQM Compatible Units quantities.</div></section>
+<section class="card"><h2>How the checker treats differences</h2><p class="muted"><strong>CU comparison and supplementary checks:</strong> Drawing quantities are summed only from explicit drawing <code>CU:</code> callouts and compared with the DQM quote’s <strong>Compatible Units</strong> table. Repeated entries are totalled; <code>NON CU:</code> and <code>DCSH:</code> notes are excluded; quote-only CUs are informational extras. The checker also validates AUX_013 against project value (1, 3 or 12 by value band), AUX_005 against adjusted total internal cost, each drawing CN54x against two CABLE_07 units, cable-to-polypipe sizing (1/16/25 mm → 63 mm, 120/240 mm → 110 mm, 400 HV → 160 mm), DDrill installation versus haul length by diameter, and depot travel against road distance. If value, pipe-size or route evidence is missing, it flags the uncertainty rather than inventing a result.</p><div class="notice">Important: this the checker sends extracted PDF text and selected page images to an AI model for comparison. AI can misread scanned drawings, symbols, quantities or table alignment. Always verify flagged and matched items against the original drawing and quote before approving a quote.</div></section>
+</main></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const SUPABASE_URL='https://hszkloepnewfkzdegfhl.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhzemtsb2VwbmV3Zmt6ZGVnZmhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NDU0MzUsImV4cCI6MjEwNzAyMTQzNX0.PBoDEUUB8LoL8XKIgQVPvkptgzmwkSuxgDkSxdj92kw';
+const $=id=>document.getElementById(id);
+$('drawing').addEventListener('change',e=>{$('drawingName').textContent=e.target.files[0]?.name||'No drawing selected';});
+$('quote').addEventListener('change',e=>{$('quoteName').textContent=e.target.files[0]?.name||'No quote selected';});
+
+// Make the entire drawing and quote panels true drag-and-drop targets, not just the file inputs.
+document.querySelectorAll('.drop').forEach(zone=>{
+ const input=zone.querySelector('input[type="file"]');
+ if(!input)return;
+ ['dragenter','dragover'].forEach(type=>zone.addEventListener(type,e=>{
+  e.preventDefault();e.stopPropagation();
+  if(e.dataTransfer)e.dataTransfer.dropEffect='copy';
+  zone.classList.add('drag-over');
+ }));
+ ['dragleave','dragend'].forEach(type=>zone.addEventListener(type,e=>{
+  e.preventDefault();e.stopPropagation();
+  if(type==='dragend'||!zone.contains(e.relatedTarget))zone.classList.remove('drag-over');
+ }));
+ zone.addEventListener('drop',e=>{
+  e.preventDefault();e.stopPropagation();zone.classList.remove('drag-over');
+  const files=Array.from(e.dataTransfer?.files||[]);
+  const pdf=files.find(file=>file.type==='application/pdf'||/\\.pdf$/i.test(file.name));
+  if(!pdf){$('status').textContent='Please drop a PDF file into the '+(input.id==='drawing'?'Design drawing':'Quote output')+' area.';return;}
+  if(pdf.size>35*1024*1024){$('status').textContent='Each PDF must be smaller than 35 MB. Please compress the file and retry.';return;}
+  try{
+   const transfer=new DataTransfer();transfer.items.add(pdf);input.files=transfer.files;
+   input.dispatchEvent(new Event('change',{bubbles:true}));
+   $('status').textContent=(input.id==='drawing'?'Design drawing':'Quote output')+' PDF selected: '+pdf.name;
+  }catch(err){$('status').textContent='Could not attach the dropped file. Please use the file picker instead.';}
+ });
+});
+
+
+function resetOperation(){['drawing','quote'].forEach(id=>$(id).value='');$('drawingName').textContent='No drawing selected';$('quoteName').textContent='No quote selected';$('progressPanel').style.display='none';$('status').style.display='';$('uploadWorkflow').style.display='block';$('uploadHeading').childNodes[0].textContent='1. Upload the two PDFs ';$('compare').style.display='';$('clear').textContent='Clear Operation';setUploadCollapsed(false);$('results').classList.remove('focus-result');$('progressFill').style.width='0%';$('progressPercent').textContent='0%';$('progressTrack').setAttribute('aria-valuenow','0');$('status').textContent='Choose both PDF files to begin.';$('results').innerHTML='<h2>2. Comparison results</h2><div class="empty">Upload both PDFs and run the CU comparison. The report will show matched CU quantities and any differences.</div>';}
+$('clear').addEventListener('click',resetOperation);
+
+function setProgress(value,label){const pct=Math.max(0,Math.min(100,Math.round(value)));$('progressPanel').style.display='block';$('progressText').textContent=label;$('progressPercent').textContent=pct+'%';$('progressFill').style.width=pct+'%';$('progressTrack').setAttribute('aria-valuenow',String(pct));}
+
+function esc(s){return String(s??'—').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function pill(status){const s=String(status||'REVIEW_REQUIRED');const cls=['MISSING_FROM_QUOTE','QUANTITY_MISMATCH','MATERIAL_OR_CU_MISMATCH','UNIT_MISMATCH','AUX_013_PROJECT_VALUE_MISMATCH','AUX_005_INTERNAL_COST_MISMATCH','POLYPIPE_SIZE_MISMATCH','DRILL_HAUL_QUANTITY_MISMATCH','CN54X_CABLE_07X_MISMATCH','DEPOT_TRAVEL_MISMATCH'].includes(s)?'bad':s==='MATCHED'?'good':'warn';return '<span class="pill '+cls+'">'+esc(s.replaceAll('_',' '))+'</span>';}
+function num(v){return v===null||v===undefined||v===''?'Not confidently read':esc(v);}
+function formatReason(s){let safe=esc(s??'');safe=safe.replace(/(expected[^,;\n.]+)/ig,'<strong>$1</strong>').replace(/(required[^,;\n.]+)/ig,'<strong>$1</strong>').replace(/(\b\d+(?:\.\d+)?\s*(?:units?|ea|each)\b)/ig,'<strong class="required-qty">$1</strong>');return safe;}
+ function expectedQuantity(reason){const s=String(reason??'');const patterns=[/(?:necessitates|requires?|required(?: quantity)?(?:\s*[:=]|\s+is|\s+of)?|expected(?: quantity)?(?:\s*[:=]|\s+is|\s+of)?|should be)\s*(\d+(?:\.\d+)?)\s*(units?|ea|each|km|m|lm|cu)?\b/i,/(?:2\s*[x×*]\s*\d+\s*=\s*)(\d+(?:\.\d+)?)\b/i];for(const re of patterns){const m=s.match(re);if(m)return {value:m[1],unit:m[2]||null};}return null;}
+ function setUploadCollapsed(collapsed){const card=$('uploadCard');if(!card)return;card.classList.toggle('is-collapsed',collapsed);const heading=$('uploadHeading');heading.setAttribute('aria-expanded',String(!collapsed));heading.title=collapsed?'Click to expand uploads':'Click to collapse uploads';const hint=heading.querySelector('.heading-hint');if(hint)hint.textContent=collapsed?'Click to expand':'Click to collapse';}
+$('uploadHeading').addEventListener('click',()=>setUploadCollapsed(!$('uploadCard').classList.contains('is-collapsed')));
+$('uploadHeading').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setUploadCollapsed(!$('uploadCard').classList.contains('is-collapsed'));}});
+async function readPdf(file, role, maxImages){
+ const data=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjsLib.getDocument({data}).promise;
+ let pages=[],images=[],totalChars=0,declaredSheets=null;const sheetVotes=new Map();
+ // Read every physical PDF page first. Numbered drawing sheets may be preceded by cover pages
+ // or followed by schedules, so never assume the first N PDF pages are Sheet 1 of N ... N of N.
+ for(let n=1;n<=pdf.numPages;n++){
+  const page=await pdf.getPage(n);const content=await page.getTextContent();
+  const textItems=content.items.filter(item=>item.str&&item.str.trim()).map(item=>({text:item.str.trim(),x:Number(item.transform?.[4]||0),y:Number(item.transform?.[5]||0),width:Number(item.width||0)}));
+  textItems.sort((a,b)=>b.y-a.y||a.x-b.x);
+  const visualRows=[];
+  for(const item of textItems){let row=visualRows.find(candidate=>Math.abs(candidate.y-item.y)<=3);if(!row){row={y:item.y,items:[]};visualRows.push(row);}row.items.push(item);}
+  visualRows.sort((a,b)=>b.y-a.y);
+  const lines=visualRows.map(row=>{row.items.sort((a,b)=>a.x-b.x);let output='',rightEdge=null;for(const item of row.items){const gap=rightEdge===null?0:item.x-rightEdge;output+=(rightEdge===null?'':gap>24?' | ':' ')+item.text;rightEdge=Math.max(rightEdge===null?item.x:rightEdge,item.x+item.width);}return output.trim();}).filter(Boolean);
+  const txt=lines.join('\n');let sheetNumber=null,sheetCount=null;
+  if(role==='drawing'){
+   const found=Array.from(txt.matchAll(/\b(?:sheet|sht\.?)[\s#]*(?:no\.?\s*)?0*(\d{1,3})\s*(?:of|\/)\s*0*(\d{1,3})\b/gi)).filter(m=>Number(m[1])>0&&Number(m[2])>0&&Number(m[2])<=pdf.numPages&&Number(m[1])<=Number(m[2]));
+   const match=found.length?found[found.length-1]:null;
+   if(match){sheetNumber=Number(match[1]);sheetCount=Number(match[2]);sheetVotes.set(sheetCount,(sheetVotes.get(sheetCount)||0)+1);}
+  }
+  pages.push({page:n,text:txt,sheetNumber,sheetCount});
+ }
+ if(role==='drawing'&&sheetVotes.size){declaredSheets=Array.from(sheetVotes.entries()).sort((a,b)=>b[1]-a[1]||b[0]-a[0])[0][0];}
+ let selectedPages=pages,sheetSelectionWarning='';
+ if(role==='drawing'&&declaredSheets&&pages.length>declaredSheets){
+  const map=new Map();
+  for(const p of pages){if(p.sheetCount===declaredSheets&&p.sheetNumber>=1&&p.sheetNumber<=declaredSheets&&!map.has(p.sheetNumber))map.set(p.sheetNumber,p);}
+  const complete=Array.from({length:declaredSheets},(_,i)=>i+1).every(n=>map.has(n));
+  if(complete){selectedPages=Array.from({length:declaredSheets},(_,i)=>map.get(i+1));}
+  else{sheetSelectionWarning='The PDF declares '+declaredSheets+' drawing sheets but contains '+pages.length+' physical pages, and the title blocks did not identify every sheet number reliably. All physical pages were retained; verify the sheet mapping before relying on the CU comparison.';}
+ }
+ const ocrTargets=selectedPages.filter(p=>p.text.replace(/\s/g,'').length<35).map(p=>p.page);
+ if(ocrTargets.length&&window.Tesseract){
+  const priorityPages=selectedPages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe/i.test(p.text)).map(p=>p.page);
+  const selected=[...new Set([...priorityPages,...ocrTargets])].slice(0,Math.min(12,selectedPages.length));let worker=null;
+  try{
+   worker=await Tesseract.createWorker('eng');
+   for(const n of selected){
+    $('status').textContent='OCR reading scanned '+role+' page '+n+'…';
+    try{const page=await pdf.getPage(n);const vp=page.getViewport({scale:1.35});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;const result=await worker.recognize(canvas);const ocr=(result.data.text||'').trim();const pageEntry=selectedPages.find(p=>p.page===n);if(pageEntry&&ocr.length>pageEntry.text.length)pageEntry.text=ocr;canvas.width=canvas.height=1;}catch(e){console.warn('OCR failed on page',n,e);}
+   }
+  }catch(e){console.warn('OCR worker could not start',e);}
+  finally{if(worker)try{await worker.terminate();}catch(e){console.warn('OCR worker cleanup failed',e);}}
+ }
+ totalChars=selectedPages.reduce((sum,p)=>sum+(p.text||'').length,0);
+ // Budget text per page and preserve every page marker; no final global slice can silently
+ // cut off the last sheet. If a single page must be clipped, the backend will require fallback.
+ const textBudget=116000,perPageBudget=Math.max(300,Math.floor((textBudget-selectedPages.length*40)/Math.max(1,selectedPages.length)));let truncatedPages=0;
+ const text=selectedPages.map(p=>{
+  const compacted=(p.text||'').split(/\r?\n/).map(line=>line.replace(/[ \t]{2,}/g,' ').trim()).filter(Boolean).join('\n');
+  if(compacted.length>perPageBudget)truncatedPages++;
+  const sheetLabel=p.sheetNumber&&p.sheetCount?' | SHEET '+p.sheetNumber+' OF '+p.sheetCount:'';
+  return '[PAGE '+p.page+sheetLabel+']\n'+compacted.slice(0,perPageBudget);
+ }).join('\n\n');
+ // Render every selected sheet when it fits the image budget; visual evidence complements
+ // PDF text where CAD text order or small callouts cannot be reconstructed reliably.
+ const priorityPages=selectedPages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\s*mm/i.test(p.text)).map(p=>p.page);
+ const candidates=new Set(role==='drawing'&&selectedPages.length<=maxImages?selectedPages.map(p=>p.page):priorityPages.slice(0,maxImages));
+ for(const p of selectedPages){if(candidates.size>=maxImages)break;candidates.add(p.page);}
+ const sparse=selectedPages.filter(p=>p.text.replace(/\s/g,'').length<100);
+ for(const p of sparse){if(candidates.size>=maxImages)break;candidates.add(p.page);}
+ for(const n of [...candidates].slice(0,maxImages)){
+  try{const page=await pdf.getPage(n);const base=page.getViewport({scale:1});const scale=Math.min(1.6,1400/base.width);const vp=page.getViewport({scale});const canvas=document.createElement('canvas');canvas.width=Math.round(vp.width);canvas.height=Math.round(vp.height);await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;images.push(canvas.toDataURL('image/jpeg',0.68));canvas.width=canvas.height=1;}catch(e){console.warn('Image render failed',n,e);}
+ }
+ return {text,images,pageCount:selectedPages.length,sourcePageCount:pdf.numPages,declaredSheets,chars:totalChars,ocrCount:ocrTargets.length,textChars:text.length,truncatedPages,truncated:truncatedPages>0,sheetMap:selectedPages.map(p=>({pdfPage:p.page,sheetNumber:p.sheetNumber,sheetCount:p.sheetCount})),sheetSelectionWarning};
+}
+function projectDetailsReportMarkup(r){const p=r&&r.project_details&&typeof r.project_details==='object'?r.project_details:{};const fields=[['Drawing number',p.drawing_number],['Designer',p.designer],['Address',p.address]];const detected=fields.filter(([label,item])=>item&&typeof item==='object'&&typeof item.value==='string'&&item.value.trim()&&String(item.confidence||'').toLowerCase()==='high');if(!detected.length)return '';return '<section class="detected-project-details"><h3>Project details detected from drawing</h3><dl>'+detected.map(([label,item])=>'<div><dt>'+esc(label)+'</dt><dd>'+esc(item.value.trim())+'</dd></div>').join('')+'</dl></section>';}
+function renderReport(r){
+ const di=Array.isArray(r.drawing_items)?r.drawing_items:[],qi=Array.isArray(r.quote_items)?r.quote_items:[],ds=Array.isArray(r.discrepancies)?r.discrepancies:[],ms=Array.isArray(r.matched_items)?r.matched_items:[],ex=Array.isArray(r.ignored_quote_extras)?r.ignored_quote_extras:[];
+ const closedDiscrepancies=new Set();const discrepancyRows=ds.map((x,index)=>{const parsed=expectedQuantity(x.difference);const isTravelMismatch=String(x.status||'').toUpperCase()==='DEPOT_TRAVEL_MISMATCH';const travelCode=String(x.quote_item||x.drawing_item||'').toUpperCase();const roadKm=Number(r.depot_travel?.distance_km);const travelFactor=/\bTRAV(?:EL)?\s*OH[_\s-]*0*007\b/.test(travelCode)?6:2;const calculatedTravelExpected=isTravelMismatch&&Number.isFinite(roadKm)?Math.round(roadKm*travelFactor):null;const expectedValue=x.expected_quantity!==undefined&&x.expected_quantity!==null?x.expected_quantity:(parsed?parsed.value:calculatedTravelExpected);const unit=String(x.expected_unit||x.quote_unit||x.drawing_unit||(parsed&&parsed.unit)||(isTravelMismatch?'km':null)||'ea').trim().toLowerCase();const actual=Number(x.quote_quantity);const expectedNum=expectedValue===null?NaN:Number(expectedValue);const showExpected=expectedValue!==null&&(isTravelMismatch||!Number.isFinite(actual)||Math.abs(actual-expectedNum)>1e-9);const drawingLabel=String(x.drawing_item||'N/A');const drawingCell=/^N\/?A$/i.test(drawingLabel)?'<strong>N/A</strong>':'<strong>'+esc(drawingLabel)+'</strong><br>Qty: '+num(x.drawing_quantity)+' '+esc(x.drawing_unit||'');return '<tr data-discrepancy-index="'+index+'"><td class="discrepancy-status-cell"><div class="discrepancy-status-content">'+pill(x.status)+'</div><button type="button" class="dismiss-discrepancy" data-dismiss-discrepancy="'+index+'" aria-label="Dismiss discrepancy: '+esc(x.drawing_item||x.quote_item||x.status)+'" title="Dismiss this discrepancy from the report">×</button></td><td>'+drawingCell+'</td><td><strong>'+esc(x.quote_item||'Not found')+'</strong><br>Qty: '+num(x.quote_quantity)+' '+esc(x.quote_unit||'')+(showExpected?'<br><span class="expected-qty">Expected: '+esc(expectedValue)+' '+esc(unit)+'</span>':'')+'</td><td class="reason">'+formatReason(x.difference)+'</td><td>'+pill(String(x.severity||'medium').toUpperCase())+'<br>'+esc(x.confidence||'')+'</td></tr>';}).join('');
+ const matchedRows=ms.map(x=>'<tr><td>'+esc(x.drawing_item)+'</td><td>'+num(x.drawing_quantity)+'</td><td>'+esc(x.quote_item)+'</td><td>'+num(x.quote_quantity)+'</td><td>'+esc(x.note||'')+'<br><span class="small">Confidence: '+esc(x.confidence||'')+'</span></td></tr>').join('');
+ const extrasRows=ex.map(x=>'<tr><td>'+esc(x.item)+'</td><td>'+num(x.quantity)+'</td><td>'+esc(x.reason||'Quote-only extra ignored as requested.')+'</td></tr>').join('');
+ const inventoryRows=di.map(x=>'<tr><td>'+esc(x.code||'—')+'</td><td>'+esc(x.description)+'</td><td>'+num(x.quantity)+'</td><td>'+esc(x.unit||'—')+'</td><td>Page '+num(x.page)+'<br>'+esc(x.confidence||'')+'<br>'+esc(x.evidence||'')+'</td></tr>').join('');
+ const travel=r.depot_travel||{};
+ const depotName=travel.depot_name||travel.depot||'Not determined';
+ const distanceKm=travel.distance_km!==null&&travel.distance_km!==undefined?Number(travel.distance_km):NaN;
+ const depotDistance=Number.isFinite(distanceKm)?distanceKm.toFixed(1)+' km':'Needs route review';
+ const projectDetailsHtml=projectDetailsReportMarkup(r);
+ const travelCheck=r.travel_allowance_check||{};
+ const travelCheckText=travelCheck.message||travelCheck.status||'';
+ const travelCheckHtml=travelCheckText?'<p class="muted travel-check-status">'+esc(travelCheckText)+'</p>':'';
+ const coordinateReview=r.coordinate_review||{};
+  const drawingCoverage=r.diagnostics&&r.diagnostics.drawing_cu_coverage||{};const coverageIncomplete=r.cu_inventory_complete===false||drawingCoverage.complete===false;const coverageWarningHtml=coverageIncomplete?'<div class="notice cu-coverage-warning"><strong>WARNING: drawing CU inventory may be incomplete.</strong> '+esc(drawingCoverage.message||'The system could not verify CU extraction across every declared drawing sheet.')+' The comparison below is provisional. Do not use it as a completed check until every drawing sheet has been verified.</div>':'';
+ const coordinateReviewHtml=coordinateReview.message?'<div class="notice coordinate-review"><strong>Coordinate check:</strong> '+esc(coordinateReview.message)+(coordinateReview.drawing_reference?'<br>Drawing GEO REF: '+esc(Number(coordinateReview.drawing_reference.latitude).toFixed(6))+', '+esc(Number(coordinateReview.drawing_reference.longitude).toFixed(6)):'')+(coordinateReview.routing_coordinates?'<br>Coordinates used for routing: '+esc(Number(coordinateReview.routing_coordinates.latitude).toFixed(6))+', '+esc(Number(coordinateReview.routing_coordinates.longitude).toFixed(6)):'')+'</div>':'';
+ const travelItems=Array.isArray(travelCheck.items)?travelCheck.items:[];
+ const travelComparisonRows=travelItems.map(item=>'<tr><td><strong>'+esc(item.code)+'</strong><br>'+esc(item.description||'')+'</td><td>'+esc(item.quoted_quantity===null||item.quoted_quantity===undefined?'—':String(item.quoted_quantity))+' km</td><td>'+esc(item.expected_quantity===null||item.expected_quantity===undefined?'Not calculated':String(item.expected_quantity)+' km')+'</td><td>'+esc(item.difference_km===null||item.difference_km===undefined?'—':String(item.difference_km)+' km')+'</td><td>'+pill(item.status==='MATCH'?'MATCHED':item.status==='MISMATCH'?'DEPOT_TRAVEL_MISMATCH':'REVIEW_REQUIRED')+'</td><td>'+esc(item.formula||item.message||'Road route required before a travel allowance can be calculated.')+'</td></tr>').join('');
+ const travelComparisonHtml='<h3>Depot travel allowance comparison</h3><div class="table-wrap"><table class="travel-comparison"><thead><tr><th>Travel CU</th><th>Quoted allowance</th><th>Expected allowance</th><th>Variance</th><th>Result</th><th>Calculation / evidence</th></tr></thead><tbody>'+(travelComparisonRows||'<tr><td colspan="6">No travel CU rows were confidently extracted from the DQM Compatible Units table. Depot distance is shown separately above.</td></tr>')+'</tbody></table></div>';
+ const projectCoordinate=travel.project_latitude!==null&&travel.project_latitude!==undefined&&travel.project_longitude!==null&&travel.project_longitude!==undefined&&Number.isFinite(Number(travel.project_latitude))&&Number.isFinite(Number(travel.project_longitude))?Number(travel.project_latitude).toFixed(6)+', '+Number(travel.project_longitude).toFixed(6):'Not available';
+ const straightLineDistance=travel.straight_line_distance_km!==null&&travel.straight_line_distance_km!==undefined?Number(travel.straight_line_distance_km).toFixed(1)+' km':'Not available';
+ const depotCoordinate=travel.depot_latitude!==null&&travel.depot_latitude!==undefined&&travel.depot_longitude!==null&&travel.depot_longitude!==undefined?Number(travel.depot_latitude).toFixed(6)+', '+Number(travel.depot_longitude).toFixed(6):'Not available';
+ const coordinateSource=String(travel.project_coordinate_source||'Coordinate source not returned');
+ const depotHtml=coverageWarningHtml+projectDetailsHtml+coordinateReviewHtml+'<div class="depot-summary"><span><b>CLOSEST DEPOT:</b> '+esc(depotName.toUpperCase())+'</span><span><b>ONE-WAY ROAD DISTANCE:</b> '+esc(depotDistance)+'</span><span><b>STRAIGHT-LINE DISTANCE:</b> '+esc(straightLineDistance)+'</span><span><b>DEPOT COORDINATES:</b> '+esc(depotCoordinate)+'</span><span><b>SITE COORDINATES USED:</b> '+esc(projectCoordinate)+'</span><span><b>COORDINATE SOURCE:</b> '+esc(coordinateSource)+'</span></div>'+travelCheckHtml+'<h2>2. Comparison results</h2><div class="stats"><div class="stat"><b>'+di.length+'</b><span>Drawing items identified</span></div><div class="stat"><b>'+ms.length+'</b><span>Matched items</span></div><div class="stat"><b id="activeDiscrepancyCount">'+ds.length+'</b><span>Discrepancies / review flags</span></div></div><p class="muted discrepancy-dismiss-hint">After manually checking a discrepancy, use × to remove it from this report and its exports.</p><h3>Discrepancies to review</h3><div class="table-wrap"><table id="discrepancyTable"><thead><tr><th>Status</th><th>Drawing item / quantity</th><th>Quote item / quantity</th><th>Reason</th><th>Priority / confidence</th></tr></thead><tbody>'+(discrepancyRows||'<tr><td colspan="5">No CU discrepancies identified. Verify matched items against the source PDFs before acceptance.</td></tr>')+'</tbody></table></div>'+travelComparisonHtml+'<h3>Matched items</h3><div class="table-wrap"><table><thead><tr><th>Drawing item</th><th>Drawing qty</th><th>Quote item</th><th>Quote qty</th><th>Notes</th></tr></thead><tbody>'+(matchedRows||'<tr><td colspan="5">No matching CU quantities returned.</td></tr>')+'</tbody></table></div><h3>Drawing CU items identified</h3><div class="table-wrap"><table><thead><tr><th>CU / code</th><th>Description</th><th>Qty</th><th>Unit</th><th>Source evidence</th></tr></thead><tbody>'+inventoryRows+'</tbody></table></div><h3>Quote-only extras ignored</h3><div class="table-wrap"><table><thead><tr><th>Quote item</th><th>Qty</th><th>Reason</th></tr></thead><tbody>'+(extrasRows||'<tr><td colspan="3">No quote-only extras listed.</td></tr>')+'</tbody></table></div><h3>Limitations / manual checks</h3><ul>'+((r.limitations||[]).map(x=>'<li>'+esc(x)+'</li>').join('')||'<li>Verify all quantities and codes against the original PDFs.</li>')+'</ul><div class="report-summary"><p><strong>CU comparison summary:</strong> '+esc(r.summary||'CU comparison completed.')+'</p><p class="muted">'+esc(r.note||'CU-only quantity comparison. Verify codes and quantities against the original PDFs before accepting a quote. This report is not engineering approval.')+'</p></div><div class="actions"><button class="btn" id="csv">Export CU comparison CSV</button><button class="btn secondary" id="print">Print / Save PDF report</button></div>'; $('results').innerHTML=depotHtml;
+ $('csv').onclick=()=>{const rows=[['Section','Status','Drawing item','Drawing qty','Drawing unit','Quote item','Quote qty','Quote unit','Difference / note','Severity','Confidence','Source page']];ds.forEach((x,index)=>{if(!closedDiscrepancies.has(index))rows.push(['Discrepancy',x.status,x.drawing_item,x.drawing_quantity,x.drawing_unit,x.quote_item,x.quote_quantity,x.quote_unit,x.difference,x.severity,x.confidence,'']);});ms.forEach(x=>rows.push(['Matched','MATCHED',x.drawing_item,x.drawing_quantity,'',x.quote_item,x.quote_quantity,'',x.note,'',x.confidence,'']));di.forEach(x=>rows.push(['Drawing inventory','',x.code,x.quantity,x.unit,'','','',x.description,'',x.confidence,x.page]));ex.forEach(x=>rows.push(['Ignored quote extra','IGNORED','', '', '',x.item,x.quantity,'',x.reason,'','','']));travelItems.forEach(x=>rows.push(['Depot travel allowance',x.status,'One-way road distance',x.road_distance_km,'km',x.code,x.quoted_quantity,'km',x.formula||x.message||('Expected '+x.expected_quantity+' km; variance '+x.difference_km+' km'),'','', '']));const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='eve-ai-drawing-quote-comparison.csv';a.click();URL.revokeObjectURL(a.href);};
+ const discrepancyTable=$('discrepancyTable');if(discrepancyTable){discrepancyTable.addEventListener('click',event=>{const dismiss=event.target.closest('[data-dismiss-discrepancy]');if(!dismiss)return;const index=Number(dismiss.getAttribute('data-dismiss-discrepancy'));if(!Number.isInteger(index)||index<0||index>=ds.length||closedDiscrepancies.has(index))return;closedDiscrepancies.add(index);dismiss.closest('tr')?.remove();const count=$('activeDiscrepancyCount');if(count)count.textContent=String(ds.length-closedDiscrepancies.size);const tbody=discrepancyTable.querySelector('tbody');if(tbody&&!tbody.querySelector('tr'))tbody.innerHTML='<tr><td colspan="5">All discrepancies have been manually dismissed from this report.</td></tr>';});}
+ $('print').onclick=()=>window.print();
+}
+$('compare').addEventListener('click',async()=>{
+ const d=$('drawing').files[0],q=$('quote').files[0];if(!d||!q){$('status').textContent='Please select both PDFs.';return;}
+ if(d.size>35*1024*1024||q.size>35*1024*1024){$('status').textContent='Each PDF must be smaller than 35 MB. Please compress the file and retry.';return;}
+ const btn=$('compare');btn.disabled=true;let progressTimer=null;
+ try{
+  setProgress(5,'Reading the PDFs…');$('status').textContent='Preparing drawing and quote documents…';
+  const [dr,qr]=await Promise.all([readPdf(d,'drawing',9),readPdf(q,'quote',3)]);
+  setProgress(62,'Reading drawing CU callouts and DQM Compatible Units…');$('status').textContent='Comparing drawing CU quantities with DQM Compatible Units quantities.';
+  let estimatedProgress=62,elapsedSeconds=0;progressTimer=setInterval(()=>{elapsedSeconds+=1;const step=estimatedProgress<78?1:(estimatedProgress<86?(elapsedSeconds%2===0?1:0):0);estimatedProgress=Math.min(88,estimatedProgress+step);let label='Reading drawing CU callouts and DQM Compatible Units…';if(estimatedProgress>=78)label='Checking quantities and matching quote items…';if(estimatedProgress>=86)label='Waiting for CU comparison fallback. This indicator is not a live measure of completed work.';setProgress(estimatedProgress,label);},1000);
+  const payload={drawingText:dr.text,quoteText:qr.text,drawingImages:dr.images,quoteImages:qr.images,declaredDrawingSheets:dr.declaredSheets,drawingTextChars:dr.chars,quoteTextChars:qr.chars,drawingPages:dr.pageCount,sourceDrawingPages:dr.sourcePageCount,drawingTextTruncated:dr.truncated,quoteTextTruncated:qr.truncated,drawingTruncatedPages:dr.truncatedPages,quoteTruncatedPages:qr.truncatedPages,drawingSheetMap:dr.sheetMap,drawingSheetSelectionWarning:dr.sheetSelectionWarning};
+  let result=null,lastError=null;const maxAttempts=2;
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+   try{
+    if(attempt===1){setProgress(Math.max(estimatedProgress,63),'Reading drawing CU callouts and DQM Compatible Units…');}
+    else{setProgress(Math.max(estimatedProgress,Math.min(96,70+attempt*5)),'The CU comparison service did not finish. Retrying automatically ('+attempt+' of '+maxAttempts+')…');$('status').textContent='Retrying the CU comparison in the background. You do not need to click Run CU comparison again.';}
+    const controller=new AbortController();let requestTimedOut=false;const requestTimeout=setTimeout(()=>{requestTimedOut=true;controller.abort();},120000);let response,body;
+    try{
+     response=await fetch(SUPABASE_URL+'/functions/v1/ai-drawing-quote-check-v3',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+SUPABASE_ANON_KEY},body:JSON.stringify(payload),signal:controller.signal});
+     try{body=await response.json();}catch{if(requestTimedOut)throw new Error('The CU comparison timed out after 2 minutes. Retrying automatically.');throw new Error('The CU comparison service returned an invalid response.');}
+    }catch(requestError){if(requestTimedOut)throw new Error('The CU comparison timed out after 2 minutes. Retrying automatically.');throw requestError;}finally{clearTimeout(requestTimeout);}
+    if(!response.ok){
+     const error=new Error(body.error||('AI request failed ('+response.status+').'));error.status=response.status;
+     if(response.status!==429&&attempt<maxAttempts&&(response.status===408||response.status>=500)){lastError=error;await new Promise(resolve=>setTimeout(resolve,1200));continue;}
+     throw error;
+    }
+    result=body;lastError=null;break;
+   }catch(error){
+    lastError=error;
+    const retryable=!error.status||error.status===408||error.status>=500||/timed out/i.test(error.message||'');
+    if(!retryable||attempt===maxAttempts)throw error;
+    await new Promise(resolve=>setTimeout(resolve,1200*attempt));
+   }
+  }
+  if(!result)throw lastError||new Error('CU comparison could not be completed after automatic retries.');
+  if(progressTimer){clearInterval(progressTimer);progressTimer=null;}setProgress(100,'Comparison complete');renderReport(result);$('uploadWorkflow').style.display='none';$('status').style.display='none';$('progressPanel').style.display='none';$('uploadHeading').childNodes[0].textContent='1. Comparison complete ';$('clear').textContent='Clear Operation';$('compare').style.display='none';setUploadCollapsed(false);$('results').classList.remove('focus-result');void $('results').offsetWidth;$('results').classList.add('focus-result');$('results').scrollIntoView({behavior:'smooth',block:'start'});$('status').textContent='CU comparison completed. '+dr.pageCount+' of '+dr.sourcePageCount+' drawing PDF pages and '+qr.pageCount+' quote pages processed'+(dr.declaredSheets?' (drawing sheet count detected: '+dr.declaredSheets+')':'')+'; '+dr.ocrCount+' drawing and '+qr.ocrCount+' quote pages were considered for OCR.';
+ }catch(e){if(progressTimer){clearInterval(progressTimer);progressTimer=null;}$('progressPanel').style.display='none';$('status').textContent='CU comparison could not be completed: '+e.message;}
+ finally{btn.disabled=false;}
+});
+</script><script src="/stable-v3/site-editor.js?v=20261016" defer></script>
+</body></html>
