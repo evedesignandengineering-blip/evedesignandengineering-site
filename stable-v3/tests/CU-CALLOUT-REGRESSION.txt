@@ -95,3 +95,26 @@ EXPECTED:
 - Compare the 15 ea drawing total with 15 ea quoted and report a quantity match.
 - Display one drawing inventory row for CN73_LV10/16 with the combined quantity and all source pages.
 - Do not double-count the same source aggregate if the AI lists a CU more than once.
+
+
+PROJECT DESIGNER FIELD REGRESSION
+Use the drawing field explicitly labelled DESIGNER (or DESIGNER NAME), not LEAD DESIGNER / LEAD DESIGNER NAME.
+
+1. Drawing text:
+   LEAD DESIGNER NAME | RYAN SENIOR
+   DESIGNER | PHIL MINISSALE
+   Expected displayed value: Designer = PHIL MINISSALE.
+
+2. Drawing text:
+   DESIGNER | PHIL MINISSALE
+   LEAD DESIGNER NAME | RYAN SENIOR
+   Expected displayed value: Designer = PHIL MINISSALE, regardless of field order.
+
+3. Drawing text contains only:
+   LEAD DESIGNER NAME | RYAN SENIOR
+   Expected: leave Designer blank; do not substitute RYAN SENIOR.
+
+4. Drawing title block places field label and value on separate lines:
+   DESIGNER
+   PHIL MINISSALE
+   Expected displayed value: Designer = PHIL MINISSALE.

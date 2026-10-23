@@ -25,3 +25,7 @@ Regression cases and expected aggregation/code correction behaviour are in `test
 
 ## Single-area upload and project summary
 The Stable V3 checker has one shared multi-file PDF drop zone. Users can drop both files together or add them one at a time; the test page inspects filenames and PDF text to identify the design drawing and DQM quote, then assigns them to the existing internal document roles. After a successful comparison, the upload card replaces the initial instructions with detected project/designer/address and nearest-depot distance details. This change is limited to the Stable V3 test checker.
+
+
+## Designer metadata rule
+Use the drawing field explicitly labelled **Designer** or **Designer Name**. Never use **Lead Designer** or **Lead Designer Name** as a substitute. If a standalone Designer field is not present but a Lead Designer field is, leave the Designer value blank.
