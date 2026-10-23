@@ -171,7 +171,8 @@ async function readPdf(file, role, maxImages){
  const perPageBudget=Math.max(1200,Math.floor(110000/Math.max(1,pages.length)));let truncatedPages=0;
  const text=pages.map(p=>{
   const compacted=(p.text||'').split(/\r?\n/).map(line=>line.replace(/[ \t]{2,}/g,' ').trim()).filter(Boolean).join('\n');
-  if(compacted.length>perPageBudget)truncatedPages++;\n  return '[PAGE '+p.page+']\n'+compacted.slice(0,perPageBudget);
+  if(compacted.length>perPageBudget)truncatedPages++;
+  return '[PAGE '+p.page+']\n'+compacted.slice(0,perPageBudget);
  }).join('\n\n').slice(0,110000);
  // Render representative page images from the included pages only.
  const priorityPages=pages.filter(p=>/AUX[_ -]?013|AUX[_ -]?005|project value|total internal cost|internal cost total|ddrill|directional drill|haul|polypipe|240LV|110\s*mm/i.test(p.text)).map(p=>p.page);
