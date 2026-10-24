@@ -37,7 +37,13 @@ input,select{background:var(--bg);color:var(--fg);border:1px solid var(--bd);bor
 button{background:var(--ac);color:var(--ac2);border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:650;cursor:pointer}button.g{background:transparent;color:var(--fg);border:1px solid var(--bd)}button:disabled{opacity:.5;cursor:default}
 .chip{display:inline-block;background:var(--hov);border:1px solid var(--bd);border-radius:99px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0}.ok{color:var(--ac)}.bad{color:var(--er);font-weight:600}.wr{color:#c77d00;font-weight:600}.err{color:var(--er)}
 table{width:100%;border-collapse:collapse}th{text-align:left;font-size:11.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}th,td{padding:5px 6px;border-bottom:1px solid var(--bd);font-size:13px}
-td input{width:100%;padding:5px 7px}td input.q{width:80px}.sc{overflow-x:auto}.tabs{display:flex;gap:6px;margin-bottom:14px}.tabs button.on{background:var(--br);color:#fff;border-color:var(--br)}.dz.over{outline:2px dashed var(--ac)}
+td input{width:100%;padding:5px 7px}td input.q{width:80px}td:first-child{white-space:nowrap}#dr details{margin:8px 0;padding:8px 12px;border:1px solid var(--bd);border-radius:8px}button.rm{padding:0 6px;line-height:18px;font-size:12px}#dr summary{cursor:pointer;font-weight:650}#dr details ul{margin:8px 0 0 18px}.sc{overflow-x:auto}.tabs{display:flex;gap:6px;margin-bottom:14px}.tabs button.on{background:var(--br);color:#fff;border-color:var(--br)}.dz.over{outline:2px dashed var(--ac)}
+#rpt{position:fixed;inset:0;z-index:100;background:#fff;color:#13202b;overflow:auto;font:12px/1.45 Arial,Helvetica,sans-serif}
+#rpt .rbar{position:sticky;top:0;background:#eef3f6;padding:10px 20px;border-bottom:1px solid #cfd8e0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#rpt .rbody{padding:20px;max-width:1000px;margin:0 auto}#rpt h1{font-size:19px;margin:0 0 2px;color:#09284b}#rpt h2{font-size:14px;margin:18px 0 6px;color:#09284b;text-transform:none;letter-spacing:0}#rpt h3{font-size:12px;margin:10px 0 4px}
+#rpt table{width:100%;border-collapse:collapse}#rpt th,#rpt td{border:1px solid #cfd8e0;padding:4px 6px;text-align:left;vertical-align:top;font-size:12px;color:#13202b;text-transform:none;letter-spacing:0}#rpt th{background:#eef3f6}#rpt table.p th{width:160px}#rpt .diff{background:#fff4de}#rpt .missing,#rpt .extra{background:#fde8e8}#rpt tr{break-inside:avoid}#rpt .s span{display:inline-block;margin-right:14px}
+@media print{body.pr>*:not(#rpt){display:none!important}body.pr #rpt{position:static;overflow:visible}#rpt .rbar{display:none}}
+pre,.cu b,td b{font-feature-settings:"zero" 1;font-variant-numeric:slashed-zero}
 pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-x:auto;font-size:12px;margin:0}
 #st{margin-top:10px;color:var(--mut)}ul{margin:6px 0 0 18px;padding:0}
 @media(max-width:800px){aside{position:fixed;z-index:30;top:53px;left:0;margin-left:0;box-shadow:0 0 30px rgba(0,0,0,.4)}aside.c{margin-left:-345px}}
@@ -47,7 +53,7 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <aside id="sb"><div class="ah"><input id="q" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
 <main>
 <div class="card"><h2>1 · Drawing</h2>
-<div class="row"><div><label>Design drawing (PDF)</label><input type="file" id="f" accept="application/pdf"></div>
+<div class="row"><div><label>Design drawing (PDF, DGN or DXF)</label><input type="file" id="f" accept="application/pdf,.pdf,.dgn,.dxf"></div>
 <div><label>Existing quote to check (optional: PDF or .txt)</label><input type="file" id="fq" accept="application/pdf,.pdf,.txt,text/plain"></div>
 <div style="flex:1;min-width:220px"><label>Extra instructions (optional)</label><input id="ex" style="width:100%" placeholder="e.g. rock at pole, CBD, night works"></div></div>
 <div id="site" style="margin-top:12px"></div><details style="margin-top:10px"><summary>Traffic conditions (optional: ticked items set the TRAFFIC CUs)</summary><div id="tcl" style="padding:6px 8px"></div></details>
@@ -57,21 +63,22 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <div><label>Round trip (km)</label><input type="number" id="km" min="0" placeholder="auto"></div>
 <div><label>Switching visits</label><input type="number" id="sv" value="3" min="0"></div>
 
-<button id="go" disabled>Generate quote</button></div>
+<label style="display:inline-flex;align-items:center;gap:6px;margin:0 10px 0 0;font-size:13px;cursor:pointer"><input type="checkbox" id="dtl" style="width:auto"> Include detailed drawing review</label><button id="go" disabled>Generate quote</button><button class="g" id="clr">Clear</button></div>
 <div id="pg" hidden style="margin-top:10px"><div style="height:8px;border-radius:99px;background:var(--hov);overflow:hidden"><div id="pb" style="height:100%;width:0;background:var(--ac);transition:width .5s"></div></div><div id="pt" style="font-size:12px;color:var(--mut);margin-top:4px"></div></div>
 <div id="st"></div><p style="font-size:12px;color:var(--mut);margin:10px 0 0">AI-assisted draft. Quantities are estimated from the drawing text and image: always review every line against the drawing before submitting.</p></div>
 <div id="out" hidden><div class="tabs"><button class="g on" id="t1">Quote</button><button class="g" id="t2">Non-CU items</button></div><div id="pq">
+<div class="card" id="dr" hidden></div>
+<div class="card" id="cmp" hidden></div>
 <div class="card dz" id="dz"><h2>Quote lines <span id="val" class="chip"></span></h2><div class="sc"><table><thead><tr><th>CU ID</th><th>Description</th><th>Qty</th><th>Basis</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>
 <div class="row" style="margin-top:12px"><button class="g" id="add">+ Add line</button><div><label style="margin:0">Arrange CUs</label><select id="ord"><option value="s">By scope of work number (drawing)</option><option value="t">By CU type</option><option value="g">Material → its service CUs</option><option value="a">Alphabetical only</option></select></div><span style="color:var(--mut)">Tip: drag CUs from the library onto this card.</span></div>
 <div id="cov" style="margin-top:12px"></div><div id="as"></div></div>
-<div class="card" id="cmp" hidden></div>
-<div class="card"><div class="row" style="justify-content:space-between"><h2 id="fn" style="margin:0"></h2><span><button class="g" id="cp">Copy</button> <button id="dl">Download .txt</button></span></div>
-<pre id="pv" style="margin-top:10px"></pre></div>
+<div class="card"><div class="row" style="justify-content:space-between"><div><h2 style="margin:0">DQM files</h2><div id="fn" style="color:var(--mut);font-size:12px;margin-top:2px"></div></div><button id="dl">Download DQM file</button></div></div>
 </div><div id="pn" hidden><div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Non-CU items (not covered by any CU)</h2><span><button class="g" id="ncAdd">+ Add item</button> <button id="ncDl">Download non-CU list</button></span></div>
 <div class="sc" style="margin-top:10px"><table><thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Unit</th><th>Drawing note</th><th></th></tr></thead><tbody id="nct"></tbody></table></div><div id="ncE" style="color:var(--mut);margin-top:8px"></div></div></div></div>
 </main></div>
 <datalist id="ids"></datalist>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script>
 const SUPABASE_URL="https://hszkloepnewfkzdegfhl.supabase.co",SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhzemtsb2VwbmV3Zmt6ZGVnZmhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NDU0MzUsImV4cCI6MjEwNzAyMTQzNX0.PBoDEUUB8LoL8XKIgQVPvkptgzmwkSuxgDkSxdj92kw";
 const blobB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(b)});
@@ -110,40 +117,49 @@ function score(c,q){const idl=c.id.toLowerCase(),hay=(idl+" "+c.d+" "+c.s).toLow
   for(const a of alts){const v=idl===a?100:idl.startsWith(a)?60:idl.includes(a)?40:hay.includes(a)?20:0;if(v>b)b=v}
   if(!b&&t.length>2&&sub(t,idl))b=6;if(!b)return 0;sc+=b}return sc}
 function find(q,n){return CAT.map(c=>[score(c,q),c]).filter(x=>x[0]).sort((a,b)=>b[0]-a[0]).slice(0,n).map(x=>x[1])}
-function showResults(q){const L=$("lib");if(!q){buildLib();return}L.innerHTML="";const r=find(q,80);const h=document.createElement("div");h.style.cssText="padding:4px 8px 8px;color:var(--mut);font-size:12px";h.textContent=r.length?r.length+" suggestions. Drag into the quote, or press +":"No matches";L.appendChild(h);r.forEach(c=>{const d=item(c);d.style.paddingLeft="8px";L.appendChild(d)})}
+function showResults(q){const L=$("lib");if(!q){buildLib();return}L.innerHTML="";const r=find(q,80);const h=document.createElement("div");h.style.cssText="padding:4px 8px 8px;color:var(--mut);font-size:12px";h.textContent=r.length?r.length+" suggestions. Drag into the quote, or press +":"No matches";L.appendChild(h);r.forEach(c=>{const d=item(c);d.style.paddingLeft="8px";L.appendChild(d)});if(r.length&&q.length>=2){const rel=relatedFor(r);if(rel.length)L.appendChild(sugBlock("Often used with "+[...new Set(rel.map(x=>x[0]))].join(", "),rel.map(x=>x[1])))}}
 $("q").oninput=()=>showResults($("q").value.trim());
+$("q").onfocus=()=>{if($("q").value.trim()||!rows.length)return;const g=gapSuggest();if(g.length){buildLib();const L=$("lib");const b=sugBlock("Suggested for this quote",g);b.firstChild.style.borderTop="0";L.insertBefore(b,L.firstChild)}};
 $("tg").onclick=()=>$("sb").classList.toggle("c");
 // ---- quote table
 function addCU(id){if(!rows.length&&$("out").hidden){$("out").hidden=false}const x=rows.find(r=>r.cu===id);if(x)x.qty=Number(x.qty||0)+1;else rows.push({cu:id,qty:1,basis:"added manually"});render()}
 const dz=$("dz");dz.ondragover=e=>{e.preventDefault();dz.classList.add("over")};dz.ondragleave=()=>dz.classList.remove("over");dz.ondrop=e=>{e.preventDefault();dz.classList.remove("over");const id=e.dataTransfer.getData("text/cu");if(id)addCU(id)};
 const cmp=(a,b)=>a.cu.localeCompare(b.cu,undefined,{numeric:true}),cmpP=(a,b)=>a.cu<b.cu?-1:1;let links={},nc=[];
 const isMat=r=>mats.some(m=>m.cu===r.cu)||(!BY[r.cu]&&/^[A-Z]{1,4}\d/.test(r.cu))||((BY[r.cu]||{}).g==="Materials (EM)");
-function ordered(rs){const m=rs.filter(isMat).sort(cmp),rest=rs.filter(r=>!isMat(r)),used=new Set(),out=[];
- m.forEach(x=>{out.push({r:x,ind:0});(links[x.cu]||[]).slice().sort().forEach(id=>{const s=rest.find(y=>y.cu===id);if(s&&!used.has(s)){used.add(s);out.push({r:s,ind:1})}})});
+let drDone=false,aiOrd={},drIss=[],drIss2=[],drSum="";
+const mo=id=>{const i=mats.findIndex(m=>canonId(m.cu)===id);return i>=0?i:aiOrd[id]!=null?1000+aiOrd[id]:5000};
+function ordered(rs,seq){const m=rs.filter(isMat).sort(seq?(a,b)=>mo(a.cu)-mo(b.cu)||cmp(a,b):cmp),rest=rs.filter(r=>!isMat(r)),used=new Set(),out=[];
+ m.forEach(x=>{out.push({r:x,ind:0});(seq?(links[x.cu]||[]):(links[x.cu]||[]).slice().sort()).forEach(id=>{const s=rest.find(y=>y.cu===id);if(s&&!used.has(s)){used.add(s);out.push({r:s,ind:1})}})});
  rest.filter(y=>!used.has(y)).sort(cmp).forEach(y=>out.push({r:y,ind:2}));return out}
-function view(){const md=$("ord").value;
- if(md==="a")return[...rows].sort(cmpP).map(r=>({r,ind:0}));
- if(md==="s"){const g={};rows.forEach(r=>{const k=r.scope>0?+r.scope:0;(g[k]=g[k]||[]).push(r)});
-  return Object.keys(g).map(Number).sort((a,b)=>(a||1e9)-(b||1e9)).flatMap(k=>[{h:k?"Scope of work "+k:"Project / general CUs"}].concat(ordered(g[k])))}
+function view(){const md=$("ord").value,N=(f)=>nc.filter(x=>x.desc&&f(x)).map(x=>({n:x,ind:0}));
+ const tail=a=>a.length?[{h:"Non-CU items (not in the .txt - separate file)"}].concat(a):[];
+ if(md==="a")return[...rows].sort(cmpP).map(r=>({r,ind:0})).concat(tail(N(()=>true)));
+ if(md==="s"){const g={};rows.forEach(r=>{const k=r.scope>0?+r.scope:0;(g[k]=g[k]||[]).push(r)});nc.forEach(x=>{const k=x.scope>0?+x.scope:0;g[k]=g[k]||[]});
+  return Object.keys(g).map(Number).sort((a,b)=>(a||1e9)-(b||1e9)).flatMap(k=>[{h:k?"Scope of work "+k:"Project / general CUs"}].concat(ordered(g[k]||[],true),N(x=>(x.scope>0?+x.scope:0)===k)))}
  if(md==="t"){const g={};rows.forEach(r=>{const k=isMat(r)?"Materials":((BY[r.cu]||{}).s||"Other");(g[k]=g[k]||[]).push(r)});
-  return Object.keys(g).sort((a,b)=>a==="Materials"?-1:b==="Materials"?1:a.localeCompare(b)).flatMap(k=>[{h:k}].concat(g[k].sort(cmp).map(r=>({r,ind:0}))))}
- const o=ordered(rows),i=o.findIndex(x=>x.ind===2);if(i>=0)o.splice(i,0,{h:"Project / general service CUs"});return o}
+  return Object.keys(g).sort((a,b)=>a==="Materials"?-1:b==="Materials"?1:a.localeCompare(b)).flatMap(k=>[{h:k}].concat(g[k].sort(cmp).map(r=>({r,ind:0})))).concat(tail(N(()=>true)))}
+ const o=ordered(rows),i=o.findIndex(x=>x.ind===2);if(i>=0)o.splice(i,0,{h:"Project / general service CUs"});return o.concat(tail(N(()=>true)))}
 function lines(){return view().filter(x=>x.r).map(x=>x.r)}
 function fmt(){return lines().filter(r=>r.cu&&r.qty!==""&&r.qty!=null).map(r=>" ".repeat(13)+String(r.cu).padEnd(52)+String(r.qty).padEnd(6)+"100YNYNYY").join("\n")+"\n"}
 function value(){return rows.reduce((s,r)=>{const c=BY[r.cu];return s+(c&&c.c&&!/^Internal/.test(c.g)?c.c*Number(r.qty||0):0)},0)}
+const _cx=document.createElement("canvas").getContext("2d");
+const fit=i=>{const c=getComputedStyle(i);_cx.font=c.fontStyle+" "+c.fontWeight+" "+c.fontSize+" "+c.fontFamily;const w=_cx.measureText(i.value||"").width;i.style.width=Math.min(640,Math.ceil(w)+(parseFloat(c.paddingLeft)||0)+(parseFloat(c.paddingRight)||0)+(parseFloat(c.borderLeftWidth)||0)+(parseFloat(c.borderRightWidth)||0)+16+(i.hasAttribute("list")?30:0))+"px"};
 function render(){const tb=$("tb");tb.innerHTML="";
  view().forEach(it=>{if(it.h){const h=document.createElement("tr");h.innerHTML="<td colspan='5' style='font-weight:650;padding-top:14px'></td>";h.firstChild.textContent=it.h;tb.appendChild(h);return}
+  if(it.n){const x=it.n,t=document.createElement("tr");t.innerHTML="<td><input></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td><button class='g'>×</button></td>";const [a,dd,b,d,e]=t.children;
+   a.firstChild.value=x.desc;fit(a.firstChild);b.firstChild.value=x.qty;dd.textContent=[x.type,x.unit,x.note].filter(Boolean).join(" · ");dd.style.color="var(--mut)";d.textContent="Non-CU";d.style.color="var(--mut)";t.style.background="rgba(47,110,164,.07)";
+   a.firstChild.oninput=ev=>{x.desc=ev.target.value;fit(ev.target);renderNC()};b.firstChild.oninput=ev=>{x.qty=ev.target.value;renderNC()};e.firstChild.onclick=()=>{nc.splice(nc.indexOf(x),1);renderNC();render()};tb.appendChild(t);return}
   const r=it.r,ind=it.ind;const tr=document.createElement("tr");tr.innerHTML="<td><input list='ids'></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td><button class='g'>×</button></td>";
-  const [a,dd,b,d,e]=tr.children;a.firstChild.value=r.cu;b.firstChild.value=r.qty;if(ind===1){a.firstChild.style.marginLeft="18px";a.firstChild.style.width="calc(100% - 18px)"}
+  const [a,dd,b,d,e]=tr.children;a.firstChild.value=r.cu;b.firstChild.value=r.qty;fit(a.firstChild);if(ind===1)a.firstChild.style.marginLeft="18px";
   dd.textContent=(ind===1?"↳ ":"")+((BY[r.cu]||{}).d||"Material / custom CU");dd.style.color="var(--mut)";d.textContent=r.basis||"";d.style.color="var(--mut)";
-  a.firstChild.onchange=x=>{r.cu=x.target.value.trim();render()};b.firstChild.oninput=x=>{r.qty=x.target.value;pv()};e.firstChild.onclick=()=>{rows.splice(rows.indexOf(r),1);render()};tb.appendChild(tr)});pv()}
-function pv(){$("pv").textContent=fmt();$("fn").textContent=name+".txt";$("val").textContent="External CU value ≈ $"+Math.round(value()).toLocaleString()}
+  a.firstChild.oninput=x=>fit(x.target);a.firstChild.onchange=x=>{r.cu=x.target.value.trim();render()};b.firstChild.oninput=x=>{r.qty=x.target.value;pv()};e.firstChild.onclick=()=>{rows.splice(rows.indexOf(r),1);render()};tb.appendChild(tr)});tb.querySelectorAll("td:first-child input").forEach(fit);pv()}
+const PN=()=>String((proj&&proj.drawingNo)||name||"").toUpperCase().trim().replace(/\s+/g,"")||"QUOTE",FN=()=>PN().replace(/[^A-Z0-9_\-]/g,"")||"QUOTE";
+function pv(){$("fn").textContent=FN()+"_CU.txt"+(nc.some(x=>x.desc)?"  +  "+FN()+"_NonCU.txt":"");$("val").textContent="External CU value ≈ $"+Math.round(value()).toLocaleString()}
 $("ord").onchange=render;$("add").onclick=()=>{rows.push({cu:"",qty:1,basis:""});render()};
-$("cp").onclick=async()=>{try{await navigator.clipboard.writeText(fmt());$("cp").textContent="Copied"}catch(e){$("cp").textContent="Select text"}setTimeout(()=>$("cp").textContent="Copy",1500)};
 async function save(fn,data){try{const d=await claude.use("downloads");if(!d)throw 0;await d.save({filename:fn,data})}catch(e){try{await navigator.clipboard.writeText(data);st("Download unavailable here; copied to clipboard instead.")}catch(_){st("Download unavailable; copy from the preview.",1)}}}
-$("dl").onclick=()=>save(name+".txt",fmt());
+$("dl").onclick=async()=>{await save(FN()+"_CU.txt",fmt());if(nc.some(x=>x.desc)){await new Promise(r=>setTimeout(r,600));await save(FN()+"_NonCU.txt",ncText())}};
 const NT=["Labour","Fleet","Material","Contractor"];
-function ncText(){return "NON-CU ITEMS - "+name.toUpperCase()+"\nDescription | Type | Qty | Unit | Note\n"+nc.filter(x=>x.desc).map(x=>[x.desc,x.type,x.qty,x.unit,x.note].join(" | ")).join("\n")+"\n"}
+function ncText(){return "NON-CU ITEMS - "+FN()+"\nDescription | Type | Qty | Unit | Note\n"+nc.filter(x=>x.desc).map(x=>[x.desc,x.type,x.qty,x.unit,x.note].join(" | ")).join("\n")+"\n"}
 function renderNC(){const tb=$("nct");tb.innerHTML="";nc.forEach((x,i)=>{const tr=document.createElement("tr");tr.innerHTML="<td><input></td><td><select></select></td><td><input class='q' type='number' step='any'></td><td><input style='width:80px'></td><td><input></td><td><button class='g'>×</button></td>";
   const c=[...tr.children].map(z=>z.firstChild);c[1].innerHTML=NT.map(n=>"<option>"+n+"</option>").join("");
   c[0].value=x.desc;c[1].value=NT.includes(x.type)?x.type:"Material";c[2].value=x.qty;c[3].value=x.unit;c[4].value=x.note;
@@ -151,10 +167,11 @@ function renderNC(){const tb=$("nct");tb.innerHTML="";nc.forEach((x,i)=>{const t
  $("ncE").textContent=nc.length?"":"No non-CU items found in the drawing.";$("t2").textContent="Non-CU items ("+nc.length+")"}
 const tab=n=>{$("pq").hidden=n!==1;$("pn").hidden=n!==2;$("t1").classList.toggle("on",n===1);$("t2").classList.toggle("on",n===2)};$("t1").onclick=()=>tab(1);$("t2").onclick=()=>tab(2);
 $("ncAdd").onclick=()=>{nc.push({desc:"",type:"Material",qty:1,unit:"each",note:""});renderNC()};
-$("ncDl").onclick=()=>save(name+"_non-CU.txt",ncText());
+$("ncDl").onclick=()=>save(FN()+"_NonCU.txt",ncText());
 // ---- geo
 const hav=(a,b,c,d)=>{const R=6371,r=Math.PI/180,x=Math.sin((c-a)*r/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin((d-b)*r/2)**2;return 2*R*Math.asin(Math.sqrt(x))};
-function parseGeo(t){let lat,lon;
+function parseGeo(t){for(const m of t.matchAll(/GEO\s*REF\s*:/gi)){const g=parseGeoCore(t.slice(m.index,m.index+400));if(g)return g}return parseGeoCore(t)}
+function parseGeoCore(t){let lat,lon;
  const re=/(\d{1,3})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2}(?:\.\d+)?)\s*[^\dA-Za-z\s.,-]{0,2}\s*([NSEW])(?![A-Za-z])/g;
  for(const m of t.matchAll(re)){let v=+m[1]+m[2]/60+m[3]/3600;if("SW".includes(m[4]))v=-v;if("NS".includes(m[4])&&lat==null)lat=v;if("EW".includes(m[4])&&lon==null)lon=v}
  if(lat==null||lon==null){const m=t.match(/(-3\d\.\d{3,})\s*[, ]\s*(1[12]\d\.\d{3,})/);if(m){lat=+m[1];lon=+m[2]}}
@@ -172,8 +189,59 @@ async function readPdf(file){pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn
  for(let i=1;i<=pdf.numPages;i++){const p=await pdf.getPage(i);const c=await p.getTextContent();text+="\n--- page "+i+" ---\n"+c.items.map(x=>x.str).join(" ");
   if(i==1){const v=p.getViewport({scale:1.4});const cv=document.createElement("canvas");cv.width=v.width;cv.height=v.height;await p.render({canvasContext:cv.getContext("2d"),viewport:v}).promise;img=await new Promise(r=>cv.toBlob(r,"image/jpeg",.8))}}
  return{text,img}}
-$("f").onchange=async()=>{const f=$("f").files[0];$("go").disabled=true;if(!f)return;st("Reading PDF…");
- try{doc=await readPdf(f);geo=parseGeo(doc.text);$("dep").value="auto";setSite();st("Drawing read. Review distance and generate.");$("go").disabled=false}catch(e){st("Could not read PDF: "+(e.message||e),1)}};
+
+// ---- DGN / DXF readers (text only: CU notes, scope text, geo ref)
+const TXT_OK=s=>s.length>=4&&/[A-Za-z]{3}|CU:|[A-Z]{2}\d|\d\s*[\^\u00b0]\s*\d/.test(s)&&(s.match(/[A-Za-z0-9 .,:;'"^()\/#&@%+*=_\-\\\u00b0\u2032\u2033\u00a0]/g)||[]).length/s.length>0.95;
+function dxfText(t){if(/^AutoCAD Binary DXF/.test(t))throw new Error("Binary DXF is not supported. Save the DXF as ASCII (or export a PDF).");
+ const L=t.split(/\r?\n/),out=[];let sec="",ent="";
+ for(let i=0;i+1<L.length;i+=2){const c=L[i].trim(),v=L[i+1];
+  if(c==="0"){const x=v.trim();ent=x;if(x==="ENDSEC")sec=""}
+  else if(c==="2"&&ent==="SECTION")sec=v.trim();
+  else if((c==="1"||c==="3")&&(ent==="TEXT"||ent==="MTEXT"||ent==="ATTRIB"||ent==="ATTDEF")&&(sec==="ENTITIES"||sec==="BLOCKS")){
+   let s=v.replace(/\\P/g,"\n").replace(/\\[A-Za-z][^;\\]*;/g,"").replace(/[{}]/g,"").replace(/%%[dD]/g,"°").replace(/\\\\/g,"\\");
+   s.split("\n").forEach(x=>{x=x.trim();if(x)out.push(x)})}}
+ return out.join("\n")}
+function inflateScan(u8){const out=[];if(typeof pako==="undefined")throw new Error("Decompression library failed to load.");
+ for(let i=0;i+2<u8.length;i++){if(u8[i]!==0x78)continue;const b=u8[i+1];if(!(b===0x01||b===0x5e||b===0x9c||b===0xda)||((0x78*256+b)%31))continue;
+  try{const inf=new pako.Inflate();inf.push(u8.subarray(i),true);if(inf.err||!inf.result||!inf.result.length)continue;out.push(inf.result);const used=u8.length-i-(inf.strm?inf.strm.avail_in:0);if(used>2)i+=used-1}catch(e){}}
+ return out}
+function asciiRuns(u8,out){let cur="";const flush=()=>{if(TXT_OK(cur))out.push(cur.trim());cur=""};
+ for(let i=0;i<u8.length;i++){const c=u8[i];if((c>=32&&c<127)||c===0xb0||c===0xa0)cur+=String.fromCharCode(c);else flush()}flush()}
+function utf16Runs(u8,out){let cur="";const flush=()=>{if(TXT_OK(cur))out.push(cur.trim());cur=""};
+ for(let i=0;i+1<u8.length;i+=2){const c=u8[i],h=u8[i+1];if(h===0&&((c>=32&&c<127)||c===0xb0))cur+=String.fromCharCode(c);else if(h===0x20&&(c===0x32||c===0x33))cur+=c===0x32?"'":'"';else flush()}flush()}
+function cfbStreams(buf){const u8=new Uint8Array(buf),dv=new DataView(buf);
+ const ss=1<<dv.getUint16(30,true),ms=1<<dv.getUint16(32,true),nFat=dv.getUint32(44,true),dirStart=dv.getUint32(48,true),miniCut=dv.getUint32(56,true),miniStart=dv.getUint32(60,true),nMiniFat=dv.getUint32(64,true),difStart=dv.getUint32(68,true),nDif=dv.getUint32(72,true);
+ const off=s=>(s+1)*ss,END=0xFFFFFFFA,fatSecs=[];
+ for(let i=0;i<109&&fatSecs.length<nFat;i++){const v=dv.getUint32(76+4*i,true);if(v<END)fatSecs.push(v)}
+ let d=difStart;for(let k=0;k<nDif&&d<END;k++){const o=off(d);for(let i=0;i<ss/4-1&&fatSecs.length<nFat;i++){const v=dv.getUint32(o+4*i,true);if(v<END)fatSecs.push(v)}d=dv.getUint32(o+ss-4,true)}
+ const fat=[];fatSecs.forEach(s=>{const o=off(s);if(o+ss>u8.length)return;for(let i=0;i<ss/4;i++)fat.push(dv.getUint32(o+4*i,true))});
+ const chain=(s,tab)=>{const out=[];let n=0;while(s<END&&n++<2e6&&s<tab.length){out.push(s);s=tab[s]}return out};
+ const readCh=s=>{const ch=chain(s,fat),out=new Uint8Array(ch.length*ss);ch.forEach((c,i)=>{const o=off(c);if(o<u8.length)out.set(u8.subarray(o,Math.min(o+ss,u8.length)),i*ss)});return out};
+ const dir=readCh(dirStart),ddv=new DataView(dir.buffer),ents=[];
+ for(let i=0;i<dir.length/128;i++){const o=i*128,nl=ddv.getUint16(o+64,true);if(!nl||nl>64)continue;let name="";for(let k=0;k<nl/2-1;k++)name+=String.fromCharCode(ddv.getUint16(o+2*k,true));ents.push({name,type:dir[o+66],start:ddv.getUint32(o+116,true),size:ddv.getUint32(o+120,true)})}
+ const root=ents.find(e=>e.type===5);let mini=null;const miniFat=[];
+ if(root&&nMiniFat){mini=readCh(root.start);const mf=readCh(miniStart),mdv=new DataView(mf.buffer);for(let i=0;i<mf.length/4;i++)miniFat.push(mdv.getUint32(i*4,true))}
+ return ents.filter(e=>e.type===2).map(e=>{let data;if(e.size<miniCut&&mini){const ch=chain(e.start,miniFat);data=new Uint8Array(ch.length*ms);ch.forEach((c,i)=>data.set(mini.subarray(c*ms,c*ms+ms),i*ms))}else data=readCh(e.start);return{name:e.name,data:data.subarray(0,e.size)}})}
+function dgnText(buf){const u8=new Uint8Array(buf),out=[];
+ if(u8[0]===0xD0&&u8[1]===0xCF&&u8[2]===0x11&&u8[3]===0xE0){ // MicroStation V8 (OLE compound file, zlib streams)
+  let streams=[];try{streams=cfbStreams(buf)}catch(e){}
+  const scan=d=>{const bl=inflateScan(d);if(bl.length)bl.forEach(b=>{asciiRuns(b,out);utf16Runs(b,out)});else{asciiRuns(d,out);utf16Runs(d,out)}};
+  streams.forEach(s=>scan(s.data));
+  if(!out.some(x=>/CU\s*[:\-]|DCSH|SCOPE/i.test(x))){const bl=inflateScan(u8);bl.forEach(b=>{asciiRuns(b,out);utf16Runs(b,out)})}
+ }else{ // V7 element stream
+  const dv=new DataView(buf);let p=0;
+  while(p+4<=u8.length){if(u8[p]===0xff&&u8[p+1]===0xff)break;const t=u8[p+1]&0x7f,w=dv.getUint16(p+2,true),len=(w+2)*2;if(len<4)break;
+   if((t===17||t===7)&&len>60){const n=u8[p+58];let s="";for(let k=0;k<n&&p+60+k<u8.length;k++)s+=String.fromCharCode(u8[p+60+k]);if(TXT_OK(s))out.push(s.trim())}
+   p+=len}
+  if(!out.length)throw new Error("No text found in this DGN. Export it as DXF or PDF instead.")}
+ if(!out.length)throw new Error("No readable text found in this DGN. Export it as DXF or PDF instead.");
+ const seen=new Set(),IMP=/CU\s*[:\-]|DCSH|SCOPE|INSTALL|REMOVE|RELOCAT|CABLE|PILLAR|POLE|TRENCH|DRILL|CONDUIT|POLYPIPE|POLY PIPE|DECOMM|GEO|LAT|LONG|\d+\s*[\^\u00b0]\s*\d+|MP\d{5,}|TERMINAT|JOINT|SWITCH|TRANSFORMER|STREET|\bST\b|ROAD/i;
+ return out.filter(x=>{if(!/CU\s*[:\-]/i.test(x)){if(seen.has(x))return false;seen.add(x)}return IMP.test(x)||(x.match(/[A-Za-z]{3,}/g)||[]).length>=2}).join("\n")}
+async function readCad(f){const n=f.name.toLowerCase();let text;
+ if(n.endsWith(".dxf"))text=dxfText(await f.text());else text=dgnText(await f.arrayBuffer());
+ return{text:"\n--- "+f.name+" (CAD text only: no drawing image; scale-based measuring not available) ---\n"+text,img:null}}
+$("f").onchange=async()=>{const f=$("f").files[0];$("go").disabled=true;if(!f)return;const cad=/\.(dgn|dxf)$/i.test(f.name);st(cad?"Reading CAD file…":"Reading PDF…");
+ try{doc=cad?await readCad(f):await readPdf(f);geo=parseGeo(doc.text);$("dep").value="auto";setSite();st("Drawing read"+(cad?" (text only from CAD file)":"")+". Review distance and generate.");$("go").disabled=false}catch(e){st("Could not read drawing: "+(e.message||e),1)}};
 function parseMats(t){t=t.replace(/[\u00d7\u2715]/g,"x").replace(/\s+/g," ");const o={},re=/CU\s*(?:'?S)?\s*[:\-]([\s\S]*?)(?=DCSH|CU\s*(?:'?S)?\s*[:\-]|$)/gi;let m;
  const ID="([A-Z]{1,4}\\d{1,3}[A-Za-z0-9_\\/.\\-]*?)";
  const tr=new RegExp(ID+"\\s*[xX*]\\s*(\\d+(?:\\.\\d+)?)\\s*m?(?![A-Za-z0-9])","g");
@@ -196,7 +264,8 @@ function applyCables(cs){if(!cs||!cs.length)return;const all=new Set(["DDRILL_01
   parts.forEach(([id,q,w])=>{if(q>0){const a=acc[id]=acc[id]||{q:0,b:[],s:sc};a.q+=q;a.b.push(c.cu+" "+w+" "+q+"m (total "+tot+", ground "+g+")"+(c.ductNote?" – "+c.ductNote:""))}})});
  rows=rows.filter(r=>!all.has(r.cu));Object.entries(acc).forEach(([id,a])=>rows.push({cu:id,qty:a.q,basis:a.b.join("; "),scope:a.s}))}
 const TC=[["Work site within 6m of road edge",[1,4,7,8]],["Closing traffic lane exceeding 1000 vehicles/hr",[1,2,5,8]],["Within 200m of intersection",[1,2,5,8]],["Within 10m of railway crossing",[1,2,5,8]],["Freeway works affecting a trafficable lane",[1,2,5,8,10]],["Posted speed above 60 km/hr",[1,2,5,8,9]],["Overhead work where equipment + 1.5m drop zone encroaches road/footpath",[1,7,8]],["Foot path reinstatement",[1,3,7]],["Road closure overnight without attendance",[11]],["Night work",[12]]];
-const EXTRA="\n\nADDITIONAL OUTPUT: add \"terminationPoints\": number to the JSON = the number of DISTINCT scope-of-work steps that contain a cable termination (pole, pillar, penda, TX, RMU). Several terminations inside the same scope step count as ONE. Do not output TRENCH_07 or GENSER_07 (the app adds them).\nCONDUITS: check the drawing detail/legend/notes for conduit, duct, poly pipe or sleeve (e.g. 63mm, 110mm, 160mm). If present, find the drawing scale (1:250, 1:200, 1:50, 1:500 or as printed; use dimensions/scale bar printed on the drawing) and MEASURE each conduit run length in metres from the plan using that scale, or take stated dimensions. Add to JSON \"conduits\":[{\"count\":1 (number of parallel pipes),\"size\":110,\"method\":\"drill\"|\"trench\",\"length\":number (raw metres measured),\"scale\":\"1:250\",\"scope\":number,\"note\":\"which run\"}]. Use \"drill\" unless the drawing says open trench/excavate. Use [] if no conduit shown. The app rounds to nearest 5m and adds DDRILL/TRENCH/CONDUIT/LOCATE CUs itself: do not output those for conduits.\nTRAFFIC CUs (TRAFFIC_01..12) by condition: work site within 6m of road edge -> 01,04,07*,08*; closing lane >1000 veh/hr -> 01,02,05,08; within 200m of intersection -> 01,02,05,08; within 10m of railway crossing -> 01,02,05,08; freeway works affecting trafficable lane -> 01,02,05,08,10; posted speed above 60km/hr -> 01,02,05,08,09; overhead work where equipment + 1.5m drop zone encroaches road/footpath -> 01,07*,08*; foot path reinstatement -> 01,03,07; road closure overnight without attendance -> 11; night work -> 12; site >6m from road edge or speed <=60 -> none. *07 pedestrian only, 08 vehicle only; if both, use 08 only. TRAFFIC_07/08 are hours in multiples of 4 depending on project run length; all other TRAFFIC CUs are always quantity 1. State the conditions you assumed in assumptions.";
+const DETAIL="\nDETAILED DRAWING REVIEW: act as a senior Western Power distribution design checker. Add \"reviewSummary\":\"2-3 sentence overall assessment\" and \"drawingReview\":[{\"category\":\"Scope vs CU notes\"|\"Cable and conduit\"|\"Quantities and measurements\"|\"Traffic and access\"|\"Switching and outages\"|\"Missing information\"|\"Standards and clearances\"|\"Title block and revisions\",\"severity\":\"high\"|\"medium\"|\"low\",\"where\":\"scope step / item\",\"issue\":\"what is wrong or unclear\",\"action\":\"what the designer should check or change\"}]. Check: every scope step has matching CU notes and every CU note maps to a scope step; poles/pillars/pits/TX numbers, streets and cable sizes consistent between plan, scope text, legend and CU notes; cable lengths vs allowances and slack; terminations vs joints; duct/conduit/road crossings shown and sized; traffic management needed; HV/LV switching, isolation, outage and customer-notification needs; earthing, clearances, trenching depth/reinstatement notes; missing quantities, scale, GEO REF, designer, revision, date, approvals. Give 5-15 specific findings, no padding; empty list only if the drawing is genuinely clean.";
+const EXTRA="\n\nADDITIONAL OUTPUT: add \"terminationPoints\": number to the JSON = the number of DISTINCT scope-of-work steps that contain a cable termination (pole, pillar, penda, TX, RMU). Several terminations inside the same scope step count as ONE. Do not output TRENCH_07 or GENSER_07 (the app adds them).\nCONDUITS: check the drawing detail/legend/notes for conduit, duct, poly pipe or sleeve (e.g. 63mm, 110mm, 160mm). If present, find the drawing scale (1:250, 1:200, 1:50, 1:500 or as printed; use dimensions/scale bar printed on the drawing) and MEASURE each conduit run length in metres from the plan using that scale, or take stated dimensions. Add to JSON \"conduits\":[{\"count\":1 (number of parallel pipes),\"size\":110,\"method\":\"drill\"|\"trench\",\"length\":number (raw metres measured),\"scale\":\"1:250\",\"scope\":number,\"note\":\"which run\"}]. Use \"drill\" unless the drawing says open trench/excavate. Use [] if no conduit shown. The app rounds to nearest 5m and adds DDRILL/TRENCH/CONDUIT/LOCATE CUs itself: do not output those for conduits.\nTRAFFIC CUs (TRAFFIC_01..12) by condition: work site within 6m of road edge -> 01,04,07*,08*; closing lane >1000 veh/hr -> 01,02,05,08; within 200m of intersection -> 01,02,05,08; within 10m of railway crossing -> 01,02,05,08; freeway works affecting trafficable lane -> 01,02,05,08,10; posted speed above 60km/hr -> 01,02,05,08,09; overhead work where equipment + 1.5m drop zone encroaches road/footpath -> 01,07*,08*; foot path reinstatement -> 01,03,07; road closure overnight without attendance -> 11; night work -> 12; site >6m from road edge or speed <=60 -> none. *07 pedestrian only, 08 vehicle only; if both, use 08 only. TRAFFIC_07/08 are hours in multiples of 4 depending on project run length; all other TRAFFIC CUs are always quantity 1. State the conditions you assumed in assumptions.\nPROJECT DETAILS: also add \"project\":{\"drawingNo\":\"MPxxxxxx\",\"designer\":\"the person's name printed beside or under the DESIGNER label of the title block, e.g. ISHAN PALIKHE (look near labels DESIGNER, DESIGN TEAM, DRAWN BY; not the customer, consultant company or lead designer)\",\"address\":\"site street address, suburb, state\",\"title\":\"drawing title e.g. PILLAR RELOCATION\",\"voltage\":\"\",\"rev\":\"\",\"date\":\"\"} to the JSON, using \"\" for anything not found.\nTYPOS: also add \"typos\":[{\"text\":\"as written\",\"where\":\"scope step or label\",\"suggestion\":\"likely correct text\"}] listing spelling mistakes and inconsistencies in the drawing text: misspelt words, wrong or inconsistent street/pole/pillar/cable numbers, cable sizes that differ between scope text and CU notes, CU IDs that look mistyped. Empty list if none.\nNON-CU SCOPE: every item in \"nonCUs\" must also include \"scope\": number (the scope-of-work step it belongs to, 0 if general).";
 TC.forEach((c,i)=>{const l=document.createElement("label");l.style.cssText="display:block;font-size:13px;color:var(--fg);margin:3px 0";const b=document.createElement("input");b.type="checkbox";b.className="tcb";l.appendChild(b);l.appendChild(document.createTextNode(" "+c[0]));$("tcl").appendChild(l)});
 function applyTraffic(run){const ids=new Set();let any=false;document.querySelectorAll(".tcb").forEach((b,i)=>{if(b.checked){any=true;TC[i][1].forEach(n=>ids.add(n))}});
  const T=/^TRAFFIC_\d+$/;let hrs=Math.max(0,...rows.filter(r=>r.cu==="TRAFFIC_07"||r.cu==="TRAFFIC_08").map(r=>Number(r.qty)||0));
@@ -220,28 +289,95 @@ $("eng").onchange=()=>{if($("eng").value==="claude")location.href="https://claud
 $("go").onclick=async()=>{$("go").disabled=true;startProg(!!$("fq").files[0]);
  try{const sample=await claude.use("sample");if(!sample){st("The AI service is not available.",1);return}
   const f=$("f").files[0];name=((f.name.match(/MP\d+/i)||doc.text.match(/MP\d{6}/i)||["quote"])[0]).toLowerCase();
-  mats=parseMats(doc.text);const opts={modelTier:"complex",cache:false};
+  mats=parseMats(doc.text);splitMats();const opts={modelTier:"complex",cache:false};
   try{if(doc.img&&(await sample.limits()).images)opts.images=[doc.img]}catch(e){}
   st("AI is building the quote… this can take a minute.");
   const km=$("km").value;if(!km)st("No distance set: travel CUs will be quantity 0 until you enter km.",1);
-  const inp=RULES+EXTRA+"\n\nMATERIAL CUs FOUND ON DRAWING (authoritative): "+JSON.stringify(mats.map(m=>({cu:m.cu,qty:m.qty,desc:(BY[m.cu]||{}).d||""})))+"\n\nJOB INPUTS: round-trip depot-to-site km="+(km||0)+"; switching visits="+$("sv").value+"; site days=1; extra: "+($("ex").value||"none")+"\n\nFULL CU LIST (ID|description):\n"+CAT.filter(c=>c.g!=="Materials (EM)").map(c=>c.id+"|"+c.d).join("\n")+"\n\nDRAWING TEXT:\n"+doc.text.slice(0,30000);
-  const r=await sample.json(inp,opts);
-  rows=(r.lines||[]).map(l=>({cu:l.cu,qty:l.qty,basis:l.basis||"",scope:l.scope|0}));const ms={};(r.materials||[]).forEach(m=>ms[m.cu]=m.scope|0);
+  const inp=RULES+EXTRA+($("dtl").checked?DETAIL:"")+"\n\nMATERIAL CUs FOUND ON DRAWING (authoritative): "+JSON.stringify(mats.map(m=>({cu:m.cu,qty:m.qty,desc:(BY[m.cu]||{}).d||""})))+"\n\nJOB INPUTS: round-trip depot-to-site km="+(km||0)+"; switching visits="+$("sv").value+"; site days=1; extra: "+($("ex").value||"none")+"\n\nFULL CU LIST (ID|description):\n"+CAT.filter(c=>c.g!=="Materials (EM)").map(c=>c.id+"|"+c.d).join("\n")+"\n\nDRAWING TEXT:\n"+doc.text.slice(0,30000);
+  const r=await sample.json(inp,opts);proj=r.project||{};typos=(r.typos||[]).filter(t=>t&&t.text);drDone=$("dtl").checked;drIss=drDone?(r.drawingReview||[]).filter(x=>x&&x.issue):[];drIss2=[];drSum=drDone?(r.reviewSummary||""):"";aiOrd={};(r.materials||[]).forEach((m,i)=>{aiOrd[canonId(m.cu)]=i});
+  rows=(r.lines||[]).map(l=>({cu:canonId(l.cu),qty:l.qty,basis:l.basis||"",scope:l.scope|0}));const ms={};(r.materials||[]).forEach(m=>ms[canonId(m.cu)]=m.scope|0);
   mats.forEach(m=>{setRow(m.cu,m.qty,"material on drawing");rows.find(x=>x.cu===m.cu).scope=ms[m.cu]||0});applyCables(r.cables);applyConduits(r.conduits);postRules(r);
   const s54=rows.find(y=>y.cu==="CN54");if(s54){setRow("CABLE_07",2*Number(s54.qty),"2 x CN54 qty");rows.find(x=>x.cu==="CABLE_07").scope=s54.scope|0}
-  links={};(r.materials||[]).forEach(m=>links[m.cu]=(m.services||[]).slice());if(s54)links.CN54=(links.CN54||[]).concat("CABLE_07");
-  nc=(r.nonCUs||[]).map(x=>({desc:x.desc||"",type:x.type,qty:x.qty??1,unit:x.unit||"",note:x.note||""}));renderNC();
+  links={};(r.materials||[]).forEach(m=>links[canonId(m.cu)]=(m.services||[]).map(canonId));if(s54)links.CN54=(links.CN54||[]).concat("CABLE_07");
+  nc=(r.nonCUs||[]).map(x=>({desc:x.desc||"",type:x.type,qty:x.qty??1,unit:x.unit||"",note:x.note||"",scope:x.scope|0})).concat(droppedNonCU.map(d=>Object.assign(d,{scope:ms[canonId(d.desc)]||0})));renderNC();
   const hasOH=rows.some(x=>/^OH /.test(x.cu)||/^(PO|HV|ST|RE|TX)\d/.test(x.cu)),hasUG=rows.some(x=>/^(UG|CABLE|DDRILL|TRENCH|LOCATE|LU|CONDUIT)/.test(x.cu));
   if(hasUG)setRow("AUX_014",1,"1 per project with underground work");
   if(hasOH){const v=value();setRow("AUX_013",v<=50000?1:v<=200000?3:12,"external value ≈ $"+Math.round(v).toLocaleString()+" → tier")}
   const ul=document.createElement("ul"),cv=$("cov");cv.innerHTML="<b>Materials on drawing → installation CUs</b>";
   if(!mats.length){const li=document.createElement("li");li.textContent="No CU: notes detected in the drawing text.";li.className="err";ul.appendChild(li)}
   mats.forEach(m=>{const s=((r.materials||[]).find(x=>x.cu===m.cu)||{}).services||[];const li=document.createElement("li");li.textContent=m.cu+" x"+m.qty+" → "+(s.length?s.join(", "):"no service CU (material only, or unmapped: check)");if(!s.length)li.className="err";ul.appendChild(li)});cv.appendChild(ul);
-  window.lastAssump=r.assumptions||[];const as=$("as");as.innerHTML=(r.assumptions||[]).length?"<b>Assumptions to check</b>":"";const u2=document.createElement("ul");(r.assumptions||[]).forEach(a=>{const li=document.createElement("li");li.textContent=a;u2.appendChild(li)});as.appendChild(u2);
-  if(r.drawing)name=String(r.drawing).toLowerCase();
-  $("out").hidden=false;render();if($("fq").files[0])await runCompare();st("Done. Review quantities, drag in extra CUs from the library, then download.")
+  window.lastAssump=r.assumptions||[];typos=typos.concat(unknownCuFlags());const as=$("as");as.innerHTML=(r.assumptions||[]).length?"<b>Assumptions to check</b>":"";const u2=document.createElement("ul");(r.assumptions||[]).forEach(a=>{const li=document.createElement("li");li.textContent=a;u2.appendChild(li)});as.appendChild(u2);
+  if(r.drawing)name=String(r.drawing).toLowerCase();renderDR();
+  $("out").hidden=false;render();learn();if($("fq").files[0])await runCompare();st("Done. Review quantities, drag in extra CUs from the library, then download.")
  }catch(e){st("Error: "+(e.message||e.code||e),1)}finally{stopProg();$("go").disabled=false}};
 
+
+// ---- project details + printable report
+let proj={};
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function projRows(){const p=proj||{};const g=(typeof geo!=="undefined"&&geo)?geo.lat.toFixed(5)+", "+geo.lon.toFixed(5):"";
+ return [["Drawing no.",p.drawingNo||(name?String(name).toUpperCase():"")],["Designer",p.designer||"Not found in drawing"],["Site address",p.address],["Project",p.title],["Network voltage",p.voltage],["Revision / date",[p.rev,p.date].filter(Boolean).join(" · ")],].filter(r=>r[1])}
+function projHtml(){const r=projRows();return r.length?"<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 18px;margin:12px 0;padding:12px;border:1px solid var(--bd);border-radius:8px'>"+r.map(x=>"<div><div style='font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px'>"+x[0]+"</div><div>"+esc(x[1])+"</div></div>").join("")+"</div>":""}
+function reportHtml(){const c=window.lastCmp;if(!c)return"";const lab={match:"Match",diff:"Quantity differs",missing:"Missing from quote",extra:"Not expected from drawing"};
+ const n=k=>c.res.filter(x=>x.st===k&&!x.rm).length,rv=c.review;
+ const tyr=(typos||[]).some(t=>!t._rm)?"<h2>Possible typos / errors in the drawing</h2><ul>"+typos.filter(t=>!t._rm).map(t=>"<li><b>"+esc(t.text)+"</b>"+(t.where?" ("+esc(t.where)+")":"")+(t.suggestion?" — <i>"+esc(t.suggestion)+"</i>":"")+"</li>").join("")+"</ul>":"";const alli=drIss.concat(drIss2).filter(i=>!i._rm),drr=(drSum||alli.length)?"<h2>Detailed drawing review</h2>"+(drSum?"<p>"+esc(drSum)+"</p>":"")+li(alli,i=>"<li><b>["+esc(i.severity)+"] "+esc(i.category||"")+" - "+esc(i.where||"")+"</b>: "+esc(i.issue)+(i.action?" — <i>"+esc(i.action)+"</i>":"")+"</li>"):"";const pr="<table class='p'>"+projRows().map(x=>"<tr><th>"+x[0]+"</th><td>"+esc(x[1])+"</td></tr>").join("")+"</table>";
+ const tb=c.res.filter(x=>!x.rm).map(x=>"<tr class='"+x.st+"'><td><b>"+esc(x.id)+"</b></td><td>"+esc((BY[x.id]||{}).d||"")+"</td><td>"+(x.e==null?"–":x.e)+"</td><td>"+(x.u==null?"–":x.u)+"</td><td>"+lab[x.st]+"</td></tr>").join("");
+ const li=(a,f)=>a&&a.length?"<ul>"+a.map(f).join("")+"</ul>":"<p>None found.</p>";
+ const rvh=rv?"<h2>Review</h2><p>"+esc(rv.summary||"")+"</p><h3>Quote issues</h3>"+li(sortedQI(),i=>"<li><b>["+esc(i.severity)+"] "+esc(i.cu)+"</b>: "+esc(i.issue)+(i.fix?" — <i>"+esc(i.fix)+"</i>":"")+"</li>"):"";
+ return "<!doctype html><html><head><meta charset='utf-8'><title>Drawing vs supplied quote - "+esc(name?String(name).toUpperCase():"")+"</title><style>body{font:12px/1.45 Arial,Helvetica,sans-serif;color:#13202b;margin:20px}h1{font-size:19px;margin:0 0 2px;color:#09284b}h2{font-size:14px;margin:18px 0 6px;color:#09284b}h3{font-size:12px;margin:10px 0 4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfd8e0;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eef3f6}table.p th{width:160px}.diff{background:#fff4de}.missing,.extra{background:#fde8e8}tr{break-inside:avoid}.s span{display:inline-block;margin-right:14px}@page{margin:12mm}</style></head><body><h1>Drawing vs supplied quote</h1><div>EVE Design &amp; Engineering · "+new Date().toLocaleString()+"</div><h2>Drawing Review for Project "+esc(PN())+"</h2>"+pr+tyr+drr+"<h2>Summary</h2><p class='s'><span><b>"+n("match")+"</b> match</span><span><b>"+n("diff")+"</b> quantity differs</span><span><b>"+n("missing")+"</b> missing from quote</span><span><b>"+n("extra")+"</b> in quote, not expected</span></p><h2>Comparison (CU IDs and quantities)</h2><table><thead><tr><th>CU ID</th><th>Description</th><th>Expected (drawing)</th><th>In quote</th><th>Result</th></tr></thead><tbody>"+tb+"</tbody></table>"+rvh+"<p style='margin-top:14px;color:#607184'>AI-assisted comparison: verify against the drawing before relying on it.</p></body></html>"}
+function dlReport(){save((name||"report")+"-drawing-vs-quote.html",reportHtml())}
+function printReport(){const h=reportHtml();if(!h)return;try{const fr=document.createElement("iframe");fr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0";document.body.appendChild(fr);fr.onload=()=>{try{fr.contentWindow.focus();fr.contentWindow.print()}catch(e){dlReport()}setTimeout(()=>fr.remove(),120000)};fr.srcdoc=h}catch(e){dlReport()}}
+
+
+// ---- ID normalisation: drawings often write the zero where DQM uses the letter O (P09_M -> PO9_M)
+const FAM=new Set(CAT.filter(c=>c.g==="Materials (EM)").map(c=>(c.id.match(/^[A-Z]+/)||[""])[0]).filter(Boolean));
+function canonId(id){id=String(id||"").trim();if(BY[id])return id;const u=id.toUpperCase();if(BY[u])return u;
+ const zs=[...u].map((c,i)=>c==="0"||c==="O"?i:-1).filter(i=>i>=0);
+ if(zs.length&&zs.length<=8){let best=null,bn=99;for(let m=1;m<(1<<zs.length);m++){const a=[...u];let n=0;zs.forEach((p,k)=>{if(m&(1<<k)){a[p]=a[p]==="0"?"O":"0";n++}});const t=a.join("");if(BY[t]&&n<bn){best=t;bn=n}}if(best)return best}
+ return id}
+let droppedNonCU=[];
+function splitMats(){const o={};droppedNonCU=[];(mats||[]).forEach(m=>{const id=canonId(m.cu);const fam=(id.match(/^[A-Z]+/)||[""])[0];
+  if(!BY[id]&&!FAM.has(fam)){droppedNonCU.push({desc:m.cu,type:"Material",qty:m.qty,unit:"",note:"Item in CU note but not a CU (no CU family match)"});return}
+  o[id]=(o[id]||0)+m.qty});mats=Object.entries(o).map(([cu,qty])=>({cu,qty}))}
+// ---- report overlay, clear, typos, sorting, smart suggestions
+let typos=[];
+const LAB={match:["ok","Match"],diff:["wr","Quantity differs"],missing:["bad","Missing from quote"],extra:["bad","Not expected from drawing"]};
+function lev(a,b){const m=[];for(let i=0;i<=a.length;i++){m[i]=[i]}for(let j=0;j<=b.length;j++)m[0][j]=j;for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return m[a.length][b.length]}
+function unknownCuFlags(){const out=[];(mats||[]).forEach(m=>{if(BY[m.cu])return;let best=null,bd=99;CAT.forEach(c=>{if(c.g==="Materials (EM)"&&Math.abs(c.id.length-m.cu.length)<=2){const d=lev(m.cu,c.id);if(d<bd){bd=d;best=c.id}}});out.push({text:m.cu,where:"CU note",suggestion:bd<=2&&best?"Not in CU library: did you mean "+best+"?":"Not in CU library: check the ID"})});return out}
+function typosHtml(){return typos&&typos.length?"<div style='margin:10px 0;padding:10px 12px;border:1px solid #c77d00;border-radius:8px'><b class='wr'>Possible typos / errors in the drawing</b><ul style='margin:6px 0 0 18px'>"+typos.map(t=>"<li><b>"+esc(t.text)+"</b>"+(t.where?" ("+esc(t.where)+")":"")+(t.suggestion?" → <i>"+esc(t.suggestion)+"</i>":"")+"</li>").join("")+"</ul></div>":""}
+function issList(a){return "<ul>"+a.map(i=>"<li><button class='g rm' data-k='is' data-i='"+drIss.concat(drIss2).indexOf(i)+"'>×</button> <span class='"+(i.severity==="high"?"bad":i.severity==="medium"?"wr":"ok")+"'>"+esc(i.severity||"")+"</span> <b>"+esc(i.where||"")+"</b>: "+esc(i.issue)+(i.action?" → <i>"+esc(i.action)+"</i>":"")+"</li>").join("")+"</ul>"}
+function renderDR(){const el=$("dr");if(!el)return;if(!rows.length&&!doc){el.hidden=true;return}el.hidden=false;
+ const ty=(typos||[]).filter(t=>!t._rm),iss=drIss.concat(drIss2).filter(i=>!i._rm),cnt=s=>iss.filter(i=>i.severity===s).length;
+ let h="<h2 style='margin-top:0'>Drawing Review for Project "+esc(PN())+"</h2>"+projHtml()+(drSum?"<p>"+esc(drSum)+"</p>":"");
+ h+="<details><summary>Possible typos / errors ("+ty.length+")</summary>"+(ty.length?"<ul>"+ty.map(t=>"<li><button class='g rm' data-k='ty' data-i='"+typos.indexOf(t)+"'>×</button> <b>"+esc(t.text)+"</b>"+(t.where?" ("+esc(t.where)+")":"")+(t.suggestion?" → <i>"+esc(t.suggestion)+"</i>":"")+"</li>").join("")+"</ul>":"<div style='margin-top:6px'>None found.</div>")+"</details>";
+ const cats=[...new Set(iss.map(i=>i.category||"Other"))];
+ if(!drDone&&!iss.length)h+="<div style='color:var(--mut);margin:8px 0'>Detailed review not requested. Tick “Include detailed drawing review” before Generate to run it.</div>";else h+="<details><summary>Detailed review findings ("+iss.length+(iss.length?": "+cnt("high")+" high, "+cnt("medium")+" medium, "+cnt("low")+" low":"")+")</summary>"+(iss.length?cats.map(c=>"<div style='margin-top:8px'><b>"+esc(c)+"</b>"+issList(iss.filter(i=>(i.category||"Other")===c))+"</div>").join(""):"<div style='margin-top:6px'>No findings.</div>")+"</details>";
+ el.innerHTML=h;if(!el._d){el._d=1;el.addEventListener("click",e=>{const b=e.target.closest("button.rm");if(!b)return;const i=+b.dataset.i;const t=b.dataset.k==="ty"?typos[i]:drIss.concat(drIss2)[i];if(t)t._rm=1;renderDR();if(window.lastCmp)updChips()})}}
+function sortedQI(){const c=window.lastCmp;if(!c||!c.review)return[];const idx={};c.res.forEach((x,i)=>idx[x.id]=i);return(c.review.quoteIssues||[]).filter(q=>!q._rm).map((q,i)=>[q,i]).sort((a,b)=>((idx[a[0].cu]??1e6)-(idx[b[0].cu]??1e6))||a[1]-b[1]).map(x=>x[0])}
+function updChips(){const c=window.lastCmp,el=$("cmpChips");if(!c||!el)return;const n=k=>c.res.filter(x=>x.st===k&&!x.rm).length;el.innerHTML="<span class='chip ok'>"+n("match")+" match</span><span class='chip wr'>"+n("diff")+" quantity differs</span><span class='chip bad'>"+n("missing")+" missing from quote</span><span class='chip bad'>"+n("extra")+" in quote, not expected</span>";const rm=c.res.filter(x=>x.rm).length+(c.review?(c.review.quoteIssues||[]).filter(q=>q._rm).length:0)+(typos||[]).filter(t=>t._rm).length+drIss.concat(drIss2).filter(i=>i._rm).length;const b=$("cmpRestore");if(b){b.hidden=!rm;b.textContent="Restore removed ("+rm+")"}}
+function renderAI(){const c=window.lastCmp,box=$("cmpAI");if(!c||!c.review||!box)return;const r=c.review,qi=sortedQI();box.style.color="var(--fg)";if(!box._d){box._d=1;box.addEventListener("click",e=>{const b=e.target.closest("button.rm");if(!b)return;const q=window.lastCmp.review.quoteIssues[+b.dataset.qi];if(q)q._rm=1;renderAI();updChips()})}
+ const sev=v=>"<span class='"+(v==="high"?"bad":v==="medium"?"wr":"ok")+"'>"+esc(v||"")+"</span>";
+ box.innerHTML="<h2 style='margin-top:6px'>Review</h2><p>"+esc(r.summary||"")+"</p><b>Quote issues</b>"+(qi.length?"<ul>"+qi.map(i=>"<li><button class='g rm' data-qi='"+r.quoteIssues.indexOf(i)+"'>×</button> "+sev(i.severity)+" <b>"+esc(i.cu||"")+"</b>: "+esc(i.issue||"")+(i.fix?" → <i>"+esc(i.fix)+"</i>":"")+"</li>").join("")+"</ul>":"<div>None found.</div>")+"<div style='margin-top:8px;color:var(--mut)'>Drawing findings are in the Drawing Review section above.</div>"}
+function closeRpt(){const o=$("rpt");if(o)o.remove();document.body.classList.remove("pr")}
+function printReport(){const h=reportHtml();if(!h)return;closeRpt();const d=new DOMParser().parseFromString(h,"text/html");const o=document.createElement("div");o.id="rpt";
+ o.innerHTML="<div class='rbar'><button id='rpPrint'>Print</button><button class='g' id='rpDl'>Download report</button><button class='g' id='rpClose'>Close</button><span style='color:#607184;font-size:12px'>If Print does nothing here, use Download report, open the file and press Ctrl+P.</span></div><div class='rbody'>"+d.body.innerHTML+"</div>";
+ document.body.appendChild(o);document.body.classList.add("pr");$("rpClose").onclick=closeRpt;$("rpDl").onclick=dlReport;$("rpPrint").onclick=()=>{document.body.classList.add("pr");try{window.print()}catch(e){}};window.onafterprint=()=>{};}
+function sortRes(mode){const c=window.lastCmp;if(!c)return;const rank={missing:0,diff:1,extra:2,match:3},nat=(a,b)=>a.localeCompare(b,undefined,{numeric:true}),ty=id=>(BY[id]||{}).s||id.replace(/[_\d].*$/,"");
+ const f={diff:(a,b)=>rank[a.st]-rank[b.st]||nat(a.id,b.id),id:(a,b)=>nat(a.id,b.id),type:(a,b)=>nat(ty(a.id),ty(b.id))||nat(a.id,b.id),res:(a,b)=>rank[a.st]-rank[b.st]||nat(a.id,b.id),exp:(a,b)=>(b.e||0)-(a.e||0)||nat(a.id,b.id),quote:(a,b)=>(b.u||0)-(a.u||0)||nat(a.id,b.id),delta:(a,b)=>Math.abs((b.e||0)-(b.u||0))-Math.abs((a.e||0)-(a.u||0))||nat(a.id,b.id),matchfirst:(a,b)=>rank[b.st]-rank[a.st]||nat(a.id,b.id)};
+ c.res.sort(f[mode]||f.diff);c.sort=mode}
+function renderCmp(){const c=window.lastCmp,tb=$("cmpBody");if(!c||!tb)return;tb.innerHTML=c.res.filter(x=>!x.rm).map(x=>"<tr><td><b style='font-family:ui-monospace,monospace'>"+esc(x.id)+"</b></td><td>"+esc((BY[x.id]||{}).d||"")+"</td><td>"+(x.e==null?"–":x.e)+"</td><td>"+(x.u==null?"–":x.u)+"</td><td class='"+LAB[x.st][0]+"'>"+LAB[x.st][1]+"</td><td><button class='g rm' data-id='"+esc(x.id)+"' title='Remove from report'>×</button></td></tr>").join("");if(!tb._d){tb._d=1;tb.addEventListener("click",e=>{const b=e.target.closest("button.rm");if(!b)return;const x=c0().res.find(r=>r.id===b.dataset.id);if(x)x.rm=1;renderCmp();updChips()})}}
+const c0=()=>window.lastCmp;
+$("clr").onclick=()=>{rows=[];nc=[];links={};mats=[];doc=null;geo=null;name="quote";proj={};typos=[];window.lastCmp=null;window.lastAssump=[];closeRpt();
+ ["f","fq"].forEach(i=>{try{$(i).value=""}catch(e){}});$("ex").value="";$("km").value="";$("site").innerHTML="";$("cov").innerHTML="";$("as").innerHTML="";drIss=[];drIss2=[];drSum="";aiOrd={};$("dr").hidden=true;$("dr").innerHTML="";$("cmp").hidden=true;$("cmp").innerHTML="";$("out").hidden=true;$("go").disabled=true;$("tb").innerHTML="";
+ try{renderNC()}catch(e){}try{$("dep").value="auto"}catch(e){}document.querySelectorAll(".tcb").forEach(c=>c.checked=false);$("pg").hidden=true;$("q").value="";buildLib();st("Cleared. Upload a drawing to start.")};
+// smart suggestions: reference mapping (manual + sample quote) + what this browser has used before
+const REL=[[/^PO\d/,["OH INST_001"]],[/^HV5[12]/,["OH INST_016"]],[/^TX5_/,["OH INST_009"]],[/^TX\d/,["OH INST_010"]],[/^LU11$/,["UG INST_010"]],[/^LU10$/,["UG INST_009"]],[/^LU(2|13)$/,["UG JNT_002A","UG JNT_002C"]],[/^LU7_/,["UG JNT_006A","UG JNT_006C"]],[/^UM3_R$/,["UG INST_025"]],[/^ST\d/,["OH INST_024"]],[/^RE\d/,["OH INST_025"]],[/^SL\d/,["OH INST_027"]],[/^HU\d/,["UG INST_003","UG JNT_007"]],[/^CN54$/,["CABLE_07"]],[/^LU61/,["UG JNT_011B","OH INST_025"]]];
+function learned(){try{return JSON.parse(localStorage.getItem("relCU")||"{}")}catch(e){return{}}}
+function learn(){try{const L=learned(),mat=rows.filter(isMat).map(r=>r.cu),svc=rows.filter(r=>!isMat(r)).map(r=>r.cu);mat.forEach(m=>{L[m]=L[m]||{};svc.forEach(s=>{L[m][s]=(L[m][s]||0)+1})});const j=JSON.stringify(L);if(j.length<300000)localStorage.setItem("relCU",j)}catch(e){}}
+function relFor(id){const out=[];REL.forEach(([re,s])=>{if(re.test(id))out.push(...s)});if(CAB[id])out.push(CAB[id][0],CAB[id][1],CAB[id][2],"LOCATE_07");const L=learned()[id];if(L)Object.entries(L).sort((a,b)=>b[1]-a[1]).slice(0,4).forEach(([k])=>out.push(k));return [...new Set(out)].filter(x=>BY[x])}
+function sugBlock(title,ids){const w=document.createElement("div");const h=document.createElement("div");h.style.cssText="padding:10px 8px 4px;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-top:1px solid var(--bd);margin-top:6px";h.textContent=title;w.appendChild(h);ids.forEach(id=>{const d=item(BY[id]);d.style.paddingLeft="8px";d.style.opacity=".85";w.appendChild(d)});return w}
+function relatedFor(r){const have=new Set(r.map(c=>c.id)),seen=new Set(),out=[];r.slice(0,3).forEach(c=>relFor(c.id).forEach(x=>{if(!have.has(x)&&!seen.has(x)){seen.add(x);out.push([c.id,x])}}));return out.slice(0,4)}
+function gapSuggest(){const ids=new Set(rows.map(r=>r.cu)),out=[];rows.filter(isMat).forEach(m=>relFor(m.cu).forEach(x=>{if(!ids.has(x)&&!out.includes(x))out.push(x)}));return out.slice(0,5)}
 // ---- progress / ETA
 let pgT=null,pgS=0,pgEst=0;
 function fmtT(ms){ms=Math.max(0,Math.round(ms/1000));return Math.floor(ms/60)+":"+String(ms%60).padStart(2,"0")}
@@ -266,26 +402,19 @@ function parseQuote(t){const o={};t.split(/\r?\n/).forEach(raw=>{const L=raw.toU
   let q=f.find(x=>/^\d+(\.\d+)?$/.test(x));if(q===undefined){const m=rest.match(/(\d+(?:\.\d+)?)/);q=m?m[1]:null}
   if(q!==null)o[hit.id]=(o[hit.id]||0)+parseFloat(q)});return o}
 async function runCompare(){const f=$("fq").files[0],cv=$("cmp");if(!f||!rows.length){cv.hidden=true;return}
- cv.hidden=false;cv.innerHTML="<h2>Drawing vs supplied quote</h2><div style='color:var(--mut)'>Comparing…</div>";
+ cv.hidden=false;drIss2=[];renderDR();cv.innerHTML="<h2>Drawing vs supplied quote</h2><div style='color:var(--mut)'>Comparing…</div>";
  let sup;try{sup=parseQuote(await quoteText(f))}catch(e){cv.innerHTML="<h2>Drawing vs supplied quote</h2><div class='err'>Could not read the quote file: "+(e.message||e)+"</div>";return}
  const exp={};rows.forEach(r=>{const q=Number(r.qty)||0;if(q>0)exp[r.cu]=(exp[r.cu]||0)+q});
  const all=[...new Set([...Object.keys(exp),...Object.keys(sup)])].sort();const res=all.map(id=>{const e=exp[id],u=sup[id];
   return{id,e,u,st:e===undefined?"extra":u===undefined?"missing":Math.abs(e-u)<1e-9?"match":"diff"}});
  const n=k=>res.filter(x=>x.st===k).length;
- let h="<h2>Drawing vs supplied quote</h2><div style='margin-bottom:8px'><span class='chip ok'>"+n("match")+" match</span><span class='chip wr'>"+n("diff")+" quantity differs</span><span class='chip bad'>"+n("missing")+" missing from quote</span><span class='chip bad'>"+n("extra")+" in quote, not expected</span></div>";
+ let h="<div class='row' style='justify-content:space-between'><h2 style='margin:0'>Drawing vs supplied quote</h2><span><button class='g' id='cmpRestore' hidden>Restore removed</button> <button class='g' id='cmpPrint'>Print report</button> <button class='g' id='cmpDl'>Download report</button></span></div>"+"<div id='cmpChips' style='margin:10px 0 8px'><span class='chip ok'>"+n("match")+" match</span><span class='chip wr'>"+n("diff")+" quantity differs</span><span class='chip bad'>"+n("missing")+" missing from quote</span><span class='chip bad'>"+n("extra")+" in quote, not expected</span></div>";
  if(!Object.keys(sup).length)h+="<div class='err'>No CU IDs were recognised in the quote file. Check the file is the quote (CU ID and quantity per line).</div>";
- h+="<div class='sc'><table><thead><tr><th>CU ID</th><th>Description</th><th>Expected (from drawing)</th><th>In quote</th><th>Result</th></tr></thead><tbody>";
- const lab={match:["ok","Match"],diff:["wr","Quantity differs"],missing:["bad","Missing from quote"],extra:["bad","Not expected from drawing"]};
- res.sort((a,b)=>(a.st==="match")-(b.st==="match")||a.id.localeCompare(b.id)).forEach(x=>{h+="<tr><td><b style='font-family:ui-monospace,monospace'>"+x.id+"</b></td><td>"+((BY[x.id]||{}).d||"")+"</td><td>"+(x.e??"–")+"</td><td>"+(x.u??"–")+"</td><td class='"+lab[x.st][0]+"'>"+lab[x.st][1]+"</td></tr>"});
- h+="</tbody></table></div><div id='cmpAI' style='margin-top:12px;color:var(--mut)'>Reviewing the drawing and quote for errors…</div>";cv.innerHTML=h;
+ h+="<div class='row' style='margin:6px 0'><div><label>Sort by</label><select id='cmpSort'><option value='diff'>Differences first</option><option value='id'>CU ID (A–Z)</option><option value='type'>CU type</option><option value='res'>Result type</option><option value='exp'>Expected qty (high–low)</option><option value='quote'>Quote qty (high–low)</option><option value='delta'>Biggest difference</option><option value='matchfirst'>Matches first</option></select></div></div><div class='sc'><table><thead><tr><th>CU ID</th><th>Description</th><th>Expected (from drawing)</th><th>In quote</th><th>Result</th><th title='Remove from the report'></th></tr></thead><tbody id='cmpBody'>";
+ h+="</tbody></table></div><div id='cmpAI' style='margin-top:12px;color:var(--mut)'>Reviewing the drawing and quote for errors…</div>";cv.innerHTML=h;window.lastCmp={res,review:null};sortRes("diff");renderCmp();$("cmpSort").onchange=()=>{sortRes($("cmpSort").value);renderCmp();renderAI()};$("cmpRestore").onclick=()=>{window.lastCmp.res.forEach(x=>delete x.rm);((window.lastCmp.review||{}).quoteIssues||[]).forEach(q=>delete q._rm);(typos||[]).forEach(t=>delete t._rm);drIss.concat(drIss2).forEach(i=>delete i._rm);renderCmp();renderAI();renderDR();updChips()};$("cmpPrint").onclick=printReport;$("cmpDl").onclick=dlReport;
  try{const sample=await claude.use("sample");const diffs=res.filter(x=>x.st!=="match").map(x=>({cu:x.id,expected:x.e??null,inQuote:x.u??null,result:x.st}));
   const inp=RULES+"\n\nTASK: REVIEW. An estimator supplied an existing quote for this drawing. The app computed the expected quote from the drawing (EXPECTED) and diffed it against the supplied quote (DIFFS). Decide, for each difference, which side is probably wrong and why, using the DQM rules and the drawing text. Also list errors or inconsistencies in the DRAWING itself (e.g. cable length vs allowances, CU notes that do not match the scope text, missing CU notes, wrong cable size, missing duct/polypipe info, scope steps with no CU, termination count). Compare CU IDs and quantities ONLY: ignore DCSH codes and never treat a DCSH code as a CU or report DCSH differences. Be specific and concise. Output ONLY JSON: {\"summary\":\"...\",\"quoteIssues\":[{\"cu\":\"ID\",\"severity\":\"high|medium|low\",\"issue\":\"...\",\"fix\":\"...\"}],\"drawingIssues\":[{\"where\":\"scope step / item\",\"severity\":\"high|medium|low\",\"issue\":\"...\"}]}\n\nEXPECTED: "+JSON.stringify(exp)+"\n\nDIFFS: "+JSON.stringify(diffs)+"\n\nASSUMPTIONS MADE: "+JSON.stringify(window.lastAssump||[])+"\n\nDRAWING TEXT:\n"+doc.text.replace(/DCSH\s*:?\s*[A-Z0-9\-]+(?:\s*,\s*[A-Z0-9\-]+)*/gi,"").slice(0,20000);
-  const r=await sample.json(inp,{modelTier:"complex",cache:false});const box=$("cmpAI");box.style.color="var(--fg)";
-  const sev=v=>"<span class='"+(v==="high"?"bad":v==="medium"?"wr":"ok")+"'>"+(v||"")+"</span>";
-  let a="<h2 style='margin-top:6px'>Review</h2><p>"+(r.summary||"")+"</p>";
-  a+="<b>Quote issues</b>"+((r.quoteIssues||[]).length?"<ul>"+r.quoteIssues.map(i=>"<li>"+sev(i.severity)+" <b>"+(i.cu||"")+"</b>: "+(i.issue||"")+(i.fix?" → <i>"+i.fix+"</i>":"")+"</li>").join("")+"</ul>":"<div>None found.</div>");
-  a+="<div style='margin-top:8px'></div><b>Drawing issues</b>"+((r.drawingIssues||[]).length?"<ul>"+r.drawingIssues.map(i=>"<li>"+sev(i.severity)+" <b>"+(i.where||"")+"</b>: "+(i.issue||"")+"</li>").join("")+"</ul>":"<div>None found.</div>");
-  box.innerHTML=a}catch(e){$("cmpAI").innerHTML="<span class='err'>AI review unavailable: "+(e.message||e)+" (the table above is still valid).</span>"}}
+  const r=await sample.json(inp,{modelTier:"complex",cache:false});window.lastCmp.review=r;drIss2=(r.drawingIssues||[]).filter(x=>x&&x.issue).map(x=>({category:"Cross-check with supplied quote",severity:x.severity,where:x.where,issue:x.issue}));renderAI();renderDR();updChips();}catch(e){$("cmpAI").innerHTML="<span class='err'>AI review unavailable: "+(e.message||e)+" (the table above is still valid).</span>"}}
 $("fq").onchange=async()=>{if($("fq").files[0]&&rows.length){startProg(false);try{await runCompare()}finally{stopProg()}}else $("cmp").hidden=true};
 $("ids").innerHTML=CAT.map(c=>"<option value=\""+c.id+"\">"+c.d.replace(/"/g,"")+"</option>").join("");
 buildLib();
