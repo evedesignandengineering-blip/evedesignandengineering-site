@@ -43,6 +43,7 @@ td input{width:100%;padding:5px 7px}td input.q{width:80px}.sc{overflow-x:auto}.t
 #rpt .rbody{padding:20px;max-width:1000px;margin:0 auto}#rpt h1{font-size:19px;margin:0 0 2px;color:#09284b}#rpt h2{font-size:14px;margin:18px 0 6px;color:#09284b;text-transform:none;letter-spacing:0}#rpt h3{font-size:12px;margin:10px 0 4px}
 #rpt table{width:100%;border-collapse:collapse}#rpt th,#rpt td{border:1px solid #cfd8e0;padding:4px 6px;text-align:left;vertical-align:top;font-size:12px;color:#13202b;text-transform:none;letter-spacing:0}#rpt th{background:#eef3f6}#rpt table.p th{width:160px}#rpt .diff{background:#fff4de}#rpt .missing,#rpt .extra{background:#fde8e8}#rpt tr{break-inside:avoid}#rpt .s span{display:inline-block;margin-right:14px}
 @media print{body.pr>*:not(#rpt){display:none!important}body.pr #rpt{position:static;overflow:visible}#rpt .rbar{display:none}}
+pre,.cu b,td b{font-feature-settings:"zero" 1;font-variant-numeric:slashed-zero}
 pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-x:auto;font-size:12px;margin:0}
 #st{margin-top:10px;color:var(--mut)}ul{margin:6px 0 0 18px;padding:0}
 @media(max-width:800px){aside{position:fixed;z-index:30;top:53px;left:0;margin-left:0;box-shadow:0 0 30px rgba(0,0,0,.4)}aside.c{margin-left:-345px}}
@@ -279,17 +280,17 @@ $("eng").onchange=()=>{if($("eng").value==="claude")location.href="https://claud
 $("go").onclick=async()=>{$("go").disabled=true;startProg(!!$("fq").files[0]);
  try{const sample=await claude.use("sample");if(!sample){st("The AI service is not available.",1);return}
   const f=$("f").files[0];name=((f.name.match(/MP\d+/i)||doc.text.match(/MP\d{6}/i)||["quote"])[0]).toLowerCase();
-  mats=parseMats(doc.text);const opts={modelTier:"complex",cache:false};
+  mats=parseMats(doc.text);splitMats();const opts={modelTier:"complex",cache:false};
   try{if(doc.img&&(await sample.limits()).images)opts.images=[doc.img]}catch(e){}
   st("AI is building the quote… this can take a minute.");
   const km=$("km").value;if(!km)st("No distance set: travel CUs will be quantity 0 until you enter km.",1);
   const inp=RULES+EXTRA+"\n\nMATERIAL CUs FOUND ON DRAWING (authoritative): "+JSON.stringify(mats.map(m=>({cu:m.cu,qty:m.qty,desc:(BY[m.cu]||{}).d||""})))+"\n\nJOB INPUTS: round-trip depot-to-site km="+(km||0)+"; switching visits="+$("sv").value+"; site days=1; extra: "+($("ex").value||"none")+"\n\nFULL CU LIST (ID|description):\n"+CAT.filter(c=>c.g!=="Materials (EM)").map(c=>c.id+"|"+c.d).join("\n")+"\n\nDRAWING TEXT:\n"+doc.text.slice(0,30000);
   const r=await sample.json(inp,opts);proj=r.project||{};typos=(r.typos||[]).filter(t=>t&&t.text);
-  rows=(r.lines||[]).map(l=>({cu:l.cu,qty:l.qty,basis:l.basis||"",scope:l.scope|0}));const ms={};(r.materials||[]).forEach(m=>ms[m.cu]=m.scope|0);
+  rows=(r.lines||[]).map(l=>({cu:canonId(l.cu),qty:l.qty,basis:l.basis||"",scope:l.scope|0}));const ms={};(r.materials||[]).forEach(m=>ms[canonId(m.cu)]=m.scope|0);
   mats.forEach(m=>{setRow(m.cu,m.qty,"material on drawing");rows.find(x=>x.cu===m.cu).scope=ms[m.cu]||0});applyCables(r.cables);applyConduits(r.conduits);postRules(r);
   const s54=rows.find(y=>y.cu==="CN54");if(s54){setRow("CABLE_07",2*Number(s54.qty),"2 x CN54 qty");rows.find(x=>x.cu==="CABLE_07").scope=s54.scope|0}
-  links={};(r.materials||[]).forEach(m=>links[m.cu]=(m.services||[]).slice());if(s54)links.CN54=(links.CN54||[]).concat("CABLE_07");
-  nc=(r.nonCUs||[]).map(x=>({desc:x.desc||"",type:x.type,qty:x.qty??1,unit:x.unit||"",note:x.note||""}));renderNC();
+  links={};(r.materials||[]).forEach(m=>links[canonId(m.cu)]=(m.services||[]).map(canonId));if(s54)links.CN54=(links.CN54||[]).concat("CABLE_07");
+  nc=(r.nonCUs||[]).map(x=>({desc:x.desc||"",type:x.type,qty:x.qty??1,unit:x.unit||"",note:x.note||""})).concat(droppedNonCU);renderNC();
   const hasOH=rows.some(x=>/^OH /.test(x.cu)||/^(PO|HV|ST|RE|TX)\d/.test(x.cu)),hasUG=rows.some(x=>/^(UG|CABLE|DDRILL|TRENCH|LOCATE|LU|CONDUIT)/.test(x.cu));
   if(hasUG)setRow("AUX_014",1,"1 per project with underground work");
   if(hasOH){const v=value();setRow("AUX_013",v<=50000?1:v<=200000?3:12,"external value ≈ $"+Math.round(v).toLocaleString()+" → tier")}
@@ -318,11 +319,22 @@ function reportHtml(){const c=window.lastCmp;if(!c)return"";const lab={match:"Ma
 function dlReport(){save((name||"report")+"-drawing-vs-quote.html",reportHtml())}
 function printReport(){const h=reportHtml();if(!h)return;try{const fr=document.createElement("iframe");fr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0";document.body.appendChild(fr);fr.onload=()=>{try{fr.contentWindow.focus();fr.contentWindow.print()}catch(e){dlReport()}setTimeout(()=>fr.remove(),120000)};fr.srcdoc=h}catch(e){dlReport()}}
 
+
+// ---- ID normalisation: drawings often write the zero where DQM uses the letter O (P09_M -> PO9_M)
+const FAM=new Set(CAT.filter(c=>c.g==="Materials (EM)").map(c=>(c.id.match(/^[A-Z]+/)||[""])[0]).filter(Boolean));
+function canonId(id){id=String(id||"").trim();if(BY[id])return id;const u=id.toUpperCase();if(BY[u])return u;
+ const zs=[...u].map((c,i)=>c==="0"||c==="O"?i:-1).filter(i=>i>=0);
+ if(zs.length&&zs.length<=8){let best=null,bn=99;for(let m=1;m<(1<<zs.length);m++){const a=[...u];let n=0;zs.forEach((p,k)=>{if(m&(1<<k)){a[p]=a[p]==="0"?"O":"0";n++}});const t=a.join("");if(BY[t]&&n<bn){best=t;bn=n}}if(best)return best}
+ return id}
+let droppedNonCU=[];
+function splitMats(){const o={};droppedNonCU=[];(mats||[]).forEach(m=>{const id=canonId(m.cu);const fam=(id.match(/^[A-Z]+/)||[""])[0];
+  if(!BY[id]&&!FAM.has(fam)){droppedNonCU.push({desc:m.cu,type:"Material",qty:m.qty,unit:"",note:"Item in CU note but not a CU (no CU family match)"});return}
+  o[id]=(o[id]||0)+m.qty});mats=Object.entries(o).map(([cu,qty])=>({cu,qty}))}
 // ---- report overlay, clear, typos, sorting, smart suggestions
 let typos=[];
 const LAB={match:["ok","Match"],diff:["wr","Quantity differs"],missing:["bad","Missing from quote"],extra:["bad","Not expected from drawing"]};
 function lev(a,b){const m=[];for(let i=0;i<=a.length;i++){m[i]=[i]}for(let j=0;j<=b.length;j++)m[0][j]=j;for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return m[a.length][b.length]}
-function unknownCuFlags(){const out=[];(mats||[]).forEach(m=>{if(BY[m.cu])return;let best=null,bd=99;CAT.forEach(c=>{if(c[1]&&c[2]&&Math.abs(c[2].length-m.cu.length)<=2){const d=lev(m.cu,c[2]);if(d<bd){bd=d;best=c[2]}}});out.push({text:m.cu,where:"CU note",suggestion:bd<=2&&best?"Not in CU library: did you mean "+best+"?":"Not in CU library: check the ID"})});return out}
+function unknownCuFlags(){const out=[];(mats||[]).forEach(m=>{if(BY[m.cu])return;let best=null,bd=99;CAT.forEach(c=>{if(c.g==="Materials (EM)"&&Math.abs(c.id.length-m.cu.length)<=2){const d=lev(m.cu,c.id);if(d<bd){bd=d;best=c.id}}});out.push({text:m.cu,where:"CU note",suggestion:bd<=2&&best?"Not in CU library: did you mean "+best+"?":"Not in CU library: check the ID"})});return out}
 function typosHtml(){return typos&&typos.length?"<div style='margin:10px 0;padding:10px 12px;border:1px solid #c77d00;border-radius:8px'><b class='wr'>Possible typos / errors in the drawing</b><ul style='margin:6px 0 0 18px'>"+typos.map(t=>"<li><b>"+esc(t.text)+"</b>"+(t.where?" ("+esc(t.where)+")":"")+(t.suggestion?" → <i>"+esc(t.suggestion)+"</i>":"")+"</li>").join("")+"</ul></div>":""}
 function closeRpt(){const o=$("rpt");if(o)o.remove();document.body.classList.remove("pr")}
 function printReport(){const h=reportHtml();if(!h)return;closeRpt();const d=new DOMParser().parseFromString(h,"text/html");const o=document.createElement("div");o.id="rpt";
