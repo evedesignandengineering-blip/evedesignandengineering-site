@@ -61,10 +61,10 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <div id="pg" hidden style="margin-top:10px"><div style="height:8px;border-radius:99px;background:var(--hov);overflow:hidden"><div id="pb" style="height:100%;width:0;background:var(--ac);transition:width .5s"></div></div><div id="pt" style="font-size:12px;color:var(--mut);margin-top:4px"></div></div>
 <div id="st"></div><p style="font-size:12px;color:var(--mut);margin:10px 0 0">AI-assisted draft. Quantities are estimated from the drawing text and image: always review every line against the drawing before submitting.</p></div>
 <div id="out" hidden><div class="tabs"><button class="g on" id="t1">Quote</button><button class="g" id="t2">Non-CU items</button></div><div id="pq">
+<div class="card" id="cmp" hidden></div>
 <div class="card dz" id="dz"><h2>Quote lines <span id="val" class="chip"></span></h2><div class="sc"><table><thead><tr><th>CU ID</th><th>Description</th><th>Qty</th><th>Basis</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>
 <div class="row" style="margin-top:12px"><button class="g" id="add">+ Add line</button><div><label style="margin:0">Arrange CUs</label><select id="ord"><option value="s">By scope of work number (drawing)</option><option value="t">By CU type</option><option value="g">Material → its service CUs</option><option value="a">Alphabetical only</option></select></div><span style="color:var(--mut)">Tip: drag CUs from the library onto this card.</span></div>
 <div id="cov" style="margin-top:12px"></div><div id="as"></div></div>
-<div class="card" id="cmp" hidden></div>
 <div class="card"><div class="row" style="justify-content:space-between"><h2 id="fn" style="margin:0"></h2><span><button class="g" id="cp">Copy</button> <button id="dl">Download .txt</button></span></div>
 <pre id="pv" style="margin-top:10px"></pre></div>
 </div><div id="pn" hidden><div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Non-CU items (not covered by any CU)</h2><span><button class="g" id="ncAdd">+ Add item</button> <button id="ncDl">Download non-CU list</button></span></div>
@@ -155,7 +155,8 @@ $("ncAdd").onclick=()=>{nc.push({desc:"",type:"Material",qty:1,unit:"each",note:
 $("ncDl").onclick=()=>save(name+"_non-CU.txt",ncText());
 // ---- geo
 const hav=(a,b,c,d)=>{const R=6371,r=Math.PI/180,x=Math.sin((c-a)*r/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin((d-b)*r/2)**2;return 2*R*Math.asin(Math.sqrt(x))};
-function parseGeo(t){let lat,lon;
+function parseGeo(t){for(const m of t.matchAll(/GEO\s*REF\s*:/gi)){const g=parseGeoCore(t.slice(m.index,m.index+400));if(g)return g}return parseGeoCore(t)}
+function parseGeoCore(t){let lat,lon;
  const re=/(\d{1,3})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2}(?:\.\d+)?)\s*[^\dA-Za-z\s.,-]{0,2}\s*([NSEW])(?![A-Za-z])/g;
  for(const m of t.matchAll(re)){let v=+m[1]+m[2]/60+m[3]/3600;if("SW".includes(m[4]))v=-v;if("NS".includes(m[4])&&lat==null)lat=v;if("EW".includes(m[4])&&lon==null)lon=v}
  if(lat==null||lon==null){const m=t.match(/(-3\d\.\d{3,})\s*[, ]\s*(1[12]\d\.\d{3,})/);if(m){lat=+m[1];lon=+m[2]}}
@@ -175,7 +176,7 @@ async function readPdf(file){pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn
  return{text,img}}
 
 // ---- DGN / DXF readers (text only: CU notes, scope text, geo ref)
-const TXT_OK=s=>s.length>=4&&/[A-Za-z]{3}|CU:|[A-Z]{2}\d|\d\s*[\^\u00b0]\s*\d/.test(s)&&(s.match(/[A-Za-z0-9 .,:;'"^()\/#&@%+*=_\-\\]/g)||[]).length/s.length>0.95;
+const TXT_OK=s=>s.length>=4&&/[A-Za-z]{3}|CU:|[A-Z]{2}\d|\d\s*[\^\u00b0]\s*\d/.test(s)&&(s.match(/[A-Za-z0-9 .,:;'"^()\/#&@%+*=_\-\\\u00b0\u2032\u2033\u00a0]/g)||[]).length/s.length>0.95;
 function dxfText(t){if(/^AutoCAD Binary DXF/.test(t))throw new Error("Binary DXF is not supported. Save the DXF as ASCII (or export a PDF).");
  const L=t.split(/\r?\n/),out=[];let sec="",ent="";
  for(let i=0;i+1<L.length;i+=2){const c=L[i].trim(),v=L[i+1];
@@ -190,13 +191,28 @@ function inflateScan(u8){const out=[];if(typeof pako==="undefined")throw new Err
   try{const inf=new pako.Inflate();inf.push(u8.subarray(i),true);if(inf.err||!inf.result||!inf.result.length)continue;out.push(inf.result);const used=u8.length-i-(inf.strm?inf.strm.avail_in:0);if(used>2)i+=used-1}catch(e){}}
  return out}
 function asciiRuns(u8,out){let cur="";const flush=()=>{if(TXT_OK(cur))out.push(cur.trim());cur=""};
- for(let i=0;i<u8.length;i++){const c=u8[i];if(c>=32&&c<127)cur+=String.fromCharCode(c);else flush()}flush()}
+ for(let i=0;i<u8.length;i++){const c=u8[i];if((c>=32&&c<127)||c===0xb0||c===0xa0)cur+=String.fromCharCode(c);else flush()}flush()}
 function utf16Runs(u8,out){let cur="";const flush=()=>{if(TXT_OK(cur))out.push(cur.trim());cur=""};
- for(let i=0;i+1<u8.length;i+=2){const c=u8[i],h=u8[i+1];if(h===0&&c>=32&&c<127)cur+=String.fromCharCode(c);else flush()}flush()}
+ for(let i=0;i+1<u8.length;i+=2){const c=u8[i],h=u8[i+1];if(h===0&&((c>=32&&c<127)||c===0xb0))cur+=String.fromCharCode(c);else if(h===0x20&&(c===0x32||c===0x33))cur+=c===0x32?"'":'"';else flush()}flush()}
+function cfbStreams(buf){const u8=new Uint8Array(buf),dv=new DataView(buf);
+ const ss=1<<dv.getUint16(30,true),ms=1<<dv.getUint16(32,true),nFat=dv.getUint32(44,true),dirStart=dv.getUint32(48,true),miniCut=dv.getUint32(56,true),miniStart=dv.getUint32(60,true),nMiniFat=dv.getUint32(64,true),difStart=dv.getUint32(68,true),nDif=dv.getUint32(72,true);
+ const off=s=>(s+1)*ss,END=0xFFFFFFFA,fatSecs=[];
+ for(let i=0;i<109&&fatSecs.length<nFat;i++){const v=dv.getUint32(76+4*i,true);if(v<END)fatSecs.push(v)}
+ let d=difStart;for(let k=0;k<nDif&&d<END;k++){const o=off(d);for(let i=0;i<ss/4-1&&fatSecs.length<nFat;i++){const v=dv.getUint32(o+4*i,true);if(v<END)fatSecs.push(v)}d=dv.getUint32(o+ss-4,true)}
+ const fat=[];fatSecs.forEach(s=>{const o=off(s);if(o+ss>u8.length)return;for(let i=0;i<ss/4;i++)fat.push(dv.getUint32(o+4*i,true))});
+ const chain=(s,tab)=>{const out=[];let n=0;while(s<END&&n++<2e6&&s<tab.length){out.push(s);s=tab[s]}return out};
+ const readCh=s=>{const ch=chain(s,fat),out=new Uint8Array(ch.length*ss);ch.forEach((c,i)=>{const o=off(c);if(o<u8.length)out.set(u8.subarray(o,Math.min(o+ss,u8.length)),i*ss)});return out};
+ const dir=readCh(dirStart),ddv=new DataView(dir.buffer),ents=[];
+ for(let i=0;i<dir.length/128;i++){const o=i*128,nl=ddv.getUint16(o+64,true);if(!nl||nl>64)continue;let name="";for(let k=0;k<nl/2-1;k++)name+=String.fromCharCode(ddv.getUint16(o+2*k,true));ents.push({name,type:dir[o+66],start:ddv.getUint32(o+116,true),size:ddv.getUint32(o+120,true)})}
+ const root=ents.find(e=>e.type===5);let mini=null;const miniFat=[];
+ if(root&&nMiniFat){mini=readCh(root.start);const mf=readCh(miniStart),mdv=new DataView(mf.buffer);for(let i=0;i<mf.length/4;i++)miniFat.push(mdv.getUint32(i*4,true))}
+ return ents.filter(e=>e.type===2).map(e=>{let data;if(e.size<miniCut&&mini){const ch=chain(e.start,miniFat);data=new Uint8Array(ch.length*ms);ch.forEach((c,i)=>data.set(mini.subarray(c*ms,c*ms+ms),i*ms))}else data=readCh(e.start);return{name:e.name,data:data.subarray(0,e.size)}})}
 function dgnText(buf){const u8=new Uint8Array(buf),out=[];
  if(u8[0]===0xD0&&u8[1]===0xCF&&u8[2]===0x11&&u8[3]===0xE0){ // MicroStation V8 (OLE compound file, zlib streams)
-  const blocks=inflateScan(u8);if(!blocks.length)throw new Error("Could not read this V8 DGN. Export it as DXF or PDF instead.");
-  blocks.forEach(b=>{asciiRuns(b,out);});
+  let streams=[];try{streams=cfbStreams(buf)}catch(e){}
+  const scan=d=>{const bl=inflateScan(d);if(bl.length)bl.forEach(b=>{asciiRuns(b,out);utf16Runs(b,out)});else{asciiRuns(d,out);utf16Runs(d,out)}};
+  streams.forEach(s=>scan(s.data));
+  if(!out.some(x=>/CU\s*[:\-]|DCSH|SCOPE/i.test(x))){const bl=inflateScan(u8);bl.forEach(b=>{asciiRuns(b,out);utf16Runs(b,out)})}
  }else{ // V7 element stream
   const dv=new DataView(buf);let p=0;
   while(p+4<=u8.length){if(u8[p]===0xff&&u8[p+1]===0xff)break;const t=u8[p+1]&0x7f,w=dv.getUint16(p+2,true),len=(w+2)*2;if(len<4)break;
@@ -205,7 +221,7 @@ function dgnText(buf){const u8=new Uint8Array(buf),out=[];
   if(!out.length)throw new Error("No text found in this DGN. Export it as DXF or PDF instead.")}
  if(!out.length)throw new Error("No readable text found in this DGN. Export it as DXF or PDF instead.");
  const seen=new Set(),IMP=/CU\s*[:\-]|DCSH|SCOPE|INSTALL|REMOVE|RELOCAT|CABLE|PILLAR|POLE|TRENCH|DRILL|CONDUIT|POLYPIPE|POLY PIPE|DECOMM|GEO|LAT|LONG|\d+\s*[\^\u00b0]\s*\d+|MP\d{5,}|TERMINAT|JOINT|SWITCH|TRANSFORMER|STREET|\bST\b|ROAD/i;
- return out.filter(x=>{if(seen.has(x))return false;seen.add(x);return IMP.test(x)||(x.match(/[A-Za-z]{3,}/g)||[]).length>=2}).join("\n")}
+ return out.filter(x=>{if(!/CU\s*[:\-]/i.test(x)){if(seen.has(x))return false;seen.add(x)}return IMP.test(x)||(x.match(/[A-Za-z]{3,}/g)||[]).length>=2}).join("\n")}
 async function readCad(f){const n=f.name.toLowerCase();let text;
  if(n.endsWith(".dxf"))text=dxfText(await f.text());else text=dgnText(await f.arrayBuffer());
  return{text:"\n--- "+f.name+" (CAD text only: no drawing image; scale-based measuring not available) ---\n"+text,img:null}}
@@ -233,7 +249,7 @@ function applyCables(cs){if(!cs||!cs.length)return;const all=new Set(["DDRILL_01
   parts.forEach(([id,q,w])=>{if(q>0){const a=acc[id]=acc[id]||{q:0,b:[],s:sc};a.q+=q;a.b.push(c.cu+" "+w+" "+q+"m (total "+tot+", ground "+g+")"+(c.ductNote?" – "+c.ductNote:""))}})});
  rows=rows.filter(r=>!all.has(r.cu));Object.entries(acc).forEach(([id,a])=>rows.push({cu:id,qty:a.q,basis:a.b.join("; "),scope:a.s}))}
 const TC=[["Work site within 6m of road edge",[1,4,7,8]],["Closing traffic lane exceeding 1000 vehicles/hr",[1,2,5,8]],["Within 200m of intersection",[1,2,5,8]],["Within 10m of railway crossing",[1,2,5,8]],["Freeway works affecting a trafficable lane",[1,2,5,8,10]],["Posted speed above 60 km/hr",[1,2,5,8,9]],["Overhead work where equipment + 1.5m drop zone encroaches road/footpath",[1,7,8]],["Foot path reinstatement",[1,3,7]],["Road closure overnight without attendance",[11]],["Night work",[12]]];
-const EXTRA="\n\nADDITIONAL OUTPUT: add \"terminationPoints\": number to the JSON = the number of DISTINCT scope-of-work steps that contain a cable termination (pole, pillar, penda, TX, RMU). Several terminations inside the same scope step count as ONE. Do not output TRENCH_07 or GENSER_07 (the app adds them).\nCONDUITS: check the drawing detail/legend/notes for conduit, duct, poly pipe or sleeve (e.g. 63mm, 110mm, 160mm). If present, find the drawing scale (1:250, 1:200, 1:50, 1:500 or as printed; use dimensions/scale bar printed on the drawing) and MEASURE each conduit run length in metres from the plan using that scale, or take stated dimensions. Add to JSON \"conduits\":[{\"count\":1 (number of parallel pipes),\"size\":110,\"method\":\"drill\"|\"trench\",\"length\":number (raw metres measured),\"scale\":\"1:250\",\"scope\":number,\"note\":\"which run\"}]. Use \"drill\" unless the drawing says open trench/excavate. Use [] if no conduit shown. The app rounds to nearest 5m and adds DDRILL/TRENCH/CONDUIT/LOCATE CUs itself: do not output those for conduits.\nTRAFFIC CUs (TRAFFIC_01..12) by condition: work site within 6m of road edge -> 01,04,07*,08*; closing lane >1000 veh/hr -> 01,02,05,08; within 200m of intersection -> 01,02,05,08; within 10m of railway crossing -> 01,02,05,08; freeway works affecting trafficable lane -> 01,02,05,08,10; posted speed above 60km/hr -> 01,02,05,08,09; overhead work where equipment + 1.5m drop zone encroaches road/footpath -> 01,07*,08*; foot path reinstatement -> 01,03,07; road closure overnight without attendance -> 11; night work -> 12; site >6m from road edge or speed <=60 -> none. *07 pedestrian only, 08 vehicle only; if both, use 08 only. TRAFFIC_07/08 are hours in multiples of 4 depending on project run length; all other TRAFFIC CUs are always quantity 1. State the conditions you assumed in assumptions.";
+const EXTRA="\n\nADDITIONAL OUTPUT: add \"terminationPoints\": number to the JSON = the number of DISTINCT scope-of-work steps that contain a cable termination (pole, pillar, penda, TX, RMU). Several terminations inside the same scope step count as ONE. Do not output TRENCH_07 or GENSER_07 (the app adds them).\nCONDUITS: check the drawing detail/legend/notes for conduit, duct, poly pipe or sleeve (e.g. 63mm, 110mm, 160mm). If present, find the drawing scale (1:250, 1:200, 1:50, 1:500 or as printed; use dimensions/scale bar printed on the drawing) and MEASURE each conduit run length in metres from the plan using that scale, or take stated dimensions. Add to JSON \"conduits\":[{\"count\":1 (number of parallel pipes),\"size\":110,\"method\":\"drill\"|\"trench\",\"length\":number (raw metres measured),\"scale\":\"1:250\",\"scope\":number,\"note\":\"which run\"}]. Use \"drill\" unless the drawing says open trench/excavate. Use [] if no conduit shown. The app rounds to nearest 5m and adds DDRILL/TRENCH/CONDUIT/LOCATE CUs itself: do not output those for conduits.\nTRAFFIC CUs (TRAFFIC_01..12) by condition: work site within 6m of road edge -> 01,04,07*,08*; closing lane >1000 veh/hr -> 01,02,05,08; within 200m of intersection -> 01,02,05,08; within 10m of railway crossing -> 01,02,05,08; freeway works affecting trafficable lane -> 01,02,05,08,10; posted speed above 60km/hr -> 01,02,05,08,09; overhead work where equipment + 1.5m drop zone encroaches road/footpath -> 01,07*,08*; foot path reinstatement -> 01,03,07; road closure overnight without attendance -> 11; night work -> 12; site >6m from road edge or speed <=60 -> none. *07 pedestrian only, 08 vehicle only; if both, use 08 only. TRAFFIC_07/08 are hours in multiples of 4 depending on project run length; all other TRAFFIC CUs are always quantity 1. State the conditions you assumed in assumptions.\nPROJECT DETAILS: also add \"project\":{\"drawingNo\":\"MPxxxxxx\",\"designer\":\"name in the DESIGNER field of the title block (not the customer, consultant or lead designer)\",\"address\":\"site street address, suburb, state\",\"title\":\"drawing title e.g. PILLAR RELOCATION\",\"voltage\":\"\",\"rev\":\"\",\"date\":\"\"} to the JSON, using \"\" for anything not found.";
 TC.forEach((c,i)=>{const l=document.createElement("label");l.style.cssText="display:block;font-size:13px;color:var(--fg);margin:3px 0";const b=document.createElement("input");b.type="checkbox";b.className="tcb";l.appendChild(b);l.appendChild(document.createTextNode(" "+c[0]));$("tcl").appendChild(l)});
 function applyTraffic(run){const ids=new Set();let any=false;document.querySelectorAll(".tcb").forEach((b,i)=>{if(b.checked){any=true;TC[i][1].forEach(n=>ids.add(n))}});
  const T=/^TRAFFIC_\d+$/;let hrs=Math.max(0,...rows.filter(r=>r.cu==="TRAFFIC_07"||r.cu==="TRAFFIC_08").map(r=>Number(r.qty)||0));
@@ -262,7 +278,7 @@ $("go").onclick=async()=>{$("go").disabled=true;startProg(!!$("fq").files[0]);
   st("AI is building the quote… this can take a minute.");
   const km=$("km").value;if(!km)st("No distance set: travel CUs will be quantity 0 until you enter km.",1);
   const inp=RULES+EXTRA+"\n\nMATERIAL CUs FOUND ON DRAWING (authoritative): "+JSON.stringify(mats.map(m=>({cu:m.cu,qty:m.qty,desc:(BY[m.cu]||{}).d||""})))+"\n\nJOB INPUTS: round-trip depot-to-site km="+(km||0)+"; switching visits="+$("sv").value+"; site days=1; extra: "+($("ex").value||"none")+"\n\nFULL CU LIST (ID|description):\n"+CAT.filter(c=>c.g!=="Materials (EM)").map(c=>c.id+"|"+c.d).join("\n")+"\n\nDRAWING TEXT:\n"+doc.text.slice(0,30000);
-  const r=await sample.json(inp,opts);
+  const r=await sample.json(inp,opts);proj=r.project||{};
   rows=(r.lines||[]).map(l=>({cu:l.cu,qty:l.qty,basis:l.basis||"",scope:l.scope|0}));const ms={};(r.materials||[]).forEach(m=>ms[m.cu]=m.scope|0);
   mats.forEach(m=>{setRow(m.cu,m.qty,"material on drawing");rows.find(x=>x.cu===m.cu).scope=ms[m.cu]||0});applyCables(r.cables);applyConduits(r.conduits);postRules(r);
   const s54=rows.find(y=>y.cu==="CN54");if(s54){setRow("CABLE_07",2*Number(s54.qty),"2 x CN54 qty");rows.find(x=>x.cu==="CABLE_07").scope=s54.scope|0}
@@ -279,6 +295,22 @@ $("go").onclick=async()=>{$("go").disabled=true;startProg(!!$("fq").files[0]);
   $("out").hidden=false;render();if($("fq").files[0])await runCompare();st("Done. Review quantities, drag in extra CUs from the library, then download.")
  }catch(e){st("Error: "+(e.message||e.code||e),1)}finally{stopProg();$("go").disabled=false}};
 
+
+// ---- project details + printable report
+let proj={};
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function projRows(){const p=proj||{};const g=(typeof geo!=="undefined"&&geo)?geo.lat.toFixed(5)+", "+geo.lon.toFixed(5):"";
+ return [["Drawing no.",p.drawingNo||(name?String(name).toUpperCase():"")],["Designer",p.designer],["Site address",p.address],["Project",p.title],["Network voltage",p.voltage],["Revision / date",[p.rev,p.date].filter(Boolean).join(" · ")],["Site coordinates",g]].filter(r=>r[1])}
+function projHtml(){const r=projRows();return r.length?"<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 18px;margin:12px 0;padding:12px;border:1px solid var(--bd);border-radius:8px'>"+r.map(x=>"<div><div style='font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px'>"+x[0]+"</div><div>"+esc(x[1])+"</div></div>").join("")+"</div>":""}
+function reportHtml(){const c=window.lastCmp;if(!c)return"";const lab={match:"Match",diff:"Quantity differs",missing:"Missing from quote",extra:"Not expected from drawing"};
+ const n=k=>c.res.filter(x=>x.st===k).length,rv=c.review;
+ const pr="<table class='p'>"+projRows().map(x=>"<tr><th>"+x[0]+"</th><td>"+esc(x[1])+"</td></tr>").join("")+"</table>";
+ const tb=c.res.map(x=>"<tr class='"+x.st+"'><td><b>"+esc(x.id)+"</b></td><td>"+esc((BY[x.id]||{}).d||"")+"</td><td>"+(x.e==null?"–":x.e)+"</td><td>"+(x.u==null?"–":x.u)+"</td><td>"+lab[x.st]+"</td></tr>").join("");
+ const li=(a,f)=>a&&a.length?"<ul>"+a.map(f).join("")+"</ul>":"<p>None found.</p>";
+ const rvh=rv?"<h2>Review</h2><p>"+esc(rv.summary||"")+"</p><h3>Quote issues</h3>"+li(rv.quoteIssues,i=>"<li><b>["+esc(i.severity)+"] "+esc(i.cu)+"</b>: "+esc(i.issue)+(i.fix?" — <i>"+esc(i.fix)+"</i>":"")+"</li>")+"<h3>Drawing issues</h3>"+li(rv.drawingIssues,i=>"<li><b>["+esc(i.severity)+"] "+esc(i.where)+"</b>: "+esc(i.issue)+"</li>"):"";
+ return "<!doctype html><html><head><meta charset='utf-8'><title>Drawing vs supplied quote - "+esc(name?String(name).toUpperCase():"")+"</title><style>body{font:12px/1.45 Arial,Helvetica,sans-serif;color:#13202b;margin:20px}h1{font-size:19px;margin:0 0 2px;color:#09284b}h2{font-size:14px;margin:18px 0 6px;color:#09284b}h3{font-size:12px;margin:10px 0 4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfd8e0;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eef3f6}table.p th{width:160px}.diff{background:#fff4de}.missing,.extra{background:#fde8e8}tr{break-inside:avoid}.s span{display:inline-block;margin-right:14px}@page{margin:12mm}</style></head><body><h1>Drawing vs supplied quote</h1><div>EVE Design &amp; Engineering · "+new Date().toLocaleString()+"</div><h2>Project details</h2>"+pr+"<h2>Summary</h2><p class='s'><span><b>"+n("match")+"</b> match</span><span><b>"+n("diff")+"</b> quantity differs</span><span><b>"+n("missing")+"</b> missing from quote</span><span><b>"+n("extra")+"</b> in quote, not expected</span></p><h2>Comparison (CU IDs and quantities)</h2><table><thead><tr><th>CU ID</th><th>Description</th><th>Expected (drawing)</th><th>In quote</th><th>Result</th></tr></thead><tbody>"+tb+"</tbody></table>"+rvh+"<p style='margin-top:14px;color:#607184'>AI-assisted comparison: verify against the drawing before relying on it.</p></body></html>"}
+function dlReport(){save((name||"report")+"-drawing-vs-quote.html",reportHtml())}
+function printReport(){const h=reportHtml();if(!h)return;try{const fr=document.createElement("iframe");fr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0";document.body.appendChild(fr);fr.onload=()=>{try{fr.contentWindow.focus();fr.contentWindow.print()}catch(e){dlReport()}setTimeout(()=>fr.remove(),120000)};fr.srcdoc=h}catch(e){dlReport()}}
 // ---- progress / ETA
 let pgT=null,pgS=0,pgEst=0;
 function fmtT(ms){ms=Math.max(0,Math.round(ms/1000));return Math.floor(ms/60)+":"+String(ms%60).padStart(2,"0")}
@@ -309,12 +341,12 @@ async function runCompare(){const f=$("fq").files[0],cv=$("cmp");if(!f||!rows.le
  const all=[...new Set([...Object.keys(exp),...Object.keys(sup)])].sort();const res=all.map(id=>{const e=exp[id],u=sup[id];
   return{id,e,u,st:e===undefined?"extra":u===undefined?"missing":Math.abs(e-u)<1e-9?"match":"diff"}});
  const n=k=>res.filter(x=>x.st===k).length;
- let h="<h2>Drawing vs supplied quote</h2><div style='margin-bottom:8px'><span class='chip ok'>"+n("match")+" match</span><span class='chip wr'>"+n("diff")+" quantity differs</span><span class='chip bad'>"+n("missing")+" missing from quote</span><span class='chip bad'>"+n("extra")+" in quote, not expected</span></div>";
+ let h="<div class='row' style='justify-content:space-between'><h2 style='margin:0'>Drawing vs supplied quote</h2><span><button class='g' id='cmpPrint'>Print report</button> <button class='g' id='cmpDl'>Download report</button></span></div>"+projHtml()+"<div style='margin:10px 0 8px'><span class='chip ok'>"+n("match")+" match</span><span class='chip wr'>"+n("diff")+" quantity differs</span><span class='chip bad'>"+n("missing")+" missing from quote</span><span class='chip bad'>"+n("extra")+" in quote, not expected</span></div>";
  if(!Object.keys(sup).length)h+="<div class='err'>No CU IDs were recognised in the quote file. Check the file is the quote (CU ID and quantity per line).</div>";
  h+="<div class='sc'><table><thead><tr><th>CU ID</th><th>Description</th><th>Expected (from drawing)</th><th>In quote</th><th>Result</th></tr></thead><tbody>";
  const lab={match:["ok","Match"],diff:["wr","Quantity differs"],missing:["bad","Missing from quote"],extra:["bad","Not expected from drawing"]};
  res.sort((a,b)=>(a.st==="match")-(b.st==="match")||a.id.localeCompare(b.id)).forEach(x=>{h+="<tr><td><b style='font-family:ui-monospace,monospace'>"+x.id+"</b></td><td>"+((BY[x.id]||{}).d||"")+"</td><td>"+(x.e??"–")+"</td><td>"+(x.u??"–")+"</td><td class='"+lab[x.st][0]+"'>"+lab[x.st][1]+"</td></tr>"});
- h+="</tbody></table></div><div id='cmpAI' style='margin-top:12px;color:var(--mut)'>Reviewing the drawing and quote for errors…</div>";cv.innerHTML=h;
+ h+="</tbody></table></div><div id='cmpAI' style='margin-top:12px;color:var(--mut)'>Reviewing the drawing and quote for errors…</div>";cv.innerHTML=h;window.lastCmp={res,review:null};$("cmpPrint").onclick=printReport;$("cmpDl").onclick=dlReport;
  try{const sample=await claude.use("sample");const diffs=res.filter(x=>x.st!=="match").map(x=>({cu:x.id,expected:x.e??null,inQuote:x.u??null,result:x.st}));
   const inp=RULES+"\n\nTASK: REVIEW. An estimator supplied an existing quote for this drawing. The app computed the expected quote from the drawing (EXPECTED) and diffed it against the supplied quote (DIFFS). Decide, for each difference, which side is probably wrong and why, using the DQM rules and the drawing text. Also list errors or inconsistencies in the DRAWING itself (e.g. cable length vs allowances, CU notes that do not match the scope text, missing CU notes, wrong cable size, missing duct/polypipe info, scope steps with no CU, termination count). Compare CU IDs and quantities ONLY: ignore DCSH codes and never treat a DCSH code as a CU or report DCSH differences. Be specific and concise. Output ONLY JSON: {\"summary\":\"...\",\"quoteIssues\":[{\"cu\":\"ID\",\"severity\":\"high|medium|low\",\"issue\":\"...\",\"fix\":\"...\"}],\"drawingIssues\":[{\"where\":\"scope step / item\",\"severity\":\"high|medium|low\",\"issue\":\"...\"}]}\n\nEXPECTED: "+JSON.stringify(exp)+"\n\nDIFFS: "+JSON.stringify(diffs)+"\n\nASSUMPTIONS MADE: "+JSON.stringify(window.lastAssump||[])+"\n\nDRAWING TEXT:\n"+doc.text.replace(/DCSH\s*:?\s*[A-Z0-9\-]+(?:\s*,\s*[A-Z0-9\-]+)*/gi,"").slice(0,20000);
   const r=await sample.json(inp,{modelTier:"complex",cache:false});const box=$("cmpAI");box.style.color="var(--fg)";
@@ -322,7 +354,7 @@ async function runCompare(){const f=$("fq").files[0],cv=$("cmp");if(!f||!rows.le
   let a="<h2 style='margin-top:6px'>Review</h2><p>"+(r.summary||"")+"</p>";
   a+="<b>Quote issues</b>"+((r.quoteIssues||[]).length?"<ul>"+r.quoteIssues.map(i=>"<li>"+sev(i.severity)+" <b>"+(i.cu||"")+"</b>: "+(i.issue||"")+(i.fix?" → <i>"+i.fix+"</i>":"")+"</li>").join("")+"</ul>":"<div>None found.</div>");
   a+="<div style='margin-top:8px'></div><b>Drawing issues</b>"+((r.drawingIssues||[]).length?"<ul>"+r.drawingIssues.map(i=>"<li>"+sev(i.severity)+" <b>"+(i.where||"")+"</b>: "+(i.issue||"")+"</li>").join("")+"</ul>":"<div>None found.</div>");
-  box.innerHTML=a}catch(e){$("cmpAI").innerHTML="<span class='err'>AI review unavailable: "+(e.message||e)+" (the table above is still valid).</span>"}}
+  box.innerHTML=a;window.lastCmp.review=r}catch(e){$("cmpAI").innerHTML="<span class='err'>AI review unavailable: "+(e.message||e)+" (the table above is still valid).</span>"}}
 $("fq").onchange=async()=>{if($("fq").files[0]&&rows.length){startProg(false);try{await runCompare()}finally{stopProg()}}else $("cmp").hidden=true};
 $("ids").innerHTML=CAT.map(c=>"<option value=\""+c.id+"\">"+c.d.replace(/"/g,"")+"</option>").join("");
 buildLib();
