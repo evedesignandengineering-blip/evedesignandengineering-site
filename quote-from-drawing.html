@@ -143,7 +143,7 @@ function lines(){return view().filter(x=>x.r).map(x=>x.r)}
 function fmt(){return lines().filter(r=>r.cu&&r.qty!==""&&r.qty!=null).map(r=>" ".repeat(13)+String(r.cu).padEnd(52)+String(r.qty).padEnd(6)+"100YNYNYY").join("\n")+"\n"}
 function value(){return rows.reduce((s,r)=>{const c=BY[r.cu];return s+(c&&c.c&&!/^Internal/.test(c.g)?c.c*Number(r.qty||0):0)},0)}
 const _cx=document.createElement("canvas").getContext("2d");
-const fit=i=>{const c=getComputedStyle(i);_cx.font=c.fontStyle+" "+c.fontWeight+" "+c.fontSize+" "+c.fontFamily;const w=_cx.measureText(i.value||"").width;i.style.width=Math.min(640,Math.ceil(w)+(parseFloat(c.paddingLeft)||0)+(parseFloat(c.paddingRight)||0)+(parseFloat(c.borderLeftWidth)||0)+(parseFloat(c.borderRightWidth)||0)+16)+"px"};
+const fit=i=>{const c=getComputedStyle(i);_cx.font=c.fontStyle+" "+c.fontWeight+" "+c.fontSize+" "+c.fontFamily;const w=_cx.measureText(i.value||"").width;i.style.width=Math.min(640,Math.ceil(w)+(parseFloat(c.paddingLeft)||0)+(parseFloat(c.paddingRight)||0)+(parseFloat(c.borderLeftWidth)||0)+(parseFloat(c.borderRightWidth)||0)+16+(i.hasAttribute("list")?30:0))+"px"};
 function render(){const tb=$("tb");tb.innerHTML="";
  view().forEach(it=>{if(it.h){const h=document.createElement("tr");h.innerHTML="<td colspan='5' style='font-weight:650;padding-top:14px'></td>";h.firstChild.textContent=it.h;tb.appendChild(h);return}
   if(it.n){const x=it.n,t=document.createElement("tr");t.innerHTML="<td><input></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td><button class='g'>×</button></td>";const [a,dd,b,d,e]=t.children;
