@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Quote from Drawing (Gemini test) | EVE Design &amp; Engineering</title>
-<meta name="robots" content="noindex,nofollow">
+<title>Quote from Drawing | EVE Design &amp; Engineering</title>
 <meta name="description" content="Upload a Western Power design drawing PDF and generate a DQM quote file of CU IDs and quantities, then check it against an existing quote.">
-<link rel="canonical" href="https://evedesignandengineering.com/quote-from-drawing-gemini.html">
+<link rel="canonical" href="https://evedesignandengineering.com/quote-from-drawing.html">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261020">
 <meta name="theme-color" content="#09284b">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
@@ -43,7 +42,7 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 #st{margin-top:10px;color:var(--mut)}ul{margin:6px 0 0 18px;padding:0}
 @media(max-width:800px){aside{position:fixed;z-index:30;top:53px;left:0;margin-left:0;box-shadow:0 0 30px rgba(0,0,0,.4)}aside.c{margin-left:-345px}}
 </style></head><body>
-<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Quote from Drawing <span style="font-size:11px;background:#c77d00;color:#fff;border-radius:99px;padding:2px 8px;vertical-align:middle">GEMINI TEST</span></h1><small>DQM Service CU manual rev 40</small></header>
+<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Quote from Drawing</h1><small>DQM Service CU manual rev 40</small></header>
 <div class="layout">
 <aside id="sb"><div class="ah"><input id="q" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
 <main>
@@ -53,6 +52,7 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <div style="flex:1;min-width:220px"><label>Extra instructions (optional)</label><input id="ex" style="width:100%" placeholder="e.g. rock at pole, CBD, night works"></div></div>
 <div id="site" style="margin-top:12px"></div><details style="margin-top:10px"><summary>Traffic conditions (optional: ticked items set the TRAFFIC CUs)</summary><div id="tcl" style="padding:6px 8px"></div></details>
 <div class="row" style="margin-top:8px">
+<div><label>AI engine</label><select id="eng"><option value="gemini" selected>Gemini (runs here, no login)</option><option value="claude">Claude (opens in Claude, sign in)</option></select></div>
 <div><label>Depot</label><select id="dep"></select></div>
 <div><label>Round trip (km)</label><input type="number" id="km" min="0" placeholder="auto"></div>
 <div><label>Switching visits</label><input type="number" id="sv" value="3" min="0"></div>
@@ -216,6 +216,7 @@ function postRules(r){setRow("GENSER_07",1,"always included (permits)");const n=
  applyTraffic(Math.max(0,...(r.cables||[]).map(c=>Number(c.ground)||0)))}
 // ---- generate
 function setRow(id,q,b){const x=rows.find(r=>r.cu===id);if(x){x.qty=q;x.basis=b}else rows.push({cu:id,qty:q,basis:b})}
+$("eng").onchange=()=>{if($("eng").value==="claude")location.href="https://claude.ai/artifact/5GtsZbdPugt1keCH8WGYHx"};
 $("go").onclick=async()=>{$("go").disabled=true;startProg(!!$("fq").files[0]);
  try{const sample=await claude.use("sample");if(!sample){st("The AI service is not available.",1);return}
   const f=$("f").files[0];name=((f.name.match(/MP\d+/i)||doc.text.match(/MP\d{6}/i)||["quote"])[0]).toLowerCase();
