@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#153f61">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261020">
 <link rel="shortcut icon" href="/favicon.svg?v=20261020">
-<meta name="description" content="Access EVE Design & Engineering's online tools: CAD Quantity Takeoff, GIS SOW Designer and Project Tracker.">
+<meta name="description" content="Access EVE Design & Engineering's online tools: LVDesign Web, CAD Quantity Takeoff, GIS SOW Designer and Project Tracker.">
 <link rel="canonical" href="https://evedesignandengineering.com/tools.html">
 <meta name="robots" content="index, follow">
 <link rel="stylesheet" href="styles.css?v=20261018-audit">
@@ -23,17 +23,27 @@
 .tools-heading small{font-size:10px;letter-spacing:.1em;font-weight:700;color:#2b6799}
 .tools-heading h2{font:800 26px Manrope;color:#09284b;margin:5px 0 8px}
 .tools-heading p{font-size:13px;color:#566473;margin:0 0 24px;line-height:1.6}
-.tools-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}
-.tool-card{display:flex;flex-direction:column;align-items:flex-start;padding:28px;background:#fff;border:1px solid #d8e0e8;border-radius:12px;box-shadow:0 8px 22px rgba(9,40,75,.05);min-height:260px;transition:transform .18s ease,box-shadow .18s ease}
+.tools-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.tool-card{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:24px;background:#fff;border:1px solid #d8e0e8;border-radius:12px;box-shadow:0 8px 22px rgba(9,40,75,.05);transition:transform .18s ease,box-shadow .18s ease}
 .tool-card:hover{transform:translateY(-3px);box-shadow:0 14px 28px rgba(9,40,75,.1)}
-.tool-icon{width:50px;height:50px;border-radius:11px;display:grid;place-items:center;font-size:25px;margin-bottom:18px}
+.tool-icon{flex:none;width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-size:22px;margin-bottom:16px}
 .tool-icon.blue{background:#dcecff;color:#1162a1}.tool-icon.green{background:#d9f3e9;color:#168260}
-.tool-card h3{font:800 19px Manrope;color:#102947;margin:0 0 10px}
-.tool-card p{font-size:13px;line-height:1.65;color:#566473;margin:0 0 22px;max-width:500px}
-.tool-link{margin-top:auto;display:inline-flex;align-items:center;gap:12px;background:#2f6ea4;color:white;border-radius:6px;padding:12px 17px;font-size:12px;font-weight:700}
+.tool-card h3{font:800 18px/1.25 Manrope;color:#102947;margin:0 0 8px;text-wrap:balance}
+.tool-card p{font-size:13px;line-height:1.6;color:#566473;margin:0 0 20px}
+.tool-link{margin-top:auto;display:inline-flex;align-items:center;gap:10px;background:#2f6ea4;color:white;border-radius:6px;padding:11px 16px;font-size:12px;font-weight:700;white-space:nowrap}
 .tool-link:hover{background:#174e79}
-.tools-note{font-size:11px;color:#68798a;margin-top:20px;line-height:1.6}
-@media(max-width:620px){.tools-hero{padding:45px 7%}.tools-content{padding:35px 7% 48px}.tools-grid{grid-template-columns:1fr;gap:14px}.tool-card{padding:23px;min-height:240px}}
+.tool-feature,.tool-wide{flex-direction:row;align-items:center;gap:22px}
+.tool-wide{grid-column:1/-1}
+.tool-wide .tool-icon{margin-bottom:0}.tool-wide .tool-body{flex:1;min-width:0}.tool-wide p{margin:0;max-width:720px}.tool-wide .tool-link{margin-top:0}
+.tool-feature{margin-bottom:20px;padding:26px 28px;border-color:#b9cfe3;background:linear-gradient(100deg,#ffffff 55%,#eef5fc)}
+.tool-feature .tool-icon{margin-bottom:0;width:56px;height:56px;font-size:28px}
+.tool-feature .tool-body{flex:1;min-width:0}
+.tool-feature p{margin:0;max-width:720px}
+.tool-feature .tool-link{margin-top:0}
+.tool-badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1162a1;background:#dcecff;border-radius:999px;padding:3px 9px;margin-bottom:8px}
+@media(max-width:1080px){.tools-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.tool-feature,.tool-wide{flex-direction:column;align-items:flex-start;gap:14px}.tool-feature .tool-link,.tool-wide .tool-link{margin-top:4px}}
+@media(max-width:620px){.tools-hero{padding:45px 7%}.tools-content{padding:35px 7% 48px}.tools-grid{grid-template-columns:1fr;gap:14px}.tool-card{padding:22px}.tool-feature{padding:22px;margin-bottom:14px}}
 </style>
 <style>
 /* Shared page-hero refinement: compact, consistent and high-contrast. */
@@ -57,6 +67,15 @@
 </section>
 <section class="tools-content">
   <div class="tools-heading"><small>YOUR WORKSPACE</small><h2>Available tools</h2><p>Use the links below to open the relevant EVE tool.</p></div>
+  <article class="tool-card tool-feature">
+    <div class="tool-icon blue" aria-hidden="true">⚡</div>
+    <div class="tool-body">
+      <span class="tool-badge">New · Invitation only</span>
+      <h3>LVDesign Web</h3>
+      <p>Low-voltage network design in the browser. Open DFIS .net and LV Design .lvd files, scale to the DSTR peak, check volt drop against 12 V (overhead) and 14.4 V (underground), merge transformers and view the network on aerial or property maps.</p>
+    </div>
+    <a class="tool-link" href="/lvdesign/">Open LVDesign Web <span aria-hidden="true">→</span></a>
+  </article>
   <div class="tools-grid">
     <article class="tool-card">
       <div class="tool-icon blue" aria-hidden="true">⇄</div>
@@ -97,20 +116,15 @@
       <p>Place distribution assets, draw cable routes, group equipment and draft copyable Scope of Works. Includes a shared asset library managed by the EVE admin and links to Western Power design catalogues.</p>
       <a class="tool-link" href="/gis-sow/">Open GIS SOW Designer <span aria-hidden="true">→</span></a>
     </article>
-    <article class="tool-card">
-      <div class="tool-icon" aria-hidden="true">⚡</div>
-      <h3>LVDesign Web</h3>
-      <p>Low-voltage network design: open DFIS .net and LV Design .lvd files, scale to DSTR peak, check volt drop (12 V OH, 14.4 V UG), merge transformers and view on aerial or property maps. Invitation only.</p>
-      <a class="tool-link" href="/lvdesign/">Open LVDesign Web <span aria-hidden="true">→</span></a>
-    </article>
-    <article class="tool-card">
+    <article class="tool-card tool-wide">
       <div class="tool-icon green" aria-hidden="true">✓</div>
-      <h3>Project Tracker</h3>
-      <p>Access the EVE project tracker to manage project tasks and follow work progress. Team access is handled through the tracker.</p>
+      <div class="tool-body">
+        <h3>Project Tracker</h3>
+        <p>Access the EVE project tracker to manage project tasks and follow work progress. Team access is handled through the tracker.</p>
+      </div>
       <a class="tool-link" href="/project-tracker/">Open Project Tracker <span aria-hidden="true">→</span></a>
     </article>
   </div>
-  <p class="tools-note">Some tools may require an authorised team login. Keep your account credentials private.</p>
 </section>
 </main>
 <footer><a class="footer-brand" href="https://evedesignandengineering.com/#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="index.html#home">Home</a><a href="index.html#about">About</a><a href="portfolio.html">Portfolio</a><a href="tools.html" aria-current="page">Tools</a><a href="index.html#contact">Contact</a><a class="footer-social" href="https://www.linkedin.com/company/eve-design-and-engineering/" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a><a class="footer-team-login" href="/project-tracker/">Team Login ↗</a></nav></footer>
