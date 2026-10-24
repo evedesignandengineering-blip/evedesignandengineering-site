@@ -142,7 +142,8 @@ function view(){const md=$("ord").value,N=(f)=>nc.filter(x=>x.desc&&f(x)).map(x=
 function lines(){return view().filter(x=>x.r).map(x=>x.r)}
 function fmt(){return lines().filter(r=>r.cu&&r.qty!==""&&r.qty!=null).map(r=>" ".repeat(13)+String(r.cu).padEnd(52)+String(r.qty).padEnd(6)+"100YNYNYY").join("\n")+"\n"}
 function value(){return rows.reduce((s,r)=>{const c=BY[r.cu];return s+(c&&c.c&&!/^Internal/.test(c.g)?c.c*Number(r.qty||0):0)},0)}
-const fit=i=>{i.style.width=Math.min(70,Math.max(16,i.value.length+3))+"ch"};
+const _cx=document.createElement("canvas").getContext("2d");
+const fit=i=>{const c=getComputedStyle(i);_cx.font=c.fontStyle+" "+c.fontWeight+" "+c.fontSize+" "+c.fontFamily;const w=_cx.measureText(i.value||"").width;i.style.width=Math.min(640,Math.ceil(w)+(parseFloat(c.paddingLeft)||0)+(parseFloat(c.paddingRight)||0)+(parseFloat(c.borderLeftWidth)||0)+(parseFloat(c.borderRightWidth)||0)+16)+"px"};
 function render(){const tb=$("tb");tb.innerHTML="";
  view().forEach(it=>{if(it.h){const h=document.createElement("tr");h.innerHTML="<td colspan='5' style='font-weight:650;padding-top:14px'></td>";h.firstChild.textContent=it.h;tb.appendChild(h);return}
   if(it.n){const x=it.n,t=document.createElement("tr");t.innerHTML="<td><input></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td><button class='g'>×</button></td>";const [a,dd,b,d,e]=t.children;
@@ -151,7 +152,7 @@ function render(){const tb=$("tb");tb.innerHTML="";
   const r=it.r,ind=it.ind;const tr=document.createElement("tr");tr.innerHTML="<td><input list='ids'></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td><button class='g'>×</button></td>";
   const [a,dd,b,d,e]=tr.children;a.firstChild.value=r.cu;b.firstChild.value=r.qty;fit(a.firstChild);if(ind===1)a.firstChild.style.marginLeft="18px";
   dd.textContent=(ind===1?"↳ ":"")+((BY[r.cu]||{}).d||"Material / custom CU");dd.style.color="var(--mut)";d.textContent=r.basis||"";d.style.color="var(--mut)";
-  a.firstChild.oninput=x=>fit(x.target);a.firstChild.onchange=x=>{r.cu=x.target.value.trim();render()};b.firstChild.oninput=x=>{r.qty=x.target.value;pv()};e.firstChild.onclick=()=>{rows.splice(rows.indexOf(r),1);render()};tb.appendChild(tr)});pv()}
+  a.firstChild.oninput=x=>fit(x.target);a.firstChild.onchange=x=>{r.cu=x.target.value.trim();render()};b.firstChild.oninput=x=>{r.qty=x.target.value;pv()};e.firstChild.onclick=()=>{rows.splice(rows.indexOf(r),1);render()};tb.appendChild(tr)});tb.querySelectorAll("td:first-child input").forEach(fit);pv()}
 const PN=()=>String((proj&&proj.drawingNo)||name||"").toUpperCase().trim().replace(/\s+/g,"")||"QUOTE",FN=()=>PN().replace(/[^A-Z0-9_\-]/g,"")||"QUOTE";
 function pv(){$("fn").textContent=FN()+"_CU.txt"+(nc.some(x=>x.desc)?"  +  "+FN()+"_NonCU.txt":"");$("val").textContent="External CU value ≈ $"+Math.round(value()).toLocaleString()}
 $("ord").onchange=render;$("add").onclick=()=>{rows.push({cu:"",qty:1,basis:""});render()};
