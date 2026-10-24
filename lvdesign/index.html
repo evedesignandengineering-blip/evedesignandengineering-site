@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LVDesign Web | EVE Design & Engineering</title>
+<meta name="description" content="LVDesign Web: low-voltage network design and volt drop analysis for authorised EVE Design & Engineering users.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261020">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Sign-in gate for LVDesign Web. Matches the EVE site: navy, steel blue, DM Sans and Manrope. */
+:root{--navy:#09284b;--blue:#2f6ea4;--ink:#14212b;--muted:#566473;--line:#cbd6e1;--bg:#f2f6fa;--card:#ffffff;--bad:#b42318;--ok:#1f7a45;color-scheme:light}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 "DM Sans",system-ui,sans-serif;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:440px;margin:0 auto;padding-block:8vh 40px}
+.brand{display:inline-flex;align-items:center;gap:10px;color:var(--navy);text-decoration:none;font-weight:700}
+.brand strong{font:800 22px Manrope,sans-serif;letter-spacing:-.03em}
+.brand i{width:1px;height:26px;background:var(--line)}
+.brand span{font-size:11px;line-height:1.2;color:var(--muted)}
+.card{margin-top:26px;background:var(--card);border:1px solid #d8e0e8;border-radius:14px;padding:30px;box-shadow:0 12px 32px #09284b12}
+.eyebrow{font-size:10.5px;letter-spacing:.12em;font-weight:700;color:var(--blue);text-transform:uppercase}
+h1{font:800 26px/1.15 Manrope,sans-serif;color:var(--navy);margin:6px 0 8px;letter-spacing:-.02em;text-wrap:balance}
+p{color:var(--muted);margin:0 0 4px;font-size:14px}
+label{display:block;margin:16px 0 6px;font-weight:700;font-size:13px}
+input{width:100%;font:15px "DM Sans",sans-serif;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink)}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #2f6ea455;outline-offset:2px}
+button{margin-top:20px;width:100%;border:0;border-radius:7px;background:var(--blue);color:#fff;padding:12px;font:700 15px "DM Sans",sans-serif;cursor:pointer}
+button:hover{background:#265d8b}
+button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6px;font-weight:600;font-size:13.5px}
+.status{margin-top:14px;font-size:13.5px;min-height:1.2em}
+.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}
+.busy{display:flex;align-items:center;gap:12px;color:var(--navy);font-weight:600}
+.spin{width:20px;height:20px;border-radius:50%;border:3px solid #cbd6e1;border-top-color:var(--blue);animation:s 0.8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.foot{margin-top:18px;font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.foot a{color:var(--blue);font-weight:600;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="brand" href="/#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a>
+  <section class="card" aria-live="polite">
+    <div class="eyebrow">Authorised users</div>
+    <h1>LVDesign Web</h1>
+    <div id="vBusy" class="busy" hidden><div class="spin" aria-hidden="true"></div><span id="busyTxt">Checking your sign-in…</span></div>
+    <form id="vSignin" hidden>
+      <p>Low-voltage network design and volt drop analysis. Sign in with the account EVE Design &amp; Engineering created for you.</p>
+      <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+      <button type="button" class="ghost" id="forgot">Forgot your password?</button>
+    </form>
+    <form id="vSetpw" hidden>
+      <p>Choose a password for <b id="pwEmail"></b>.</p>
+      <label for="pw1">New password</label><input id="pw1" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="pw2">Repeat password</label><input id="pw2" type="password" autocomplete="new-password" minlength="8" required>
+      <button type="submit">Save password and open</button>
+    </form>
+    <div id="vDenied" hidden>
+      <p id="deniedTxt"></p>
+      <button type="button" id="signout2">Sign in with another account</button>
+    </div>
+    <div id="status" class="status" role="status"></div>
+  </section>
+  <div class="foot"><span>Access is by invitation only.</span><a href="/tools.html">← Back to tools</a></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+(function () {
+  var VERSION = '202610241150-fba5967b', ENC = 'app-202610241150-fba5967b.bin';
+  var $ = function (id) { return document.getElementById(id); };
+  var views = ['vBusy', 'vSignin', 'vSetpw', 'vDenied'];
+  function show(v, msg, cls) { views.forEach(function (x) { $(x).hidden = x !== v; }); var s = $('status'); s.textContent = msg || ''; s.className = 'status' + (cls ? ' ' + cls : ''); }
+  function busy(t) { $('busyTxt').textContent = t; show('vBusy'); }
+  var hosts = ['evedesignandengineering.com', 'www.evedesignandengineering.com'];
+  if (hosts.indexOf(location.hostname) < 0) { show('vDenied'); $('deniedTxt').textContent = 'LVDesign Web only runs on evedesignandengineering.com.'; $('signout2').hidden = true; return; }
+  var linkType = (location.hash.match(/type=([a-z]+)/) || [])[1] || '';
+  var sb = window.supabase.createClient('https://hszkloepnewfkzdegfhl.supabase.co', 'sb_publishable_Avjn-CGtbEdeLaxSWCwQDw_36mgImSu', { auth: { persistSession: true, detectSessionInUrl: true } });
+
+  function b64bytes(b) { var s = atob(b), u = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+  async function unlock(session) {
+    busy('Opening LVDesign Web…');
+    var r = await sb.rpc('lvd_get_key', { p_version: VERSION });
+    if (r.error) { show('vDenied'); $('deniedTxt').textContent = r.error.message || 'This account cannot open LVDesign Web.'; return; }
+    try {
+      var res = await fetch(ENC, { cache: 'force-cache' }); if (!res.ok) throw new Error('download ' + res.status);
+      var buf = new Uint8Array(await res.arrayBuffer());
+      var key = await crypto.subtle.importKey('raw', b64bytes(r.data), 'AES-GCM', false, ['decrypt']);
+      var plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
+      var html = new TextDecoder().decode(plain);
+      var who = (session.user && session.user.email) || '';
+      html = html.replace('<head>', '<head><script>window.__LVD_LICENSEE=' + JSON.stringify(who).replace(/</g, '\\u003c') + ';<\/script>');
+      document.open(); document.write(html); document.close();
+    } catch (e) { show('vDenied'); $('deniedTxt').textContent = 'LVDesign Web could not be opened (' + e.message + '). Reload the page to try again.'; }
+  }
+  async function start() {
+    busy('Checking your sign-in…');
+    var g = await sb.auth.getSession(); var session = g.data && g.data.session;
+    if (session && (linkType === 'invite' || linkType === 'recovery')) { $('pwEmail').textContent = session.user.email; show('vSetpw'); return; }
+    if (session) return unlock(session);
+    show('vSignin');
+  }
+  $('vSignin').addEventListener('submit', async function (e) {
+    e.preventDefault(); busy('Signing in…');
+    var r = await sb.auth.signInWithPassword({ email: $('email').value.trim().toLowerCase(), password: $('password').value });
+    if (r.error) { show('vSignin', 'Sign-in failed: ' + r.error.message, 'bad'); return; }
+    unlock(r.data.session);
+  });
+  $('forgot').addEventListener('click', async function () {
+    var em = $('email').value.trim().toLowerCase();
+    if (!em) { show('vSignin', 'Enter your email above first, then choose Forgot your password.', 'bad'); return; }
+    var r = await sb.auth.resetPasswordForEmail(em, { redirectTo: location.origin + '/lvdesign/' });
+    show('vSignin', r.error ? 'Could not send the email: ' + r.error.message : 'If that account exists, an email with a link to set a new password is on its way.', r.error ? 'bad' : 'ok');
+  });
+  $('vSetpw').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    if ($('pw1').value !== $('pw2').value) { show('vSetpw', 'The two passwords are different.', 'bad'); return; }
+    busy('Saving your password…');
+    var r = await sb.auth.updateUser({ password: $('pw1').value });
+    if (r.error) { show('vSetpw', 'Could not save the password: ' + r.error.message, 'bad'); return; }
+    history.replaceState(null, '', location.pathname); linkType = '';
+    var g = await sb.auth.getSession(); unlock(g.data.session);
+  });
+  $('signout2').addEventListener('click', async function () { await sb.auth.signOut(); show('vSignin'); });
+  start();
+})();
+</script>
+</body>
+</html>
