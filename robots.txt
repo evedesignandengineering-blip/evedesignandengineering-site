@@ -2,5 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /project-tracker/
 Disallow: /admin.html
+Disallow: /stable-v3/
 
 Sitemap: https://evedesignandengineering.com/sitemap.xml
