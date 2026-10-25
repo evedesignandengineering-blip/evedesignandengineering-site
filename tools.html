@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#153f61">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261020">
 <link rel="shortcut icon" href="/favicon.svg?v=20261020">
-<meta name="description" content="EVE Design &amp; Engineering online tools: LVDesign Web, PDF vs Quote Checker, AI CU Comparison Checker, Quote from Drawing, kVA to Amps, CAD Quantity Takeoff, GIS Image Mosaic, GIS SOW Designer and Project Tracker.">
+<meta name="description" content="EVE Design &amp; Engineering online tools: LVDesign Web, PDF vs Quote Checker, Create Quote, DGN to Scope of Work, GIS &amp; SOW Designer, GIS Image Mosaic, kVA to Amps calculator and Project Tracker.">
 <link rel="canonical" href="https://evedesignandengineering.com/tools.html">
 <meta name="robots" content="index, follow">
 <link rel="stylesheet" href="styles.css?v=20261018-audit">
@@ -17,41 +17,35 @@
 <style>
 .tools-hero{padding:62px 5.6% 54px;background:linear-gradient(120deg,#082b4d,#174e79);color:#fff}
 .tools-hero small{font-size:10px;letter-spacing:.12em;font-weight:700;color:#b8d8ef}
-.tools-hero h1{font:800 clamp(32px,4vw,46px)/1.1 Manrope;margin:10px 0 13px;letter-spacing:-.045em}
-.tools-hero p{max-width:640px;color:#e3edf5;font-size:14px;line-height:1.7;margin:0}
+.tools-hero h1{font:800 clamp(30px,4vw,46px)/1.1 Manrope;margin:10px 0 13px;letter-spacing:-.045em}
+.tools-hero p{max-width:600px;color:#e3edf5;font-size:14px;line-height:1.7;margin:0}
 .tools-content{padding:44px 5.6% 72px;background:#f4f7fa}
-.tools-section+.tools-section{margin-top:44px}
-.tools-heading{margin:0 0 18px}
-.tools-heading small{display:block;font-size:10px;letter-spacing:.1em;font-weight:700;color:#2b6799;text-transform:uppercase}
-.tools-heading h2{font:800 24px/1.2 Manrope;color:#09284b;margin:5px 0 6px;letter-spacing:-.02em}
-.tools-heading p{font-size:13px;color:#566473;margin:0;line-height:1.6;max-width:720px}
-.tools-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
-.tools-grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
-.tool-card{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:24px;background:#fff;border:1px solid #d8e0e8;border-radius:12px;box-shadow:0 8px 22px rgba(9,40,75,.05);transition:transform .18s ease,box-shadow .18s ease}
-.tool-card:hover,.tool-card:focus-within{transform:translateY(-3px);box-shadow:0 14px 28px rgba(9,40,75,.1)}
-.tool-icon{flex:none;width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-size:22px;margin-bottom:16px}
-.tool-icon.blue{background:#dcecff;color:#1162a1}.tool-icon.green{background:#d9f3e9;color:#168260}.tool-icon.amber{background:#fdf0d8;color:#a1620b}
-.tool-card h3{font:800 18px/1.25 Manrope;color:#102947;margin:0 0 8px;text-wrap:balance}
-.tool-card p{font-size:13px;line-height:1.6;color:#566473;margin:0 0 20px}
-.tool-link{margin-top:auto;display:inline-flex;align-items:center;gap:10px;background:#2f6ea4;color:#fff;border-radius:6px;padding:11px 16px;font-size:12px;font-weight:700;text-decoration:none;max-width:100%}
-.tool-link:hover{background:#174e79}
-.tool-link:focus-visible{outline:3px solid #8cc3ef;outline-offset:2px}
-.tool-badges{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
-.tool-badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1162a1;background:#dcecff;border-radius:999px;padding:3px 9px}
-.tool-badge.green{color:#12684d;background:#d9f3e9}.tool-badge.amber{color:#8a520a;background:#fdf0d8}.tool-badge.grey{color:#4c5c6b;background:#e8edf2}
-.tool-feature,.tool-wide{flex-direction:row;align-items:center;gap:22px}
-.tool-feature .tool-icon,.tool-wide .tool-icon{margin-bottom:0}
-.tool-feature .tool-body,.tool-wide .tool-body{flex:1;min-width:0}
-.tool-feature p,.tool-wide p{margin:0;max-width:760px}
-.tool-feature .tool-link,.tool-wide .tool-link{margin-top:0;flex:none}
-.tool-feature{padding:26px 28px;border-color:#b9cfe3;background:linear-gradient(100deg,#fff 55%,#eef5fc)}
-.tool-feature .tool-icon{width:56px;height:56px;font-size:28px}
-@media(max-width:1180px){.tools-grid.cols-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:1080px){.tools-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.tools-grid>.tool-card:last-child:nth-child(odd){grid-column:1/-1}}
-@media(max-width:760px){.tool-feature,.tool-wide{flex-direction:column;align-items:flex-start;gap:14px}.tool-feature .tool-link,.tool-wide .tool-link{margin-top:4px}}
-@media(max-width:620px){.tools-hero{padding:45px 7%}.tools-content{padding:32px 6% 48px}.tools-section+.tools-section{margin-top:34px}.tools-grid,.tools-grid.cols-4{grid-template-columns:1fr;gap:14px}.tools-grid>.tool-card:last-child:nth-child(odd){grid-column:auto}.tool-card{padding:22px}.tool-feature{padding:22px}}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-@media(prefers-reduced-motion:reduce){.tool-card{transition:none}.tool-card:hover,.tool-card:focus-within{transform:none}}
+.tools-grid{list-style:none;margin:0 auto;padding:0;max-width:1240px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}
+.tool-card{position:relative;display:flex;flex-direction:column;gap:10px;height:100%;min-width:0;padding:22px 22px 20px;background:#fff;border:1px solid #d8e0e8;border-radius:12px;box-shadow:0 6px 18px rgba(9,40,75,.05);color:inherit;text-decoration:none;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;-webkit-tap-highlight-color:transparent}
+.tool-card:hover{transform:translateY(-3px);box-shadow:0 14px 28px rgba(9,40,75,.11);border-color:#a9c4dc}
+.tool-card:active{transform:translateY(-1px)}
+.tool-card:focus-visible{outline:3px solid #6aaee6;outline-offset:3px}
+.tool-icon{flex:none;width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-size:21px;background:#dcecff;color:#1162a1}
+.tool-icon.green{background:#d9f3e9;color:#168260}.tool-icon.amber{background:#fdf0d8;color:#a1620b}
+.tool-text{min-width:0}
+.tool-card h2{font:800 17px/1.25 Manrope,sans-serif;color:#102947;margin:4px 0 6px;letter-spacing:-.01em}
+.tool-card p{font-size:13px;line-height:1.55;color:#566473;margin:0}
+.tool-go{position:absolute;top:22px;right:20px;color:#9fb3c6;font-size:18px;line-height:1;transition:transform .18s ease,color .18s ease}
+.tool-card:hover .tool-go{color:#2f6ea4;transform:translateX(3px)}
+@media(max-width:1100px){.tools-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){
+ .tools-hero{padding:34px 6% 30px}.tools-hero p{font-size:13.5px}
+ .tools-content{padding:20px 4% 40px}
+ .tools-grid{grid-template-columns:1fr;gap:10px}
+ .tool-card{flex-direction:row;align-items:center;gap:14px;padding:14px 40px 14px 14px;border-radius:10px;min-height:72px}
+ .tool-icon{width:42px;height:42px;font-size:20px}
+ .tool-card h2{font-size:16px;margin:0 0 2px}
+ .tool-card p{font-size:12.5px;line-height:1.45}
+ .tool-go{top:50%;right:14px;transform:translateY(-50%)}
+ .tool-card:hover .tool-go{transform:translate(3px,-50%)}
+ .tool-card:hover{transform:none}
+}
+@media(prefers-reduced-motion:reduce){.tool-card,.tool-go{transition:none}.tool-card:hover{transform:none}}
 </style>
 <style>
 /* Shared page-hero refinement: compact, consistent and high-contrast. */
@@ -70,92 +64,20 @@
 <main>
 <section class="tools-hero">
   <small>EVE DESIGN &amp; ENGINEERING / DIGITAL TOOLS</small>
-  <h1>Tools for your projects</h1>
-  <p>Network design, drawing and quote checks, CAD quantities, GIS and project tracking in one place. Choose a tool below to get started.</p>
+  <h1>Tools</h1>
+  <p>Select a tool to open it.</p>
 </section>
-<section class="tools-content">
-  <section class="tools-section" aria-labelledby="h-featured">
-    <div class="tools-heading"><small>Featured</small><h2 id="h-featured">LV network design</h2></div>
-    <article class="tool-card tool-feature">
-      <div class="tool-icon blue" aria-hidden="true">⚡</div>
-      <div class="tool-body">
-        <div class="tool-badges"><span class="tool-badge">New</span><span class="tool-badge grey">Invitation only</span></div>
-        <h3>LVDesign Web</h3>
-        <p>Low-voltage network design in the browser. Open DFIS .net and LV Design .lvd files, scale to the DSTR peak, check volt drop against 12 V (overhead) and 14.4 V (underground), merge transformers and view the network on aerial or property maps.</p>
-      </div>
-      <a class="tool-link" href="/lvdesign/">Open LVDesign Web <span aria-hidden="true">→</span></a>
-    </article>
-  </section>
-
-  <section class="tools-section" aria-labelledby="h-quote">
-    <div class="tools-heading"><small>Drawings &amp; quotes</small><h2 id="h-quote">Check and build quotes</h2><p>Three ways to work with a design drawing PDF and its DQM quote. Use the rule-based checker for a quick, repeatable comparison, or the AI tools for drawings that need reading in more detail.</p></div>
-    <div class="tools-grid">
-      <article class="tool-card">
-        <div class="tool-icon green" aria-hidden="true">✓</div>
-        <div class="tool-badges"><span class="tool-badge green">Rule-based · No AI</span></div>
-        <h3>PDF vs Quote Checker</h3>
-        <p>Compare a design drawing PDF with its quote PDF using fixed rules. Parses catalogue codes and quantities, flags missing or mismatched items and checks project value and depot distance. Works with digitally generated PDFs.</p>
-        <a class="tool-link" href="https://evedesignandengineering-blip.github.io/eve-quote-checker-no-ai/" target="_blank" rel="noopener">Open PDF vs Quote Checker <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
-      </article>
-      <article class="tool-card">
-        <div class="tool-icon blue" aria-hidden="true">⇄</div>
-        <div class="tool-badges"><span class="tool-badge">AI-assisted</span></div>
-        <h3>AI CU Comparison Checker</h3>
-        <p>AI reads the drawing&rsquo;s CU callouts and compares them with the DQM quote, including AUX, travel, cable and polypipe, and directional drilling checks. Export a comparison report.</p>
-        <a class="tool-link" href="drawing-quote-checker.html">Open AI CU Checker <span aria-hidden="true">→</span></a>
-      </article>
-      <article class="tool-card">
-        <div class="tool-icon amber" aria-hidden="true">✎</div>
-        <div class="tool-badges"><span class="tool-badge amber">AI · Gemini or Claude</span></div>
-        <h3>Quote from Drawing</h3>
-        <p>Generate a DQM quote file of CU IDs and quantities from a Western Power design drawing PDF. Add depot, round-trip and switching details, and optionally check the result against an existing quote.</p>
-        <a class="tool-link" href="quote-from-drawing.html">Open Quote from Drawing <span aria-hidden="true">→</span></a>
-      </article>
-    </div>
-  </section>
-
-  <section class="tools-section" aria-labelledby="h-design">
-    <div class="tools-heading"><small>Design, CAD &amp; GIS</small><h2 id="h-design">Calculate, measure and map</h2></div>
-    <div class="tools-grid cols-4">
-      <article class="tool-card">
-        <div class="tool-icon blue" aria-hidden="true">ϟ</div>
-        <h3>kVA ↔ Amps Calculator</h3>
-        <p>Convert kVA to amps or amps to kVA for 1-phase 240 V or 3-phase 415 V. The result updates as you type.</p>
-        <a class="tool-link" href="kva-amps.html">Open Calculator <span aria-hidden="true">→</span></a>
-      </article>
-      <article class="tool-card">
-        <div class="tool-icon blue" aria-hidden="true">▤</div>
-        <h3>CAD Quantity Takeoff</h3>
-        <p>Calculate layer length totals and cell or block counts from supported CAD drawings, then export to Excel or CSV.</p>
-        <a class="tool-link" href="quantity-takeoff.html">Open Quantity Takeoff <span aria-hidden="true">→</span></a>
-      </article>
-      <article class="tool-card">
-        <div class="tool-icon green" aria-hidden="true">▧</div>
-        <h3>GIS Image Mosaic</h3>
-        <p>Combine georeferenced aerial-image ZIP exports into one CAD-ready GeoTIFF, reprojected to GDA94 / MGA Zone 50.</p>
-        <a class="tool-link" href="/gis-mosaic/">Open Image Mosaic <span aria-hidden="true">→</span></a>
-      </article>
-      <article class="tool-card">
-        <div class="tool-icon green" aria-hidden="true">⌖</div>
-        <h3>GIS &amp; SOW Designer</h3>
-        <p>Place distribution assets, draw cable routes, group equipment and draft a copyable Scope of Works from a shared asset library.</p>
-        <a class="tool-link" href="/gis-sow/">Open SOW Designer <span aria-hidden="true">→</span></a>
-      </article>
-    </div>
-  </section>
-
-  <section class="tools-section" aria-labelledby="h-team">
-    <div class="tools-heading"><small>Team</small><h2 id="h-team">Project management</h2></div>
-    <article class="tool-card tool-wide">
-      <div class="tool-icon green" aria-hidden="true">☰</div>
-      <div class="tool-body">
-        <div class="tool-badges"><span class="tool-badge grey">Team login</span></div>
-        <h3>Project Tracker</h3>
-        <p>Manage project tasks and follow work progress. Team access is handled through the tracker.</p>
-      </div>
-      <a class="tool-link" href="/project-tracker/">Open Project Tracker <span aria-hidden="true">→</span></a>
-    </article>
-  </section>
+<section class="tools-content" aria-label="Tools">
+  <ul class="tools-grid">
+    <li><a class="tool-card" href="/lvdesign/"><span class="tool-icon " aria-hidden="true">⚡</span><div class="tool-text"><h2>LVDesign Web</h2><p>LV network volt drop and loading from .net and .lvd files.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+    <li><a class="tool-card" href="/pdf-vs-quote-checker/"><span class="tool-icon green" aria-hidden="true">✓</span><div class="tool-text"><h2>PDF vs Quote Checker</h2><p>Compare a drawing PDF with its quote. Rule-based, no AI.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+    <li><a class="tool-card" href="/quote-from-drawing.html"><span class="tool-icon amber" aria-hidden="true">✎</span><div class="tool-text"><h2>Create Quote</h2><p>Build a DQM quote of CU IDs and quantities from a drawing PDF.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+    <li><a class="tool-card" href="/dgn-to-sow/"><span class="tool-icon " aria-hidden="true">▦</span><div class="tool-text"><h2>DGN to Scope of Work</h2><p>Turn a MicroStation DGN into a Western Power scope of work.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+    <li><a class="tool-card" href="/gis-sow/"><span class="tool-icon green" aria-hidden="true">⌖</span><div class="tool-text"><h2>GIS &amp; SOW Designer</h2><p>Place assets and cable routes on a map and draft the scope.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+    <li><a class="tool-card" href="/gis-mosaic/"><span class="tool-icon green" aria-hidden="true">▧</span><div class="tool-text"><h2>GIS Image Mosaic</h2><p>Merge aerial-image exports into one CAD-ready GeoTIFF.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+    <li><a class="tool-card" href="/kva-amps.html"><span class="tool-icon " aria-hidden="true">ϟ</span><div class="tool-text"><h2>kVA ↔ Amps</h2><p>Convert kVA and amps for 1-phase 240 V or 3-phase 415 V.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+    <li><a class="tool-card" href="/project-tracker/"><span class="tool-icon amber" aria-hidden="true">☰</span><div class="tool-text"><h2>Project Tracker</h2><p>Track project tasks and progress. Team sign-in.</p></div><span class="tool-go" aria-hidden="true">→</span></a></li>
+  </ul>
 </section>
 </main>
 <footer><a class="footer-brand" href="https://evedesignandengineering.com/#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="index.html#home">Home</a><a href="index.html#about">About</a><a href="portfolio.html">Portfolio</a><a href="tools.html" aria-current="page">Tools</a><a href="index.html#contact">Contact</a><a class="footer-social" href="https://www.linkedin.com/company/eve-design-and-engineering/" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a><a class="footer-team-login" href="/project-tracker/">Team Login ↗</a></nav></footer>
