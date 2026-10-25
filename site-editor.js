@@ -30,6 +30,7 @@
       if (el.closest("#eve-editor-bar,#eve-editor-hint,script,style,nav,footer") || !el.textContent.trim()) return;
       if (el.querySelector("h1,h2,h3,h4,p,li")) return;
       el.dataset.eveTextId = stableId("text", n++);
+      if (el.dataset.eveOrig == null) el.dataset.eveOrig = el.textContent;
     });
     let c = 0, i = 0;
     const candidates = $("main, main section, main > div, .tools-grid, .service-grid, .commit-grid, .tool-card, .service-card, .commit-grid article, .contact > div");
@@ -47,13 +48,20 @@
     });
   }
   function applyConfig() {
+    /* Saved edits are keyed by position. Apply one only when the element still holds the
+       text it held when the edit was saved, so a page rebuild cannot put text in the wrong place.
+       Edits saved before this check existed (no "orig") are ignored. */
+    const orig = config.orig;
+    if (!orig || typeof orig !== "object") return;
     Object.entries(config.texts || {}).forEach(([id, value]) => {
       const el = document.querySelector('[data-eve-text-id="' + id + '"]');
-      if (el && typeof value === "string") el.textContent = value;
+      if (el && typeof value === "string" && orig[id] === el.dataset.eveOrig) el.textContent = value;
     });
     Object.entries(config.orders || {}).forEach(([id, ids]) => {
       const parent = document.querySelector('[data-eve-container-id="' + id + '"]');
       if (!parent || !Array.isArray(ids)) return;
+      const now = Array.from(parent.children).filter(el => el.dataset.eveItemId).map(el => el.dataset.eveItemId);
+      if (now.length !== ids.length || !ids.every(x => now.includes(x))) return;
       ids.forEach(itemId => {
         const child = document.querySelector('[data-eve-item-id="' + itemId + '"]');
         if (child && child.parentElement === parent) parent.appendChild(child);
@@ -62,12 +70,13 @@
   }
   function snapshot() {
     const texts = {};
-    $("[data-eve-text-id]").forEach(el => { texts[el.dataset.eveTextId] = el.textContent; });
+    const orig = {};
+    $("[data-eve-text-id]").forEach(el => { texts[el.dataset.eveTextId] = el.textContent; orig[el.dataset.eveTextId] = el.dataset.eveOrig; });
     const orders = {};
     $("[data-eve-container-id]").forEach(parent => {
       orders[parent.dataset.eveContainerId] = Array.from(parent.children).filter(el => el.dataset.eveItemId).map(el => el.dataset.eveItemId);
     });
-    return { texts, orders };
+    return { texts, orig, orders };
   }
   function markDirty() { dirty = true; const status = document.getElementById("eve-editor-status"); if(status) status.textContent = "Unsaved changes"; }
   function refreshOrderControls() {

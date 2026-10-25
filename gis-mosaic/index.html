@@ -232,5 +232,5 @@ traceBtn.onclick=async()=>{if(traceBusy||!selectedZips.length)return;traceBusy=t
 dxfBtn.onclick=()=>{if(!tracedEntities.length)return;const crs=document.getElementById('dxfCrs').value;const content=makeDxf(tracedEntities,crs);const blob=new Blob([content],{type:'application/dxf'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=crs==='28350'?'eve_road_footpath_candidates_MGA94_Zone50.dxf':'eve_road_footpath_candidates_WebMercator.dxf';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)};
 </script>
 <script src="/drafting-promotion.js?v=20261014" defer></script>
-<script src="../site-editor.js?v=20261016" defer></script>
+<script src="../site-editor.js?v=20261025" defer></script>
 </body></html>
