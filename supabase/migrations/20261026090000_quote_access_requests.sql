@@ -27,13 +27,13 @@ revoke all on function public.qfd_request(text, text, text) from public, anon;
 grant execute on function public.qfd_request(text, text, text) to authenticated;
 
 -- Self sign-up is open, so the drawing library is limited to staff roles instead of every signed-in account.
-drop policy if exists "Team can manage drawing AI documents" on public.drawing_ai_documents;
-drop policy if exists "Team can read drawing AI documents" on public.drawing_ai_documents;
-drop policy if exists "Team can manage drawing AI chunks" on public.drawing_ai_chunks;
-drop policy if exists "Team can read drawing AI chunks" on public.drawing_ai_chunks;
-create policy "Staff manage drawing AI documents" on public.drawing_ai_documents for all to authenticated
+alter policy "Team can manage drawing AI documents" on public.drawing_ai_documents
   using ((select private.current_user_role()) = any (array['Admin', 'Manager', 'Engineer', 'Drafter']))
   with check ((select private.current_user_role()) = any (array['Admin', 'Manager', 'Engineer', 'Drafter']));
-create policy "Staff manage drawing AI chunks" on public.drawing_ai_chunks for all to authenticated
+alter policy "Team can read drawing AI documents" on public.drawing_ai_documents
+  using ((select private.current_user_role()) = any (array['Admin', 'Manager', 'Engineer', 'Drafter']));
+alter policy "Team can manage drawing AI chunks" on public.drawing_ai_chunks
   using ((select private.current_user_role()) = any (array['Admin', 'Manager', 'Engineer', 'Drafter']))
   with check ((select private.current_user_role()) = any (array['Admin', 'Manager', 'Engineer', 'Drafter']));
+alter policy "Team can read drawing AI chunks" on public.drawing_ai_chunks
+  using ((select private.current_user_role()) = any (array['Admin', 'Manager', 'Engineer', 'Drafter']));
