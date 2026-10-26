@@ -86,17 +86,29 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <div id="gate" role="dialog" aria-modal="true" aria-labelledby="gH"><div class="gc" aria-live="polite">
 <div class="ey">Authorised users</div><h2 id="gH">Create Quote</h2>
 <div id="gBusy"><p id="gBusyT">Checking your sign-in…</p></div>
-<form id="gIn" hidden><p>Sign in with the account EVE Design &amp; Engineering created for you.</p>
+<form id="gIn" hidden><p>Sign in to use Create Quote.</p>
 <label for="gEm">Email</label><input id="gEm" type="email" autocomplete="username" required>
 <label for="gPw">Password</label><input id="gPw" type="password" autocomplete="current-password" required>
-<button type="submit">Sign in</button><button type="button" class="lnk" id="gForgot">Forgot your password?</button></form>
+<button type="submit">Sign in</button><button type="button" class="lnk" id="gForgot">Forgot your password?</button><button type="button" class="lnk" id="gToUp">New here? Request access</button></form>
+<form id="gUp" hidden><p>Create an account and tell us how you'll use Create Quote. An EVE administrator reviews each request.</p>
+<label for="gUName">Full name</label><input id="gUName" autocomplete="name" maxlength="120" required>
+<label for="gUCo">Company</label><input id="gUCo" autocomplete="organization" maxlength="120" required>
+<label for="gUEm">Work email</label><input id="gUEm" type="email" autocomplete="email" required>
+<label for="gUPw">Password</label><input id="gUPw" type="password" autocomplete="new-password" minlength="8" required>
+<label for="gUWhy">What will you use it for? (optional)</label><input id="gUWhy" maxlength="600">
+<button type="submit">Request access</button><button type="button" class="lnk" id="gToIn">Already have an account? Sign in</button></form>
+<form id="gReq" hidden><p>This account doesn't have access to Create Quote yet. Send a request to an EVE administrator.</p>
+<label for="gRName">Full name</label><input id="gRName" autocomplete="name" maxlength="120" required>
+<label for="gRCo">Company</label><input id="gRCo" autocomplete="organization" maxlength="120" required>
+<label for="gRWhy">What will you use it for? (optional)</label><input id="gRWhy" maxlength="600">
+<button type="submit">Request access</button><button type="button" class="lnk" id="gOut3">Sign in with another account</button></form>
 <form id="gSet" hidden><p>Choose a password for <b id="gSetEm"></b>.</p>
 <label for="gP1">New password</label><input id="gP1" type="password" autocomplete="new-password" minlength="8" required>
 <label for="gP2">Repeat password</label><input id="gP2" type="password" autocomplete="new-password" minlength="8" required>
 <button type="submit">Save password and open</button></form>
 <div id="gNo" hidden><p id="gNoT"></p><button type="button" id="gOut2">Sign in with another account</button></div>
 <div id="gSt" role="status"></div></div>
-<div class="gf"><span>Access is by invitation only.</span><a href="tools.html">← Back to tools</a></div></div>
+<div class="gf"><span>Access is approved by EVE Design &amp; Engineering.</span><a href="tools.html">← Back to tools</a></div></div>
 <header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><small>DQM Service CU manual rev 40</small><div id="who" hidden><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
 <div class="layout">
 <aside id="sb"><div class="ah"><input id="q" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
@@ -140,12 +152,20 @@ if(!window.supabase){document.getElementById("gBusyT").textContent="Sign-in coul
 const SB=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,detectSessionInUrl:true}});
 async function sbToken(){const g=await SB.auth.getSession();const t=g.data.session&&g.data.session.access_token;if(!t){lockGate("Your sign-in has expired. Sign in again.");throw new Error("Sign in to use the AI.")}return t}
 let gateLink=(location.hash.match(/type=([a-z]+)/)||[])[1]||"";
-function gateView(v,msg,cls){["gBusy","gIn","gSet","gNo"].forEach(x=>document.getElementById(x).hidden=x!==v);const s=document.getElementById("gSt");s.textContent=msg||"";s.className=cls||""}
+function gateView(v,msg,cls){["gBusy","gIn","gUp","gReq","gSet","gNo"].forEach(x=>document.getElementById(x).hidden=x!==v);const s=document.getElementById("gSt");s.textContent=msg||"";s.className=cls||""}
 function gateBusy(t){document.getElementById("gBusyT").textContent=t;gateView("gBusy")}
 function lockGate(msg){document.getElementById("gate").hidden=false;document.getElementById("who").hidden=true;document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=true);gateView("gIn",msg||"",msg?"bad":"")}
+function gateNo(t){gateView("gNo");document.getElementById("gNoT").textContent=t}
+function gateShowStatus(st){if(st==="pending")gateNo("Your request is waiting for approval. You'll be able to sign in here once an EVE administrator approves it.");else if(st==="denied")gateNo("Your request for access was not approved. Contact EVE Design & Engineering if you think this is a mistake.");else gateNo("This account does not have access to Create Quote. Contact EVE Design & Engineering.")}
 async function gateOpen(session){gateBusy("Checking access…");
  const r=await SB.rpc("qfd_check",{p_log:true});
- if(r.error||r.data!==true){gateView("gNo");document.getElementById("gNoT").textContent=r.error?"Could not check access: "+r.error.message:"This account does not have access to Create Quote. Contact EVE Design & Engineering.";return}
+ if(r.error)return gateNo("Could not check access: "+r.error.message);
+ if(r.data!==true){
+  const a=await SB.from("qfd_access").select("status").eq("user_id",session.user.id).maybeSingle();
+  if(a.data)return gateShowStatus(a.data.status);
+  const m=session.user.user_metadata||{};
+  if(m.qfd_request){const q=await SB.rpc("qfd_request",{p_name:m.name||"",p_company:m.company||"",p_reason:m.qfd_reason||""});return q.error?gateNo("Could not send your request: "+q.error.message):gateShowStatus(q.data)}
+  document.getElementById("gRName").value=m.name||"";gateView("gReq");return}
  document.getElementById("whoEm").textContent=session.user.email||"";document.getElementById("who").hidden=false;
  document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=false);document.getElementById("gate").hidden=true}
 async function gateStart(){document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=true);gateBusy("Checking your sign-in…");
@@ -164,8 +184,20 @@ document.getElementById("gSet").addEventListener("submit",async e=>{e.preventDef
  gateBusy("Saving your password…");const r=await SB.auth.updateUser({password:document.getElementById("gP1").value});
  if(r.error)return gateView("gSet","Could not save the password: "+r.error.message,"bad");
  history.replaceState(null,"",location.pathname);gateLink="";const g=await SB.auth.getSession();gateOpen(g.data.session)});
-async function gateSignOut(){await SB.auth.signOut();lockGate()}
-document.getElementById("gOut").onclick=gateSignOut;document.getElementById("gOut2").onclick=gateSignOut;
+document.getElementById("gToUp").onclick=()=>{document.getElementById("gUEm").value=document.getElementById("gEm").value;gateView("gUp")};
+document.getElementById("gToIn").onclick=()=>gateView("gIn");
+document.getElementById("gUp").addEventListener("submit",async e=>{e.preventDefault();gateBusy("Sending your request…");
+ const v=id=>document.getElementById(id).value.trim();
+ const r=await SB.auth.signUp({email:v("gUEm").toLowerCase(),password:document.getElementById("gUPw").value,options:{emailRedirectTo:location.origin+location.pathname,data:{name:v("gUName"),company:v("gUCo"),qfd_reason:v("gUWhy"),qfd_request:true}}});
+ if(r.error)return gateView("gUp","Could not create the account: "+r.error.message,"bad");
+ if(r.data.session)return gateOpen(r.data.session);
+ gateNo("Check your email and click the confirmation link, then sign in here. An EVE administrator will review your request, and you can use Create Quote once it's approved.");document.getElementById("gOut2").textContent="Back to sign in"});
+document.getElementById("gReq").addEventListener("submit",async e=>{e.preventDefault();gateBusy("Sending your request…");
+ const v=id=>document.getElementById(id).value.trim();
+ const q=await SB.rpc("qfd_request",{p_name:v("gRName"),p_company:v("gRCo"),p_reason:v("gRWhy")});
+ if(q.error)return gateView("gReq","Could not send your request: "+q.error.message,"bad");gateShowStatus(q.data)});
+async function gateSignOut(){await SB.auth.signOut();document.getElementById("gOut2").textContent="Sign in with another account";lockGate()}
+document.getElementById("gOut").onclick=gateSignOut;document.getElementById("gOut2").onclick=gateSignOut;document.getElementById("gOut3").onclick=gateSignOut;
 gateStart();
 const blobB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(b)});
 const SAMPLE={limits:async()=>({images:true}),
