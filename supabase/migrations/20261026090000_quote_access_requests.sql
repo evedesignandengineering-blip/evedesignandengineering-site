@@ -1,6 +1,7 @@
--- Create Quote: outside users sign up and request access; an Admin approves or denies on /quote-access.html.
+-- Create Quote: outside users sign up and request access; an Admin approves, denies or removes access
+-- in the tool's Access panel or on /quote-access.html.
 alter table public.qfd_access
-  add column if not exists status text not null default 'approved' check (status in ('pending', 'approved', 'denied')),
+  add column if not exists status text not null default 'approved' check (status in ('pending', 'approved', 'denied', 'removed')),
   add column if not exists email text not null default '',
   add column if not exists name text not null default '',
   add column if not exists company text not null default '',
@@ -11,7 +12,7 @@ alter table public.qfd_access
 create or replace function qfd_private.has_access() returns boolean language sql stable security definer set search_path = public as $$
   select auth.uid() is not null and (exists (select 1 from public.qfd_access a where a.user_id = auth.uid() and a.active and a.status = 'approved') or lvd_private.is_admin()); $$;
 
--- Signed-in user files (or re-reads) their own request. A denied request stays denied.
+-- Signed-in user files (or re-reads) their own request. A denied or removed account stays that way until an Admin restores it.
 create or replace function public.qfd_request(p_name text, p_company text, p_reason text) returns text language plpgsql volatile security definer set search_path = public as $$
 declare s text;
 begin
