@@ -29,14 +29,21 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--blue)}
 a{color:var(--blue);font-weight:600}
 .log td{font-size:12.5px;font-variant-numeric:tabular-nums}
 h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
+.pill.wait{background:#fff4e0;color:#9a5b00}.pill.no{background:#fde8e6;color:var(--bad)}
+.acts{white-space:nowrap}.acts button{font:600 13px "DM Sans",sans-serif;border-radius:6px;padding:6px 12px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink);margin-left:6px}
+.acts button.ok{background:var(--blue);border-color:var(--blue);color:#fff}
+.sub{display:block;font-size:12px;color:var(--muted)}.why{font-size:12.5px;color:var(--muted);max-width:32ch}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Create Quote access</h1>
-  <p>Tick the accounts that can use Create Quote. Admins always have access. To add someone, create their account in Supabase (Authentication › Users › Add user), then tick them here.</p>
+  <p>People outside EVE request access from the Create Quote sign-in screen. Approve or deny them here. Tick or untick accounts below at any time. Admins always have access.</p>
   <div id="status" class="status" role="status">Loading…</div>
-  <div class="card" id="tblCard" hidden><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <h2 id="reqH" hidden>Waiting for approval</h2>
+  <div class="card" id="reqCard" hidden><table><thead><tr><th>Requested</th><th>Person</th><th>Use</th><th></th></tr></thead><tbody id="reqRows"></tbody></table></div>
+  <h2 id="usrH" hidden>Accounts</h2>
+  <div class="card" id="tblCard" hidden><table><thead><tr><th>Name</th><th>Email</th><th>Company / role</th><th>Access</th></tr></thead><tbody id="rows"></tbody></table></div>
   <h2 id="logH" hidden>Recent sign-ins</h2>
   <div class="card" id="logCard" hidden><table class="log"><thead><tr><th>When</th><th>Account</th><th>Result</th></tr></thead><tbody id="logRows"></tbody></table></div>
   <p style="margin-top:18px"><a href="/quote-from-drawing.html">Open Create Quote</a> · <a href="/tools.html">Tools</a></p>
@@ -53,25 +60,50 @@ h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
   var p = await sb.from('profiles').select('id,name,email,role').order('name');
   var mine = (p.data || []).find(function (x) { return x.id === me.id; });
   if (p.error || !mine || String(mine.role).toLowerCase() !== 'admin') { st('Only EVE administrators can manage access.', 'bad'); return; }
-  var a = await sb.from('qfd_access').select('user_id,active');
-  var on = {}; (a.data || []).forEach(function (r) { on[r.user_id] = r.active; });
-  function render() {
-    $('rows').innerHTML = p.data.map(function (u) {
-      var admin = String(u.role).toLowerCase() === 'admin';
-      return '<tr><td>' + esc(u.name) + '</td><td>' + esc(u.email) + '</td><td class="role">' + esc(u.role) + '</td><td>' +
-        (admin ? '<span class="pill on">Admin</span>' : '<label><input type="checkbox" data-id="' + u.id + '"' + (on[u.id] ? ' checked' : '') + ' aria-label="Access for ' + esc(u.email) + '"> <span class="pill ' + (on[u.id] ? 'on">Allowed' : 'off">No access') + '</span></label>') + '</td></tr>';
-    }).join('');
+  var acc = {};
+  async function load() {
+    var a = await sb.from('qfd_access').select('user_id,active,status,email,name,company,reason,granted_at');
+    acc = {}; (a.data || []).forEach(function (r) { acc[r.user_id] = r; });
   }
-  render(); $('tblCard').hidden = false; st('');
+  function pill(r, admin) {
+    if (admin) return '<span class="pill on">Admin</span>';
+    var s = r && r.status, on = r && r.active && s === 'approved';
+    var label = on ? 'Allowed' : s === 'pending' ? 'Waiting' : s === 'denied' ? 'Denied' : s === 'removed' ? 'Removed' : 'No access';
+    return '<label><input type="checkbox" data-id="' + r.uid + '"' + (on ? ' checked' : '') + ' aria-label="Access for ' + esc(r.mail) + '"> <span class="pill ' + (on ? 'on' : s === 'pending' ? 'wait' : s === 'denied' || s === 'removed' ? 'no' : 'off') + '">' + label + '</span></label>';
+  }
+  function render() {
+    var pend = Object.keys(acc).map(function (k) { return acc[k]; }).filter(function (r) { return r.status === 'pending'; });
+    $('reqRows').innerHTML = pend.map(function (r) {
+      return '<tr><td>' + new Date(r.granted_at).toLocaleDateString('en-AU') + '</td><td>' + esc(r.name || r.email) + '<span class="sub">' + esc(r.email) + (r.company ? ' · ' + esc(r.company) : '') + '</span></td><td class="why">' + esc(r.reason || '—') +
+        '</td><td class="acts"><button class="ok" data-ok="' + r.user_id + '">Approve</button><button data-no="' + r.user_id + '">Deny</button></td></tr>';
+    }).join('');
+    $('reqH').hidden = $('reqCard').hidden = !pend.length;
+    var seen = {}, list = p.data.map(function (u) { seen[u.id] = 1; return { uid: u.id, name: u.name, mail: u.email, sub: acc[u.id] && acc[u.id].company || u.role, admin: String(u.role).toLowerCase() === 'admin' }; });
+    Object.keys(acc).forEach(function (k) { if (!seen[k]) list.push({ uid: k, name: acc[k].name, mail: acc[k].email, sub: acc[k].company, admin: false }); });
+    $('rows').innerHTML = list.map(function (u) {
+      var r = acc[u.uid] ? Object.assign({ uid: u.uid, mail: u.mail }, acc[u.uid]) : { uid: u.uid, mail: u.mail };
+      return '<tr><td>' + esc(u.name) + '</td><td>' + esc(u.mail) + '</td><td class="role">' + esc(u.sub) + '</td><td>' + pill(r, u.admin) + '</td></tr>';
+    }).join('');
+    $('usrH').hidden = false; $('tblCard').hidden = false;
+  }
+  async function decide(id, ok, st) {
+    var r = await sb.from('qfd_access').upsert({ user_id: id, active: ok, status: ok ? 'approved' : (st || 'denied'), decided_at: new Date().toISOString(), decided_by: me.id }, { onConflict: 'user_id' });
+    if (r.error) { st('Could not save: ' + r.error.message, 'bad'); return false; }
+    await load(); render(); return true;
+  }
+  await load(); render(); st('');
+  $('reqRows').addEventListener('click', async function (e) {
+    var ok = e.target.dataset.ok, no = e.target.dataset.no; if (!ok && !no) return;
+    var r = acc[ok || no]; e.target.disabled = true;
+    if (await decide(ok || no, !!ok)) st(ok ? 'Approved. ' + (r.email || 'They') + ' can sign in now.' : 'Request denied.', 'ok');
+  });
   $('rows').addEventListener('change', async function (e) {
     var id = e.target.dataset.id; if (!id) return; var v = e.target.checked;
-    var r = await sb.from('qfd_access').upsert({ user_id: id, active: v }, { onConflict: 'user_id' });
-    if (r.error) { st('Could not save: ' + r.error.message, 'bad'); e.target.checked = !v; return; }
-    on[id] = v; render(); st(v ? 'Access granted.' : 'Access removed. They are locked out on their next AI request or page load.', 'ok');
+    if (await decide(id, v, 'removed')) st(v ? 'Access granted.' : 'Access removed. They are locked out on their next AI request or page load.', 'ok'); else e.target.checked = !v;
   });
   var lg = await sb.from('qfd_access_log').select('at,user_id,ok,reason').order('at', { ascending: false }).limit(30);
   if (!lg.error && lg.data.length) {
-    var em = {}; p.data.forEach(function (u) { em[u.id] = u.email; });
+    var em = {}; p.data.forEach(function (u) { em[u.id] = u.email; }); Object.keys(acc).forEach(function (k) { em[k] = em[k] || acc[k].email; });
     $('logRows').innerHTML = lg.data.map(function (r) { return '<tr><td>' + new Date(r.at).toLocaleString('en-AU') + '</td><td>' + esc(em[r.user_id] || r.user_id) + '</td><td>' + (r.ok ? 'Opened' : 'Refused (' + esc(r.reason) + ')') + '</td></tr>'; }).join('');
     $('logH').hidden = false; $('logCard').hidden = false;
   }

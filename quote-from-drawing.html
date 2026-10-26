@@ -81,23 +81,53 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 #gate .gf{max-width:420px;margin:14px auto 0;font-size:12px;color:var(--mut);display:flex;justify-content:space-between;gap:12px}#gate .gf a{color:var(--ac);text-decoration:none;font-weight:600}
 #who{color:#cfe0ef;font-size:12px;display:flex;align-items:center;gap:8px;white-space:nowrap}#who button{padding:3px 9px;font-size:12px;background:transparent;color:#fff;border:1px solid #3a566a}
 @media(max-width:760px){#who span{display:none}}
+#accBtn{position:relative}#accBtn b{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;border-radius:9px;background:#e0201b;color:#fff;font-size:11px;line-height:18px;padding:0 5px}#accBtn b[hidden]{display:none}
+#acc{position:fixed;inset:0;z-index:900;background:rgba(9,20,30,.45);display:flex;justify-content:flex-end}#acc[hidden]{display:none}
+#acc .ap{width:min(560px,100%);height:100%;overflow:auto;background:var(--bg);padding:18px 16px 40px;box-shadow:-8px 0 30px rgba(0,0,0,.25)}
+#acc .ah2{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}#acc h2{margin:0;font:800 19px Manrope,system-ui}
+#acc h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:18px 0 8px}
+#acc .ar{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:10px 12px;border:1px solid var(--bd);background:var(--card);border-radius:10px;margin-bottom:8px}
+#acc .ar div{min-width:0;overflow-wrap:anywhere}#acc .ar small{display:block;color:var(--mut);font-size:12px}#acc .ar i{display:block;font-style:normal;font-size:12.5px;margin-top:3px}
+#acc .ab{display:flex;gap:6px;flex:none}#acc .ab button{padding:6px 11px;font-size:12.5px}#acc .ab button.no{background:transparent;color:var(--er);border:1px solid var(--bd)}
+#acc .empty{color:var(--mut);font-size:13px;margin:0 0 8px}#accSt{min-height:1.2em;font-size:13px;color:var(--mut)}
+#accToast{position:fixed;right:16px;bottom:16px;z-index:950;background:var(--br);color:#fff;border-radius:10px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;max-width:calc(100% - 32px)}#accToast[hidden]{display:none}#accToast button{padding:5px 10px;font-size:12.5px}
 </style>
 </head><body>
 <div id="gate" role="dialog" aria-modal="true" aria-labelledby="gH"><div class="gc" aria-live="polite">
 <div class="ey">Authorised users</div><h2 id="gH">Create Quote</h2>
 <div id="gBusy"><p id="gBusyT">Checking your sign-in…</p></div>
-<form id="gIn" hidden><p>Sign in with the account EVE Design &amp; Engineering created for you.</p>
+<form id="gIn" hidden><p>Sign in to use Create Quote.</p>
 <label for="gEm">Email</label><input id="gEm" type="email" autocomplete="username" required>
 <label for="gPw">Password</label><input id="gPw" type="password" autocomplete="current-password" required>
-<button type="submit">Sign in</button><button type="button" class="lnk" id="gForgot">Forgot your password?</button></form>
+<button type="submit">Sign in</button><button type="button" class="lnk" id="gForgot">Forgot your password?</button><button type="button" class="lnk" id="gToUp">New here? Request access</button></form>
+<form id="gUp" hidden><p>Create an account and tell us how you'll use Create Quote. An EVE administrator reviews each request.</p>
+<label for="gUName">Full name</label><input id="gUName" autocomplete="name" maxlength="120" required>
+<label for="gUCo">Company</label><input id="gUCo" autocomplete="organization" maxlength="120" required>
+<label for="gUEm">Work email</label><input id="gUEm" type="email" autocomplete="email" required>
+<label for="gUPw">Password</label><input id="gUPw" type="password" autocomplete="new-password" minlength="8" required>
+<label for="gUWhy">What will you use it for? (optional)</label><input id="gUWhy" maxlength="600">
+<button type="submit">Request access</button><button type="button" class="lnk" id="gToIn">Already have an account? Sign in</button></form>
+<form id="gReq" hidden><p>This account doesn't have access to Create Quote yet. Send a request to an EVE administrator.</p>
+<label for="gRName">Full name</label><input id="gRName" autocomplete="name" maxlength="120" required>
+<label for="gRCo">Company</label><input id="gRCo" autocomplete="organization" maxlength="120" required>
+<label for="gRWhy">What will you use it for? (optional)</label><input id="gRWhy" maxlength="600">
+<button type="submit">Request access</button><button type="button" class="lnk" id="gOut3">Sign in with another account</button></form>
 <form id="gSet" hidden><p>Choose a password for <b id="gSetEm"></b>.</p>
 <label for="gP1">New password</label><input id="gP1" type="password" autocomplete="new-password" minlength="8" required>
 <label for="gP2">Repeat password</label><input id="gP2" type="password" autocomplete="new-password" minlength="8" required>
 <button type="submit">Save password and open</button></form>
 <div id="gNo" hidden><p id="gNoT"></p><button type="button" id="gOut2">Sign in with another account</button></div>
 <div id="gSt" role="status"></div></div>
-<div class="gf"><span>Access is by invitation only.</span><a href="tools.html">← Back to tools</a></div></div>
-<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><small>DQM Service CU manual rev 40</small><div id="who" hidden><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
+<div class="gf"><span>Access is approved by EVE Design &amp; Engineering.</span><a href="tools.html">← Back to tools</a></div></div>
+<div id="acc" hidden><div class="ap" role="dialog" aria-modal="true" aria-labelledby="accH">
+<div class="ah2"><h2 id="accH">Access</h2><button type="button" class="g" id="accX">Close</button></div>
+<div id="accSt" role="status"></div>
+<h3>Requests waiting</h3><div id="accPend"></div>
+<h3>Can use Create Quote</h3><div id="accOn"></div>
+<h3>Other accounts</h3><div id="accOff"></div>
+</div></div>
+<div id="accToast" role="status" hidden><span id="accToastT"></span><button type="button" id="accToastB">Review</button></div>
+<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><small>DQM Service CU manual rev 40</small><div id="who" hidden><button type="button" id="accBtn" hidden title="Who can use Create Quote">Access<b id="accN" hidden></b></button><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
 <div class="layout">
 <aside id="sb"><div class="ah"><input id="q" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
 <main>
@@ -140,14 +170,22 @@ if(!window.supabase){document.getElementById("gBusyT").textContent="Sign-in coul
 const SB=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,detectSessionInUrl:true}});
 async function sbToken(){const g=await SB.auth.getSession();const t=g.data.session&&g.data.session.access_token;if(!t){lockGate("Your sign-in has expired. Sign in again.");throw new Error("Sign in to use the AI.")}return t}
 let gateLink=(location.hash.match(/type=([a-z]+)/)||[])[1]||"";
-function gateView(v,msg,cls){["gBusy","gIn","gSet","gNo"].forEach(x=>document.getElementById(x).hidden=x!==v);const s=document.getElementById("gSt");s.textContent=msg||"";s.className=cls||""}
+function gateView(v,msg,cls){["gBusy","gIn","gUp","gReq","gSet","gNo"].forEach(x=>document.getElementById(x).hidden=x!==v);const s=document.getElementById("gSt");s.textContent=msg||"";s.className=cls||""}
 function gateBusy(t){document.getElementById("gBusyT").textContent=t;gateView("gBusy")}
 function lockGate(msg){document.getElementById("gate").hidden=false;document.getElementById("who").hidden=true;document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=true);gateView("gIn",msg||"",msg?"bad":"")}
+function gateNo(t){gateView("gNo");document.getElementById("gNoT").textContent=t}
+function gateShowStatus(st){if(st==="pending")gateNo("Your request is waiting for approval. You'll be able to sign in here once an EVE administrator approves it.");else if(st==="denied")gateNo("Your request for access was not approved. Contact EVE Design & Engineering if you think this is a mistake.");else if(st==="removed")gateNo("Your access to Create Quote has been removed. Contact EVE Design & Engineering if you need it again.");else gateNo("This account does not have access to Create Quote. Contact EVE Design & Engineering.")}
 async function gateOpen(session){gateBusy("Checking access…");
  const r=await SB.rpc("qfd_check",{p_log:true});
- if(r.error||r.data!==true){gateView("gNo");document.getElementById("gNoT").textContent=r.error?"Could not check access: "+r.error.message:"This account does not have access to Create Quote. Contact EVE Design & Engineering.";return}
+ if(r.error)return gateNo("Could not check access: "+r.error.message);
+ if(r.data!==true){
+  const a=await SB.from("qfd_access").select("status").eq("user_id",session.user.id).maybeSingle();
+  if(a.data)return gateShowStatus(a.data.status);
+  const m=session.user.user_metadata||{};
+  if(m.qfd_request){const q=await SB.rpc("qfd_request",{p_name:m.name||"",p_company:m.company||"",p_reason:m.qfd_reason||""});return q.error?gateNo("Could not send your request: "+q.error.message):gateShowStatus(q.data)}
+  document.getElementById("gRName").value=m.name||"";gateView("gReq");return}
  document.getElementById("whoEm").textContent=session.user.email||"";document.getElementById("who").hidden=false;
- document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=false);document.getElementById("gate").hidden=true}
+ document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=false);document.getElementById("gate").hidden=true;accInit(session)}
 async function gateStart(){document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=true);gateBusy("Checking your sign-in…");
  const g=await SB.auth.getSession();const s=g.data&&g.data.session;
  if(s&&(gateLink==="invite"||gateLink==="recovery")){document.getElementById("gSetEm").textContent=s.user.email;gateView("gSet");return}
@@ -164,8 +202,57 @@ document.getElementById("gSet").addEventListener("submit",async e=>{e.preventDef
  gateBusy("Saving your password…");const r=await SB.auth.updateUser({password:document.getElementById("gP1").value});
  if(r.error)return gateView("gSet","Could not save the password: "+r.error.message,"bad");
  history.replaceState(null,"",location.pathname);gateLink="";const g=await SB.auth.getSession();gateOpen(g.data.session)});
-async function gateSignOut(){await SB.auth.signOut();lockGate()}
-document.getElementById("gOut").onclick=gateSignOut;document.getElementById("gOut2").onclick=gateSignOut;
+document.getElementById("gToUp").onclick=()=>{document.getElementById("gUEm").value=document.getElementById("gEm").value;gateView("gUp")};
+document.getElementById("gToIn").onclick=()=>gateView("gIn");
+document.getElementById("gUp").addEventListener("submit",async e=>{e.preventDefault();gateBusy("Sending your request…");
+ const v=id=>document.getElementById(id).value.trim();
+ const r=await SB.auth.signUp({email:v("gUEm").toLowerCase(),password:document.getElementById("gUPw").value,options:{emailRedirectTo:location.origin+location.pathname,data:{name:v("gUName"),company:v("gUCo"),qfd_reason:v("gUWhy"),qfd_request:true}}});
+ if(r.error)return gateView("gUp","Could not create the account: "+r.error.message,"bad");
+ if(r.data.session)return gateOpen(r.data.session);
+ gateNo("Check your email and click the confirmation link, then sign in here. An EVE administrator will review your request, and you can use Create Quote once it's approved.");document.getElementById("gOut2").textContent="Back to sign in"});
+document.getElementById("gReq").addEventListener("submit",async e=>{e.preventDefault();gateBusy("Sending your request…");
+ const v=id=>document.getElementById(id).value.trim();
+ const q=await SB.rpc("qfd_request",{p_name:v("gRName"),p_company:v("gRCo"),p_reason:v("gRWhy")});
+ if(q.error)return gateView("gReq","Could not send your request: "+q.error.message,"bad");gateShowStatus(q.data)});
+// ---- admin Access panel: pending requests, approve / deny, remove and restore access
+let accMe=null,accRows={},accProfiles=[],accTimer=null,accSeen=-1;
+const accEsc=t=>String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function accInit(session){const p=await SB.from("profiles").select("role").eq("id",session.user.id).maybeSingle();
+ if(!p.data||String(p.data.role).toLowerCase()!=="admin")return;accMe=session.user.id;document.getElementById("accBtn").hidden=false;
+ await accLoad();clearInterval(accTimer);accTimer=setInterval(accLoad,60000)}
+async function accLoad(){if(!accMe)return;
+ const [a,p]=await Promise.all([SB.from("qfd_access").select("user_id,active,status,email,name,company,reason,granted_at,decided_at"),SB.from("profiles").select("id,name,email,role")]);
+ if(a.error){document.getElementById("accSt").textContent="Could not load access: "+a.error.message;return}
+ accRows={};(a.data||[]).forEach(r=>accRows[r.user_id]=r);accProfiles=p.data||[];
+ const n=Object.values(accRows).filter(r=>r.status==="pending").length,b=document.getElementById("accN");b.textContent=n;b.hidden=!n;
+ if(n&&n>accSeen&&document.getElementById("acc").hidden){document.getElementById("accToastT").textContent=n===1?"1 new request for access":n+" new requests for access";document.getElementById("accToast").hidden=false}
+ if(accSeen<0||n<accSeen)accSeen=n;accRender()}
+function accRender(){const rows=Object.values(accRows),prof={};accProfiles.forEach(u=>prof[u.id]=u);
+ const who=r=>{const u=prof[r.user_id]||{};return "<b>"+accEsc(r.name||u.name||r.email||u.email)+"</b><small>"+accEsc(r.email||u.email||"")+(r.company?" · "+accEsc(r.company):u.role?" · "+accEsc(u.role):"")+"</small>"};
+ const btn=(id,act,label,cls)=>'<button type="button" data-a="'+act+'" data-id="'+id+'"'+(cls?' class="'+cls+'"':'')+'>'+label+'</button>';
+ const pend=rows.filter(r=>r.status==="pending").sort((x,y)=>String(y.granted_at).localeCompare(String(x.granted_at)));
+ document.getElementById("accPend").innerHTML=pend.length?pend.map(r=>'<div class="ar"><div>'+who(r)+'<i>'+accEsc(r.reason||"No reason given")+'</i><small>Requested '+new Date(r.granted_at).toLocaleDateString("en-AU")+'</small></div><div class="ab">'+btn(r.user_id,"approve","Approve")+btn(r.user_id,"deny","Deny","no")+'</div></div>').join(""):'<p class="empty">No requests waiting.</p>';
+ const admins=accProfiles.filter(u=>String(u.role).toLowerCase()==="admin");
+ const on=rows.filter(r=>r.active&&r.status==="approved"&&!admins.some(u=>u.id===r.user_id));
+ document.getElementById("accOn").innerHTML=admins.map(u=>'<div class="ar"><div><b>'+accEsc(u.name)+'</b><small>'+accEsc(u.email)+' · Admin (always has access)</small></div></div>').join("")+on.map(r=>'<div class="ar"><div>'+who(r)+'</div><div class="ab">'+btn(r.user_id,"remove","Remove access","no")+'</div></div>').join("");
+ const offIds=new Set(rows.filter(r=>r.status==="denied"||r.status==="removed"||(!r.active&&r.status==="approved")).map(r=>r.user_id));
+ accProfiles.forEach(u=>{if(!accRows[u.id]&&String(u.role).toLowerCase()!=="admin")offIds.add(u.id)});
+ const off=[...offIds].map(id=>accRows[id]||{user_id:id,status:""});
+ document.getElementById("accOff").innerHTML=off.length?off.map(r=>'<div class="ar"><div>'+who(r)+'<small>'+(r.status==="denied"?"Request denied":r.status==="removed"?"Access removed":"No access")+'</small></div><div class="ab">'+btn(r.user_id,"approve",r.status==="denied"||r.status==="removed"?"Restore access":"Give access")+'</div></div>').join(""):'<p class="empty">None.</p>'}
+async function accSet(id,act){const ok=act==="approve",st=ok?"approved":act==="deny"?"denied":"removed";
+ const r=await SB.from("qfd_access").upsert({user_id:id,active:ok,status:st,decided_at:new Date().toISOString(),decided_by:accMe},{onConflict:"user_id"});
+ const who=(accRows[id]&&(accRows[id].email||accRows[id].name))||(accProfiles.find(u=>u.id===id)||{}).email||"The account";
+ document.getElementById("accSt").textContent=r.error?"Could not save: "+r.error.message:ok?who+" can now use Create Quote.":act==="deny"?"Request from "+who+" denied.":"Access removed for "+who+". They are locked out on their next AI request or page load.";
+ await accLoad()}
+function accOpen(){document.getElementById("acc").hidden=false;document.getElementById("accToast").hidden=true;accSeen=Object.values(accRows).filter(r=>r.status==="pending").length;accLoad();document.getElementById("accX").focus()}
+document.getElementById("accBtn").onclick=accOpen;document.getElementById("accToastB").onclick=accOpen;
+document.getElementById("accX").onclick=()=>{document.getElementById("acc").hidden=true;document.getElementById("accBtn").focus()};
+document.getElementById("acc").addEventListener("click",e=>{if(e.target.id==="acc")document.getElementById("acc").hidden=true;const b=e.target.closest("button[data-a]");if(!b)return;
+ if(b.dataset.a==="remove"&&!confirmRemove(b))return;b.disabled=true;accSet(b.dataset.id,b.dataset.a)});
+function confirmRemove(b){if(b.dataset.sure)return true;b.dataset.sure=1;b.textContent="Confirm remove";setTimeout(()=>{if(b.isConnected){delete b.dataset.sure;b.textContent="Remove access"}},4000);return false}
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!document.getElementById("acc").hidden)document.getElementById("acc").hidden=true});
+async function gateSignOut(){clearInterval(accTimer);accMe=null;document.getElementById("accBtn").hidden=true;document.getElementById("acc").hidden=true;document.getElementById("accToast").hidden=true;await SB.auth.signOut();document.getElementById("gOut2").textContent="Sign in with another account";lockGate()}
+document.getElementById("gOut").onclick=gateSignOut;document.getElementById("gOut2").onclick=gateSignOut;document.getElementById("gOut3").onclick=gateSignOut;
 gateStart();
 const blobB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(b)});
 const SAMPLE={limits:async()=>({images:true}),
