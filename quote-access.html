@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create Quote Access | EVE Design & Engineering</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261020">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Admin page: who can use Create Quote. Same palette as the sign-in gate. */
+:root{--navy:#09284b;--blue:#2f6ea4;--ink:#14212b;--muted:#566473;--line:#d8e0e8;--bg:#f2f6fa;--card:#fff;--bad:#b42318;--ok:#1f7a45;color-scheme:light}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "DM Sans",system-ui,sans-serif;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:820px;margin:0 auto;padding-block:40px}
+h1{font:800 26px Manrope,sans-serif;color:var(--navy);margin:0 0 6px}
+p{color:var(--muted);margin:0 0 14px;max-width:65ch}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:520px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:#f7f9fb}
+tr:last-child td{border-bottom:0}
+.role{font-size:12px;color:var(--muted)}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 9px}
+.pill.on{background:#e3f4ea;color:var(--ok)}.pill.off{background:#eef1f4;color:var(--muted)}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--blue)}
+.status{margin:12px 0;min-height:1.3em}.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}
+a{color:var(--blue);font-weight:600}
+.log td{font-size:12.5px;font-variant-numeric:tabular-nums}
+h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Create Quote access</h1>
+  <p>Tick the accounts that can use Create Quote. Admins always have access. To add someone, create their account in Supabase (Authentication › Users › Add user), then tick them here.</p>
+  <div id="status" class="status" role="status">Loading…</div>
+  <div class="card" id="tblCard" hidden><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <h2 id="logH" hidden>Recent sign-ins</h2>
+  <div class="card" id="logCard" hidden><table class="log"><thead><tr><th>When</th><th>Account</th><th>Result</th></tr></thead><tbody id="logRows"></tbody></table></div>
+  <p style="margin-top:18px"><a href="/quote-from-drawing.html">Open Create Quote</a> · <a href="/tools.html">Tools</a></p>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+(async function () {
+  var sb = window.supabase.createClient('https://hszkloepnewfkzdegfhl.supabase.co', 'sb_publishable_Avjn-CGtbEdeLaxSWCwQDw_36mgImSu');
+  var $ = function (id) { return document.getElementById(id); };
+  function st(t, c) { $('status').textContent = t; $('status').className = 'status' + (c ? ' ' + c : ''); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  var g = await sb.auth.getSession(); var me = g.data.session && g.data.session.user;
+  if (!me) { st('Sign in first on the Create Quote page, then come back here.', 'bad'); return; }
+  var p = await sb.from('profiles').select('id,name,email,role').order('name');
+  var mine = (p.data || []).find(function (x) { return x.id === me.id; });
+  if (p.error || !mine || String(mine.role).toLowerCase() !== 'admin') { st('Only EVE administrators can manage access.', 'bad'); return; }
+  var a = await sb.from('qfd_access').select('user_id,active');
+  var on = {}; (a.data || []).forEach(function (r) { on[r.user_id] = r.active; });
+  function render() {
+    $('rows').innerHTML = p.data.map(function (u) {
+      var admin = String(u.role).toLowerCase() === 'admin';
+      return '<tr><td>' + esc(u.name) + '</td><td>' + esc(u.email) + '</td><td class="role">' + esc(u.role) + '</td><td>' +
+        (admin ? '<span class="pill on">Admin</span>' : '<label><input type="checkbox" data-id="' + u.id + '"' + (on[u.id] ? ' checked' : '') + ' aria-label="Access for ' + esc(u.email) + '"> <span class="pill ' + (on[u.id] ? 'on">Allowed' : 'off">No access') + '</span></label>') + '</td></tr>';
+    }).join('');
+  }
+  render(); $('tblCard').hidden = false; st('');
+  $('rows').addEventListener('change', async function (e) {
+    var id = e.target.dataset.id; if (!id) return; var v = e.target.checked;
+    var r = await sb.from('qfd_access').upsert({ user_id: id, active: v }, { onConflict: 'user_id' });
+    if (r.error) { st('Could not save: ' + r.error.message, 'bad'); e.target.checked = !v; return; }
+    on[id] = v; render(); st(v ? 'Access granted.' : 'Access removed. They are locked out on their next AI request or page load.', 'ok');
+  });
+  var lg = await sb.from('qfd_access_log').select('at,user_id,ok,reason').order('at', { ascending: false }).limit(30);
+  if (!lg.error && lg.data.length) {
+    var em = {}; p.data.forEach(function (u) { em[u.id] = u.email; });
+    $('logRows').innerHTML = lg.data.map(function (r) { return '<tr><td>' + new Date(r.at).toLocaleString('en-AU') + '</td><td>' + esc(em[r.user_id] || r.user_id) + '</td><td>' + (r.ok ? 'Opened' : 'Refused (' + esc(r.reason) + ')') + '</td></tr>'; }).join('');
+    $('logH').hidden = false; $('logCard').hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
