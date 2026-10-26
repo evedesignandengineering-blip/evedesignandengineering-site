@@ -68,8 +68,8 @@ h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
   function pill(r, admin) {
     if (admin) return '<span class="pill on">Admin</span>';
     var s = r && r.status, on = r && r.active && s === 'approved';
-    var label = on ? 'Allowed' : s === 'pending' ? 'Waiting' : s === 'denied' ? 'Denied' : 'No access';
-    return '<label><input type="checkbox" data-id="' + r.uid + '"' + (on ? ' checked' : '') + ' aria-label="Access for ' + esc(r.mail) + '"> <span class="pill ' + (on ? 'on' : s === 'pending' ? 'wait' : s === 'denied' ? 'no' : 'off') + '">' + label + '</span></label>';
+    var label = on ? 'Allowed' : s === 'pending' ? 'Waiting' : s === 'denied' ? 'Denied' : s === 'removed' ? 'Removed' : 'No access';
+    return '<label><input type="checkbox" data-id="' + r.uid + '"' + (on ? ' checked' : '') + ' aria-label="Access for ' + esc(r.mail) + '"> <span class="pill ' + (on ? 'on' : s === 'pending' ? 'wait' : s === 'denied' || s === 'removed' ? 'no' : 'off') + '">' + label + '</span></label>';
   }
   function render() {
     var pend = Object.keys(acc).map(function (k) { return acc[k]; }).filter(function (r) { return r.status === 'pending'; });
@@ -86,8 +86,8 @@ h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
     }).join('');
     $('usrH').hidden = false; $('tblCard').hidden = false;
   }
-  async function decide(id, ok) {
-    var r = await sb.from('qfd_access').upsert({ user_id: id, active: ok, status: ok ? 'approved' : 'denied', decided_at: new Date().toISOString(), decided_by: me.id }, { onConflict: 'user_id' });
+  async function decide(id, ok, st) {
+    var r = await sb.from('qfd_access').upsert({ user_id: id, active: ok, status: ok ? 'approved' : (st || 'denied'), decided_at: new Date().toISOString(), decided_by: me.id }, { onConflict: 'user_id' });
     if (r.error) { st('Could not save: ' + r.error.message, 'bad'); return false; }
     await load(); render(); return true;
   }
@@ -99,7 +99,7 @@ h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
   });
   $('rows').addEventListener('change', async function (e) {
     var id = e.target.dataset.id; if (!id) return; var v = e.target.checked;
-    if (await decide(id, v)) st(v ? 'Access granted.' : 'Access removed. They are locked out on their next AI request or page load.', 'ok'); else e.target.checked = !v;
+    if (await decide(id, v, 'removed')) st(v ? 'Access granted.' : 'Access removed. They are locked out on their next AI request or page load.', 'ok'); else e.target.checked = !v;
   });
   var lg = await sb.from('qfd_access_log').select('at,user_id,ok,reason').order('at', { ascending: false }).limit(30);
   if (!lg.error && lg.data.length) {
