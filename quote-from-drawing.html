@@ -69,8 +69,35 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 .rvd{flex:none;width:9px;height:9px;border-radius:50%;margin-top:5px}.rvnote{color:#e0201b;font-weight:600;white-space:pre-line}.rvmeta{font-size:11.5px;color:var(--mut)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .rvnote{color:#ff6b62}}:root[data-theme="dark"] .rvnote{color:#ff6b62}
 </style>
+<style>
+/* sign-in gate: authorised accounts only (public.qfd_check) */
+#gate{position:fixed;inset:0;z-index:1000;background:var(--bg);overflow:auto;padding:8vh 16px 40px}#gate[hidden]{display:none}
+#gate .gc{max-width:420px;margin:0 auto;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:28px;box-shadow:0 12px 32px rgba(9,40,75,.08)}
+#gate .ey{font-size:10.5px;letter-spacing:.12em;font-weight:700;color:var(--ac);text-transform:uppercase}
+#gate h2{font:800 24px/1.15 Manrope,system-ui;margin:6px 0 8px;color:var(--fg)}#gate p{color:var(--mut);margin:0 0 4px}
+#gate label{display:block;margin:14px 0 6px;font-weight:700;font-size:13px}#gate input{width:100%;padding:10px 12px}
+#gate button{width:100%;margin-top:18px;padding:11px}#gate button.lnk{background:transparent;color:var(--ac);margin-top:8px;padding:6px;font-weight:600}
+#gate form[hidden],#gate div[hidden]{display:none}#gSt{margin-top:12px;min-height:1.2em;font-size:13px}#gSt.bad{color:var(--er)}#gSt.ok{color:#1f9d55}
+#gate .gf{max-width:420px;margin:14px auto 0;font-size:12px;color:var(--mut);display:flex;justify-content:space-between;gap:12px}#gate .gf a{color:var(--ac);text-decoration:none;font-weight:600}
+#who{color:#cfe0ef;font-size:12px;display:flex;align-items:center;gap:8px;white-space:nowrap}#who button{padding:3px 9px;font-size:12px;background:transparent;color:#fff;border:1px solid #3a566a}
+@media(max-width:760px){#who span{display:none}}
+</style>
 </head><body>
-<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><small>DQM Service CU manual rev 40</small></header>
+<div id="gate" role="dialog" aria-modal="true" aria-labelledby="gH"><div class="gc" aria-live="polite">
+<div class="ey">Authorised users</div><h2 id="gH">Create Quote</h2>
+<div id="gBusy"><p id="gBusyT">Checking your sign-in…</p></div>
+<form id="gIn" hidden><p>Sign in with the account EVE Design &amp; Engineering created for you.</p>
+<label for="gEm">Email</label><input id="gEm" type="email" autocomplete="username" required>
+<label for="gPw">Password</label><input id="gPw" type="password" autocomplete="current-password" required>
+<button type="submit">Sign in</button><button type="button" class="lnk" id="gForgot">Forgot your password?</button></form>
+<form id="gSet" hidden><p>Choose a password for <b id="gSetEm"></b>.</p>
+<label for="gP1">New password</label><input id="gP1" type="password" autocomplete="new-password" minlength="8" required>
+<label for="gP2">Repeat password</label><input id="gP2" type="password" autocomplete="new-password" minlength="8" required>
+<button type="submit">Save password and open</button></form>
+<div id="gNo" hidden><p id="gNoT"></p><button type="button" id="gOut2">Sign in with another account</button></div>
+<div id="gSt" role="status"></div></div>
+<div class="gf"><span>Access is by invitation only.</span><a href="tools.html">← Back to tools</a></div></div>
+<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><small>DQM Service CU manual rev 40</small><div id="who" hidden><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
 <div class="layout">
 <aside id="sb"><div class="ah"><input id="q" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
 <main>
@@ -81,7 +108,7 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <div style="flex:1;min-width:220px"><label>Extra instructions (optional)</label><input id="ex" style="width:100%" placeholder="e.g. rock at pole, CBD, night works"></div></div>
 <div id="site" class="qonly" style="margin-top:12px"></div><details class="qonly" style="margin-top:10px"><summary>Traffic conditions (optional: ticked items set the TRAFFIC CUs)</summary><div id="tcl" style="padding:6px 8px"></div></details>
 <div class="row" id="btnRow" style="margin-top:8px">
-<div><label>AI engine</label><select id="eng"><option value="gemini" selected>Gemini (runs here, no login)</option><option value="claude">Claude (opens in Claude, sign in)</option></select></div>
+<div><label>AI engine</label><select id="eng"><option value="gemini" selected>Gemini (runs here)</option><option value="claude">Claude (opens in Claude, sign in)</option></select></div>
 <div class="qonly"><label>Depot</label><select id="dep"></select></div>
 <div class="qonly"><label>Round trip (km)</label><input type="number" id="km" min="0" placeholder="auto"></div>
 <div class="qonly"><label>Switching visits</label><input type="number" id="sv" value="3" min="0"></div>
@@ -103,18 +130,50 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <div class="sc" style="margin-top:10px"><table><thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Unit</th><th>Drawing note</th><th></th></tr></thead><tbody id="nct"></tbody></table></div><div id="ncE" style="color:var(--mut);margin-top:8px"></div></div></div></div>
 </main></div>
 <datalist id="ids"></datalist>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script>
 const SUPABASE_URL="https://hszkloepnewfkzdegfhl.supabase.co",SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhzemtsb2VwbmV3Zmt6ZGVnZmhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NDU0MzUsImV4cCI6MjEwNzAyMTQzNX0.PBoDEUUB8LoL8XKIgQVPvkptgzmwkSuxgDkSxdj92kw";
+if(!window.supabase){document.getElementById("gBusyT").textContent="Sign-in could not load. Check your connection and reload the page.";throw new Error("supabase-js did not load")}
+const SB=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,detectSessionInUrl:true}});
+async function sbToken(){const g=await SB.auth.getSession();const t=g.data.session&&g.data.session.access_token;if(!t){lockGate("Your sign-in has expired. Sign in again.");throw new Error("Sign in to use the AI.")}return t}
+let gateLink=(location.hash.match(/type=([a-z]+)/)||[])[1]||"";
+function gateView(v,msg,cls){["gBusy","gIn","gSet","gNo"].forEach(x=>document.getElementById(x).hidden=x!==v);const s=document.getElementById("gSt");s.textContent=msg||"";s.className=cls||""}
+function gateBusy(t){document.getElementById("gBusyT").textContent=t;gateView("gBusy")}
+function lockGate(msg){document.getElementById("gate").hidden=false;document.getElementById("who").hidden=true;document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=true);gateView("gIn",msg||"",msg?"bad":"")}
+async function gateOpen(session){gateBusy("Checking access…");
+ const r=await SB.rpc("qfd_check",{p_log:true});
+ if(r.error||r.data!==true){gateView("gNo");document.getElementById("gNoT").textContent=r.error?"Could not check access: "+r.error.message:"This account does not have access to Create Quote. Contact EVE Design & Engineering.";return}
+ document.getElementById("whoEm").textContent=session.user.email||"";document.getElementById("who").hidden=false;
+ document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=false);document.getElementById("gate").hidden=true}
+async function gateStart(){document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=true);gateBusy("Checking your sign-in…");
+ const g=await SB.auth.getSession();const s=g.data&&g.data.session;
+ if(s&&(gateLink==="invite"||gateLink==="recovery")){document.getElementById("gSetEm").textContent=s.user.email;gateView("gSet");return}
+ if(s)return gateOpen(s);gateView("gIn")}
+document.getElementById("gIn").addEventListener("submit",async e=>{e.preventDefault();gateBusy("Signing in…");
+ const r=await SB.auth.signInWithPassword({email:document.getElementById("gEm").value.trim().toLowerCase(),password:document.getElementById("gPw").value});
+ if(r.error)return gateView("gIn","Sign-in failed: "+r.error.message,"bad");gateOpen(r.data.session)});
+document.getElementById("gForgot").addEventListener("click",async()=>{const em=document.getElementById("gEm").value.trim().toLowerCase();
+ if(!em)return gateView("gIn","Enter your email above first, then choose Forgot your password.","bad");
+ const r=await SB.auth.resetPasswordForEmail(em,{redirectTo:location.origin+location.pathname});
+ gateView("gIn",r.error?"Could not send the email: "+r.error.message:"If that account exists, an email with a link to set a new password is on its way.",r.error?"bad":"ok")});
+document.getElementById("gSet").addEventListener("submit",async e=>{e.preventDefault();
+ if(document.getElementById("gP1").value!==document.getElementById("gP2").value)return gateView("gSet","The two passwords are different.","bad");
+ gateBusy("Saving your password…");const r=await SB.auth.updateUser({password:document.getElementById("gP1").value});
+ if(r.error)return gateView("gSet","Could not save the password: "+r.error.message,"bad");
+ history.replaceState(null,"",location.pathname);gateLink="";const g=await SB.auth.getSession();gateOpen(g.data.session)});
+async function gateSignOut(){await SB.auth.signOut();lockGate()}
+document.getElementById("gOut").onclick=gateSignOut;document.getElementById("gOut2").onclick=gateSignOut;
+gateStart();
 const blobB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(b)});
 const SAMPLE={limits:async()=>({images:true}),
  json:async(prompt,opts)=>{const body={prompt};if(opts&&opts.images&&opts.images[0])body.image=await blobB64(opts.images[0]);
-  const c=new AbortController(),t=setTimeout(()=>c.abort(),170000);let r;
-  try{r=await fetch(SUPABASE_URL+"/functions/v1/quote-from-drawing-ai",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_ANON_KEY,Authorization:"Bearer "+SUPABASE_ANON_KEY},body:JSON.stringify(body),signal:c.signal})}
+  const tok=await sbToken();const c=new AbortController(),t=setTimeout(()=>c.abort(),170000);let r;
+  try{r=await fetch(SUPABASE_URL+"/functions/v1/quote-from-drawing-ai",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_ANON_KEY,Authorization:"Bearer "+tok},body:JSON.stringify(body),signal:c.signal})}
   catch(e){throw new Error(e.name==="AbortError"?"The AI took too long. Try again.":"Could not reach the AI service.")}finally{clearTimeout(t)}
-  const d=await r.json().catch(()=>({}));if(!r.ok||!d.result)throw new Error(d.error||("AI service error "+r.status));return d.result}};
+  const d=await r.json().catch(()=>({}));if(r.status===401)lockGate(d.error);if(!r.ok||!d.result)throw new Error(d.error||("AI service error "+r.status));return d.result}};
 const DL={save:async({filename,data})=>{const a=document.createElement("a");a.href=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type:/\.csv$/i.test(filename)?"text/csv":"text/plain"}));a.download=filename;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}};
 window.claude={use:async n=>n==="sample"?SAMPLE:n==="downloads"?DL:null};
 </script>
