@@ -14,7 +14,7 @@
 *{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 "DM Sans",Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
 header{background:var(--br);color:#fff;display:flex;align-items:center;gap:12px;padding:12px 18px;position:sticky;top:0;z-index:20}
-header h1{font:800 17px Manrope,system-ui;margin:0;font-weight:650;letter-spacing:.2px}header small{color:#9fb6c6;margin-left:auto}
+header h1{font:800 17px Manrope,system-ui;margin:0;font-weight:650;letter-spacing:.2px}
 .logo{width:28px;height:28px;border-radius:7px;background:var(--ac);color:var(--ac2);display:grid;place-items:center;font-weight:800}
 .layout{display:flex;align-items:flex-start}
 aside{width:340px;flex:none;background:var(--card);border-right:1px solid var(--bd);height:calc(100vh - 53px);position:sticky;top:53px;display:flex;flex-direction:column;transition:margin .2s}
@@ -79,7 +79,7 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 #gate button{width:100%;margin-top:18px;padding:11px}#gate button.lnk{background:transparent;color:var(--ac);margin-top:8px;padding:6px;font-weight:600}
 #gate form[hidden],#gate div[hidden]{display:none}#gSt{margin-top:12px;min-height:1.2em;font-size:13px}#gSt.bad{color:var(--er)}#gSt.ok{color:#1f9d55}
 #gate .gf{max-width:420px;margin:14px auto 0;font-size:12px;color:var(--mut);display:flex;justify-content:space-between;gap:12px}#gate .gf a{color:var(--ac);text-decoration:none;font-weight:600}
-#who{color:#cfe0ef;font-size:12px;display:flex;align-items:center;gap:8px;white-space:nowrap}#who button{padding:3px 9px;font-size:12px;background:transparent;color:#fff;border:1px solid #3a566a}
+#who{margin-left:auto;color:#cfe0ef;font-size:12px;display:flex;align-items:center;gap:8px;white-space:nowrap}#who button{padding:3px 9px;font-size:12px;background:transparent;color:#fff;border:1px solid #3a566a}
 @media(max-width:760px){#who span{display:none}}
 #accBtn{position:relative}#accBtn b{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;border-radius:9px;background:#e0201b;color:#fff;font-size:11px;line-height:18px;padding:0 5px}#accBtn b[hidden]{display:none}
 #acc{position:fixed;inset:0;z-index:900;background:rgba(9,20,30,.45);display:flex;justify-content:flex-end}#acc[hidden]{display:none}
@@ -127,7 +127,7 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <h3>Other accounts</h3><div id="accOff"></div>
 </div></div>
 <div id="accToast" role="status" hidden><span id="accToastT"></span><button type="button" id="accToastB">Review</button></div>
-<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><small>DQM Service CU manual rev 40</small><div id="who" hidden><button type="button" id="accBtn" hidden title="Who can use Create Quote">Access<b id="accN" hidden></b></button><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
+<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><div id="who" hidden><button type="button" id="accBtn" hidden title="Who can use Create Quote">Access<b id="accN" hidden></b></button><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
 <div class="layout">
 <aside id="sb"><div class="ah"><input id="q" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
 <main>
