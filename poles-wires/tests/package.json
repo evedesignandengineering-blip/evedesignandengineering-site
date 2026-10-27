@@ -2,6 +2,6 @@
   "name": "poles-wires-tests",
   "private": true,
   "description": "Regression tests for the Poles and Wires tool. Set PNW_FIXTURES to the folder with the reference files.",
-  "scripts": { "test": "node --test regression.test.js" },
+  "scripts": { "test": "node --test regression.test.js model.test.js" },
   "devDependencies": { "xlsx": "0.18.5" }
 }

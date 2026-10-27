@@ -15,7 +15,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261027"></script>
+<script src="pnw-core.js?v=20261028"></script>
+<script src="pnw-model.js?v=20261028"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module" src="view3d.js?v=20261028"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#09284b;--ink:#172638;--muted:#64748b;--line:#dbe4ed;--bg:#f2f6fa;--blue:#2f6ea4;--teal:#0f766e;--white:#fff;--bad:#b42318;--warn:#b54708;--ok:#1f7a45;--ground:#2f6ea4;--pole:#c2410c;color-scheme:light}
@@ -122,6 +125,31 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
 .exp b{font:800 13px Manrope;color:var(--navy)}.exp p{margin:0;font-size:11.5px;color:var(--muted)}
 .issues-list{margin:0;padding-left:18px;font-size:11.5px}.issues-list li{margin:2px 0}
 .issues-list li.error{color:var(--bad)}.issues-list li.warning{color:var(--warn)}
+.viewbar{position:absolute;z-index:600;top:10px;left:54px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #d9e3ed;border-radius:9px;padding:3px;box-shadow:0 2px 10px #0b1c2c12}
+.viewbar button{border:0;background:none;border-radius:6px;padding:5px 9px;font-weight:700;font-size:11px;color:#36506b}.viewbar button.on{background:#e8f1fb;color:#123e66}
+.viewbar select{border:1px solid #d9e3ed;border-radius:6px;padding:4px 6px;font-size:11px;margin-left:4px}
+.v-3d .viewbar,.v-profile .viewbar,.v-split .viewbar{left:10px}
+.v3only,.nonplan{display:none}.v-3d .v3only,.v-split .v3only{display:inline}.v-3d .nonplan,.v-profile .nonplan,.v-split .nonplan{display:inline}
+.sagnote{position:absolute;z-index:600;top:48px;left:10px;right:10px;margin:0;font-size:10.5px;color:#43566d;pointer-events:none;text-shadow:0 0 3px #fff}
+#view3d,#profileView{position:absolute;inset:0;display:none;background:#eef3f7}
+#v3host{position:absolute;inset:0}.labels3d{position:absolute;inset:0;pointer-events:auto}
+.l3d{font:700 10px "DM Sans";color:#102b46;background:#ffffffd9;border:1px solid #9fb6cc;border-radius:4px;padding:0 4px;pointer-events:none}
+.v-3d #view3d{display:block}.v-profile #profileView{display:block}
+.v-split #view3d{display:block;bottom:38%}.v-split #profileView{display:block;top:62%;border-top:1px solid var(--line)}
+.v-3d #map,.v-profile #map,.v-split #map{visibility:hidden}
+.v-3d .map-over,.v-profile .map-over,.v-split .map-over,.v-3d .legend:not(.v3legend),.v-profile .legend,.v-split .legend:not(.v3legend),.v-3d .empty-map,.v-profile .empty-map,.v-split .empty-map{display:none}
+.v3legend{bottom:10px}.legend .sw{display:inline-block;width:16px;height:3px;border-radius:2px}
+.v3msg{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:var(--muted);font-size:12px;text-align:center;padding:20px}
+#profileView{background:#fff;padding:78px 8px 4px;overflow:hidden}.v-split #profileView{padding-top:6px}
+#profileView svg{display:block}#profileView .ax{font-size:10px;fill:#64748b}#profileView .pl{font:700 10px "DM Sans";fill:#172638}#profileView .pl.sel{fill:#b45309}
+#profileView .hit{cursor:pointer}.pv-legend{margin:0 0 2px 44px}
+.con-wrap{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}.con-title{font:800 12px Manrope;color:#102b46;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.con{border:1px solid #e3eaf1;border-radius:9px;padding:8px 9px;margin-top:7px}.con.add{background:#fbfdff}
+.con-h{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin-bottom:6px}.con-h small{color:var(--muted)}.con-h .pill{white-space:normal}
+.con .hint{margin:4px 0}.hint.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+table.att{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}table.att th{color:var(--muted);font-weight:700;text-align:left;font-size:10px}table.att td,table.att th{padding:2px 4px;border-bottom:1px solid #eef2f6}
+.muted{color:var(--muted)}.con.ai{background:#f7fbff}.ai-thumb{display:block;max-width:160px;border-radius:6px;margin:6px 0}.ai-m{border-top:1px solid #e3eaf1;padding:6px 0}.ai-m select{font-size:11px;padding:3px 5px;border:1px solid #d6e0eb;border-radius:6px;max-width:190px}.tag.ai{background:#e0f2fe;color:#075985}
+table.grid.reg td{vertical-align:top}table.grid td.wrap{white-space:normal;min-width:220px;max-width:360px}table.grid select{font-size:11px;padding:2px 4px;border:1px solid #d6e0eb;border-radius:6px}
 @media(max-width:980px){.workspace{grid-template-columns:1fr}.side{max-height:none;min-height:0}.map-wrap{height:62vh;min-height:420px}}
 @media(max-width:620px){.app{padding:10px 16px 30px}.toolbar .lbl{display:none}}
 </style>
@@ -145,19 +173,25 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
   <button class="btn on" id="tbLabels" title="Toggle labels" aria-pressed="true"><span class="ic">🏷</span><span class="lbl">Labels</span></button>
   <button class="btn" id="tbIssues" title="Show data-quality issues"><span class="ic">⚠</span><span class="lbl">Issues</span> <span class="pill mute" id="issueCount">0</span></button>
   <span class="sep"></span>
+  <button class="btn" id="tbUndo" title="Undo (Ctrl+Z)" disabled><span class="ic">↶</span><span class="lbl">Undo</span></button>
+  <button class="btn" id="tbRedo" title="Redo (Ctrl+Y)" disabled><span class="ic">↷</span><span class="lbl">Redo</span></button>
+  <span class="sep"></span>
   <button class="btn primary" id="tbGenerate" title="Generate ground profile"><span class="ic">▶</span><span class="lbl">Generate ground profile</span></button>
   <button class="btn" id="tbExport" title="Review and export"><span class="ic">⬇</span><span class="lbl">Export</span></button>
   <span class="grow"></span>
   <span class="status" id="status" role="status">Drop your files to start.</span>
   <button class="btn" id="tbSide" title="Collapse or expand the side panel"><span class="ic">◧</span></button>
+  <button class="btn" id="tbSave" title="Save everything to a project file you can reopen later"><span class="ic">💾</span><span class="lbl">Save</span></button>
+  <button class="btn" id="tbOpen" title="Open a saved project file"><span class="ic">📂</span><span class="lbl">Open</span></button>
+  <input type="file" id="projInput" accept=".json" hidden>
   <button class="btn" id="tbReset" title="Start a new project and remove saved data"><span class="ic">⟲</span><span class="lbl">New project</span></button>
-  <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv" hidden>
+  <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv,.pnwx,.txt,.json" hidden>
 </div>
 
 <div class="workspace" id="workspace">
   <aside class="panel side" aria-label="Project panel">
     <details open id="secFiles"><summary>Files and import <span class="count" id="fileCount"></span></summary><div class="sbody">
-      <div class="drop" id="drop"><b>Drop XLSX and CSV files here</b><small>QLINK LiDAR export, GIS pole export, inspections, defects, pole list or an existing ground profile</small><button class="btn small" id="pickBtn">Choose files…</button></div>
+      <div class="drop" id="drop"><b>Drop your files here</b><small>QLINK LiDAR export, GIS pole export, inspections, defects, pole list, an existing ground profile, saved PNW projects (.pnwx), PNW library tables (.txt), the DCSH register (.json) and DCSH Part 10 text</small><button class="btn small" id="pickBtn">Choose files…</button></div>
       <div class="files" id="files"></div>
     </div></details>
     <details open id="secProfile"><summary>Ground profile alignment <span class="count" id="alignCount"></span></summary><div class="sbody">
@@ -171,6 +205,7 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
         <button class="btn small" id="allPoles" title="Use every surveyed pole">Use all surveyed poles</button>
         <button class="btn small" id="autoOrder" title="Order poles along the line">Auto-order</button>
         <button class="btn small" id="reverse">Reverse</button>
+        <button class="btn small" id="useProj" hidden title="Take pole order and lengths from the linked PNW project">Use PNW project order and lengths</button>
         <button class="btn small" id="useRef" hidden title="Take pole order and lengths from the reference ground profile">Use reference order and lengths</button>
       </div>
       <ol class="align-list" id="alignList"></ol>
@@ -205,8 +240,17 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
     </div></details>
   </aside>
 
-  <section class="panel map-wrap" aria-label="Map">
+  <section class="panel map-wrap v-plan" id="mapWrap" aria-label="Map, 3D and profile views">
     <div id="map"></div>
+    <div id="view3d"><div id="v3host"></div><p class="v3msg" id="v3empty" hidden>No poles with coordinates and ground levels yet.</p>
+      <div class="legend v3legend"><span><b class="sw" style="background:#c2410c"></b>HV conductor</span><span><b class="sw" style="background:#2f6ea4"></b>LV conductor</span><span><b class="sw" style="background:#64748b"></b>Running earth</span><span><b class="sw" style="background:#5b4636;opacity:.5"></b>Embedment (below ground)</span><span class="muted">Crossarm +x assumed to the right looking along chainage</span></div>
+    </div>
+    <div id="profileView"></div>
+    <div class="viewbar" role="group" aria-label="View"><button data-view="plan" class="on">Plan</button><button data-view="3d">3D</button><button data-view="profile">Profile</button><button data-view="split">3D + profile</button>
+      <span class="v3only"><button id="v3fit" title="Fit the 3D view">Fit</button></span>
+      <span class="nonplan"><select id="sagMode" aria-label="Sag"><option value="none">No sag (chords)</option><option value="dcsh">Sag from DCSH Part 10 tables</option><option value="illustrative">Illustrative sag (w·L²/8T)</option></select><select id="sagTemp" aria-label="Temperature" hidden></select></span>
+    </div>
+    <p class="sagnote nonplan" id="sagNote"></p>
     <div class="map-over"><select id="basemap" aria-label="Basemap"><option value="street">Street map</option><option value="esri">Aerial imagery</option><option value="light">Light</option></select></div>
     <div class="legend" aria-label="Map legend">
       <span><i style="border-color:#2f6ea4;background:#2f6ea4"></i>Pole in profile (LiDAR)</span>
@@ -222,6 +266,8 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
   <div class="tabs" role="tablist">
     <button class="on" data-tab="poles" role="tab">Poles</button>
     <button data-tab="issues" role="tab">Issues</button>
+    <button data-tab="register" role="tab">Construction register</button>
+    <button data-tab="log" role="tab">Change log</button>
     <div class="tools"><input id="search" type="search" placeholder="Search pole, equipment no…" aria-label="Search"><select id="filter" aria-label="Filter"><option value="all">All poles</option><option value="profile">In profile</option><option value="error">With errors</option><option value="warning">With warnings</option><option value="unmatched">Not matched across files</option></select></div>
   </div>
   <div class="tablewrap" id="tableWrap"></div>
@@ -237,6 +283,6 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
 
 <footer><a class="footer-brand" href="../#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer>
 </div>
-<script src="app.js?v=20261027"></script>
+<script src="app.js?v=20261028"></script>
 </body>
 </html>
