@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#153f61">
+<meta name="description" content="Turn LiDAR survey, GIS and inspection exports into a Poles 'n' Wires ground profile on an interactive map.">
+<link rel="canonical" href="https://evedesignandengineering.com/poles-wires/">
+<link rel="stylesheet" href="../styles.css?v=20261018-audit">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<title>Poles &amp; Wires Ground Profile | EVE Design &amp; Engineering</title>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="pnw-core.js?v=20261027"></script>
+<style>
+/* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
+:root{--navy:#09284b;--ink:#172638;--muted:#64748b;--line:#dbe4ed;--bg:#f2f6fa;--blue:#2f6ea4;--teal:#0f766e;--white:#fff;--bad:#b42318;--warn:#b54708;--ok:#1f7a45;--ground:#2f6ea4;--pole:#c2410c;color-scheme:light}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 "DM Sans",Arial,sans-serif}
+button,input,select{font:inherit}button{cursor:pointer}
+.app{max-width:1700px;margin:auto;padding:16px 20px 40px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px;flex-wrap:wrap}
+.brandline{display:flex;align-items:center;gap:12px}
+.brandmark{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#0f766e,#2563eb);color:#fff;display:grid;place-items:center;font-weight:900;font-size:13px}
+.brandline h1{font:800 20px/1.2 Manrope;margin:0;color:var(--navy)}.brandline p{margin:3px 0 0;color:var(--muted);font-size:11px}
+.steps{display:flex;gap:4px;list-style:none;margin:0;padding:0;flex-wrap:wrap}
+.steps li{font-size:10.5px;font-weight:700;color:#7a8a9c;padding:5px 10px;border-radius:99px;background:#fff;border:1px solid var(--line)}
+.steps li.done{color:var(--ok);border-color:#b7e1c8;background:#f1faf4}.steps li.now{color:#fff;background:var(--blue);border-color:var(--blue)}
+.btn{border:1px solid #d4deea;background:#fff;border-radius:9px;padding:8px 11px;color:#21354c;font-weight:700;font-size:11.5px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{border-color:#90a9c2;background:#f8fbff}.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:linear-gradient(110deg,#0f766e,#2563eb);border-color:transparent;color:#fff}
+.btn.on{background:#e8f1fb;border-color:#7aa6d6;color:#123e66}
+.btn.small{padding:4px 8px;font-size:11px;border-radius:7px}
+.btn .ic{font-size:14px;line-height:1}
+.toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:7px;margin-bottom:10px}
+.toolbar .sep{width:1px;height:24px;background:var(--line);margin:0 3px}
+.toolbar .grow{flex:1}
+.status{font-size:11.5px;color:var(--muted)}.status.bad{color:var(--bad)}.status.good{color:var(--ok)}
+.workspace{display:grid;grid-template-columns:330px minmax(0,1fr);gap:10px}
+.workspace.collapsed{grid-template-columns:0 minmax(0,1fr)}.workspace.collapsed .side{display:none}
+.panel{background:#fff;border:1px solid var(--line);border-radius:13px;overflow:hidden;min-width:0}
+.side{max-height:calc(100vh - 150px);min-height:620px;overflow:auto}
+.side details{border-bottom:1px solid var(--line)}.side details:last-child{border-bottom:0}
+.side summary{padding:11px 14px;font:800 12.5px Manrope;color:#102b46;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;background:#fbfdff}
+.side summary::-webkit-details-marker{display:none}.side summary:after{content:"▸";color:#8aa0b6}.side details[open]>summary:after{content:"▾"}
+.side summary .count{font:700 10.5px "DM Sans";color:var(--muted);margin-left:auto;margin-right:8px}
+.sbody{padding:10px 14px 14px}
+.field{display:grid;gap:3px;margin-bottom:8px}.field label{font-size:10.5px;font-weight:800;color:#43566d}
+.field input,.field select{width:100%;padding:7px 9px;border:1px solid #d6e0eb;border-radius:8px;background:#fff;color:#182b40;outline:none;margin:0;font-size:12px}
+.field input:focus,.field select:focus{border-color:#4f83c5;box-shadow:0 0 0 3px #2563eb18}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hint{background:#f4f8fc;border:1px solid #e0e9f2;padding:8px 10px;border-radius:8px;font-size:11px;color:#55677e;margin:8px 0 0}
+.drop{border:2px dashed #9db8d4;border-radius:12px;background:#f6faff;padding:18px 12px;text-align:center;color:#33506e;transition:.15s}
+.drop.over{background:#e6f0fb;border-color:var(--blue)}
+.drop b{display:block;font:800 14px Manrope;color:var(--navy);margin-bottom:3px}.drop small{display:block;color:var(--muted);font-size:11px;margin-bottom:8px}
+.files{display:grid;gap:6px;margin-top:10px}
+.file{border:1px solid #e3eaf1;border-radius:9px;padding:8px 9px;font-size:11.5px}
+.file .fn{font-weight:700;word-break:break-all}.file .meta{color:var(--muted);font-size:10.5px}
+.file select{margin-top:5px;width:100%;padding:4px 6px;border:1px solid #d6e0eb;border-radius:6px;font-size:11px}
+.file .acts{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap}
+.file details summary{padding:4px 0 0;background:none;font:600 10.5px "DM Sans";color:var(--blue)}
+.file details summary:after{content:""}.file details{border:0}
+.file .heads{font-size:10px;color:#506378;max-height:110px;overflow:auto}
+.pill{display:inline-block;font-size:10px;font-weight:800;border-radius:99px;padding:1px 7px;white-space:nowrap}
+.pill.ok{background:#e3f4ea;color:var(--ok)}.pill.warn{background:#fff1e0;color:var(--warn)}.pill.bad{background:#fde8e6;color:var(--bad)}.pill.info{background:#eaf1f8;color:#2b5a85}.pill.mute{background:#eef1f4;color:var(--muted)}
+.align-list{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px}
+.align-list li{display:grid;grid-template-columns:20px 1fr 66px auto;gap:5px;align-items:center;border:1px solid #e3eaf1;border-radius:8px;padding:5px 6px;font-size:11.5px}
+.align-list li.sel{border-color:#75a4d9;background:#f0f7ff}
+.align-list .n{font-weight:800;color:#7a8a9c;text-align:center}
+.align-list .id{font-weight:700;cursor:pointer}.align-list .id small{display:block;font-weight:500;color:var(--muted);font-size:10px}
+.align-list input{width:100%;padding:3px 5px;border:1px solid #d6e0eb;border-radius:6px;font-size:11.5px;margin:0}
+.align-list input.edited{border-color:#d97706;background:#fffbeb}
+.mini{display:flex;gap:2px}.mini button{border:1px solid #e0e7ef;background:#fff;border-radius:5px;width:22px;height:22px;padding:0;font-size:11px;color:#36506b}
+.btnrow{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.props{width:100%;border-collapse:collapse;font-size:11.5px}.props th{text-align:left;color:var(--muted);font-weight:600;padding:3px 6px 3px 0;vertical-align:top;width:44%}.props td{padding:3px 0;word-break:break-word}
+.props tr.sec th{color:#102b46;font-weight:800;padding-top:9px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em}
+.tag{font-size:9.5px;font-weight:800;padding:0 5px;border-radius:4px;margin-left:4px}.tag.src{background:#e3f4ea;color:var(--ok)}.tag.der{background:#efe9ff;color:#5b3fb5}.tag.edit{background:#fff1e0;color:var(--warn)}
+.map-wrap{position:relative;height:calc(100vh - 150px);min-height:620px}
+#map{position:absolute;inset:0;background:#e9eef3}
+.map-over{position:absolute;z-index:500;top:10px;right:10px;display:flex;gap:6px;align-items:center}
+.map-over select{border:1px solid #d9e3ed;border-radius:8px;padding:6px 8px;font-size:11px;font-weight:700;background:#fff;box-shadow:0 2px 10px #0b1c2c12}
+.legend{position:absolute;z-index:500;left:10px;bottom:22px;background:#fffffff2;border:1px solid #d9e3ed;border-radius:9px;padding:7px 10px;font-size:10.5px;display:grid;gap:3px;box-shadow:0 2px 10px #0b1c2c12}
+.legend span{display:flex;align-items:center;gap:6px}.legend i{display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid}
+.empty-map{position:absolute;z-index:450;inset:0;display:grid;place-items:center;pointer-events:none}
+.empty-map div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 22px;max-width:380px;text-align:center;color:var(--muted);pointer-events:auto;box-shadow:0 8px 24px #0b1c2c14}
+.empty-map b{display:block;font:800 15px Manrope;color:var(--navy);margin-bottom:4px}
+.pole-label{background:#fff;border:1px solid #9fb6cc;border-radius:5px;padding:0 4px;font:700 10px "DM Sans";color:#102b46;box-shadow:none}
+.pole-label:before{display:none}
+.span-label{background:#ffffffe6;border:0;border-radius:4px;padding:0 4px;font:600 9.5px "DM Sans";color:#5b3fb5;box-shadow:none}.span-label:before{display:none}
+.tablepanel{margin-top:10px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:6px 8px 0;background:#fbfdff;align-items:flex-end;flex-wrap:wrap}
+.tabs button{border:1px solid transparent;border-bottom:0;background:none;padding:7px 12px;font-weight:700;font-size:12px;color:#5b6f86;border-radius:8px 8px 0 0}
+.tabs button.on{background:#fff;border-color:var(--line);color:var(--navy);margin-bottom:-1px}
+.tabs .tools{margin-left:auto;display:flex;gap:6px;padding-bottom:5px}
+.tabs .tools input,.tabs .tools select{border:1px solid #d6e0eb;border-radius:7px;padding:5px 8px;font-size:11.5px;margin:0;width:auto}
+.tablewrap{max-height:360px;overflow:auto}
+table.grid{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+table.grid th{position:sticky;top:0;background:#f7f9fb;text-align:left;font-size:10.5px;color:#55677e;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
+table.grid th.sorted:after{content:" ▴"}table.grid th.sorted.desc:after{content:" ▾"}
+table.grid td{padding:5px 9px;border-bottom:1px solid #edf1f5;white-space:nowrap}
+table.grid tr:hover td{background:#f6f9fd}table.grid tr.sel td{background:#e8f1fb}
+table.grid td.num{text-align:right}table.grid td.miss{color:var(--bad);font-weight:700}
+.dlg{position:fixed;inset:0;z-index:2000;background:#0b1c2c66;display:grid;place-items:center;padding:16px}
+.dlg-card{background:#fff;border-radius:14px;width:min(1180px,100%);max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 20px 60px #0b1c2c40}
+.dlg-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2}
+.dlg-head h2{font:800 18px Manrope;color:var(--navy);margin:0}
+.dlg-body{padding:16px 18px;display:grid;gap:16px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:9px 11px}.tile small{display:block;color:var(--muted);font-size:10.5px;font-weight:700}.tile b{font:800 20px Manrope;color:var(--navy)}
+.tile.bad b{color:var(--bad)}.tile.warn b{color:var(--warn)}
+h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
+.chart{border:1px solid var(--line);border-radius:10px;padding:8px;position:relative}
+.chart svg{width:100%;height:auto;display:block}
+.chart .tt{position:absolute;pointer-events:none;background:#102b46;color:#fff;border-radius:7px;padding:6px 8px;font-size:11px;line-height:1.35;white-space:nowrap}
+.chart-legend{display:flex;gap:16px;font-size:11px;color:#43566d;margin:0 0 2px 4px;flex-wrap:wrap}.chart-legend span{display:flex;align-items:center;gap:6px;white-space:nowrap}.chart-legend svg{flex:none;width:22px;height:8px}.chart-note{margin:0 0 4px 4px;font-size:10.5px;color:var(--muted)}
+.exports{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.exp{border:1px solid var(--line);border-radius:10px;padding:11px 12px;display:grid;gap:6px;align-content:start}
+.exp b{font:800 13px Manrope;color:var(--navy)}.exp p{margin:0;font-size:11.5px;color:var(--muted)}
+.issues-list{margin:0;padding-left:18px;font-size:11.5px}.issues-list li{margin:2px 0}
+.issues-list li.error{color:var(--bad)}.issues-list li.warning{color:var(--warn)}
+@media(max-width:980px){.workspace{grid-template-columns:1fr}.side{max-height:none;min-height:0}.map-wrap{height:62vh;min-height:420px}}
+@media(max-width:620px){.app{padding:10px 16px 30px}.toolbar .lbl{display:none}}
+</style>
+</head>
+<body>
+<div class="site">
+<header class="nav"><a class="brand" href="../#home" aria-label="EVE Design and Engineering main website"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><nav aria-label="Primary navigation"><a href="../#home">Home</a><a href="../#about">About</a><a href="../#services">Services</a><a href="../portfolio.html">Portfolio</a><a class="active" href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav><a class="nav-cta" href="../#contact">Get in Touch <b>→</b></a></header>
+<main class="app">
+<div class="top">
+  <div class="brandline"><div class="brandmark">PnW</div><div><h1>Poles &amp; Wires Ground Profile</h1><p>LiDAR survey · GIS · inspections → ground profile and Poles 'n' Wires files</p></div></div>
+  <ol class="steps" id="steps" aria-label="Workflow"><li>Import</li><li>Validate</li><li>Inspect</li><li>Generate</li><li>Review</li><li>Export</li></ol>
+</div>
+
+<div class="toolbar" role="toolbar" aria-label="Engineering tools">
+  <button class="btn primary" id="tbUpload" title="Upload source files"><span class="ic">⇪</span><span class="lbl">Upload files</span></button>
+  <button class="btn" id="tbImport" title="Import additional files"><span class="ic">＋</span><span class="lbl">Import more</span></button>
+  <span class="sep"></span>
+  <button class="btn" id="tbFit" title="Zoom to project"><span class="ic">⤢</span><span class="lbl">Zoom to project</span></button>
+  <button class="btn on" id="tbSelect" title="Select and inspect assets" aria-pressed="true"><span class="ic">➤</span><span class="lbl">Select</span></button>
+  <button class="btn" id="tbLayers" title="Show layer controls"><span class="ic">☰</span><span class="lbl">Layers</span></button>
+  <button class="btn on" id="tbLabels" title="Toggle labels" aria-pressed="true"><span class="ic">🏷</span><span class="lbl">Labels</span></button>
+  <button class="btn" id="tbIssues" title="Show data-quality issues"><span class="ic">⚠</span><span class="lbl">Issues</span> <span class="pill mute" id="issueCount">0</span></button>
+  <span class="sep"></span>
+  <button class="btn primary" id="tbGenerate" title="Generate ground profile"><span class="ic">▶</span><span class="lbl">Generate ground profile</span></button>
+  <button class="btn" id="tbExport" title="Review and export"><span class="ic">⬇</span><span class="lbl">Export</span></button>
+  <span class="grow"></span>
+  <span class="status" id="status" role="status">Drop your files to start.</span>
+  <button class="btn" id="tbSide" title="Collapse or expand the side panel"><span class="ic">◧</span></button>
+  <button class="btn" id="tbReset" title="Start a new project and remove saved data"><span class="ic">⟲</span><span class="lbl">New project</span></button>
+  <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv" hidden>
+</div>
+
+<div class="workspace" id="workspace">
+  <aside class="panel side" aria-label="Project panel">
+    <details open id="secFiles"><summary>Files and import <span class="count" id="fileCount"></span></summary><div class="sbody">
+      <div class="drop" id="drop"><b>Drop XLSX and CSV files here</b><small>QLINK LiDAR export, GIS pole export, inspections, defects, pole list or an existing ground profile</small><button class="btn small" id="pickBtn">Choose files…</button></div>
+      <div class="files" id="files"></div>
+    </div></details>
+    <details open id="secProfile"><summary>Ground profile alignment <span class="count" id="alignCount"></span></summary><div class="sbody">
+      <div class="row2">
+        <div class="field"><label for="profileSel">Profile</label><select id="profileSel"></select></div>
+        <div class="field"><label for="profileName">Name (file name)</label><input id="profileName" placeholder="e.g. MP219050"></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn small" id="newProfile" title="Start another profile from the same data">New profile</button>
+        <button class="btn small" id="delProfile">Delete</button>
+        <button class="btn small" id="allPoles" title="Use every surveyed pole">Use all surveyed poles</button>
+        <button class="btn small" id="autoOrder" title="Order poles along the line">Auto-order</button>
+        <button class="btn small" id="reverse">Reverse</button>
+        <button class="btn small" id="useRef" hidden title="Take pole order and lengths from the reference ground profile">Use reference order and lengths</button>
+      </div>
+      <ol class="align-list" id="alignList"></ol>
+      <p class="hint" id="alignHint">Click a pole on the map, then <b>Add to profile</b>. Pole length starts as the existing length from GIS or inspections; type a new length for a proposed pole. Setting depth = 10% of length + 0.6 m, height above ground = length − setting depth.</p>
+      <details id="secSegments"><summary style="padding:8px 0;background:none">Circuit segments (optional) <span class="count" id="segCount"></span></summary>
+        <div id="segments"></div>
+        <button class="btn small" id="addSeg">Add segment</button>
+        <p class="hint">Only needed if you want the Segments sheet of the workbook filled (manual §10.1.3); your current workbooks leave it empty. Use PNW conductor codes (for example LI, 7/14CU, IOD). Nothing is filled in for you.</p>
+      </details>
+    </div></details>
+    <details open id="secSelected"><summary>Selected asset</summary><div class="sbody" id="selected"><p class="status">Click a pole on the map or in the table.</p></div></details>
+    <details id="secLayers"><summary>Layers</summary><div class="sbody">
+      <label><input type="checkbox" id="lySurvey" checked> LiDAR surveyed poles</label><br>
+      <label><input type="checkbox" id="lyGis" checked> GIS pole positions (approximate)</label><br>
+      <label><input type="checkbox" id="lyAlign" checked> Profile alignment and spans</label><br>
+      <label><input type="checkbox" id="lySpanLbl" checked> Span lengths</label><br>
+      <label><input type="checkbox" id="lyExtent"> Project extent</label>
+      <p class="hint">Spans are drawn between consecutive poles in the profile order you set. The source files do not say which poles are wired together.</p>
+    </div></details>
+    <details id="secValidation"><summary>Validation <span class="count" id="valCount"></span></summary><div class="sbody" id="validation"></div></details>
+    <details id="secProject"><summary>Project and PNW settings</summary><div class="sbody">
+      <div class="field"><label for="zone">MGA zone of the survey coordinates</label><select id="zone"></select></div>
+      <div class="row2">
+        <div class="field"><label for="createdBy">PNW created_by</label><input id="createdBy" placeholder="your PNW user"></div>
+        <div class="field"><label for="optionSet">PNW option set</label><input id="optionSet"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="clr1">Clearance 1 (m)</label><input id="clr1" inputmode="decimal"></div>
+        <div class="field"><label for="clr2">Clearance 2 (m)</label><input id="clr2" inputmode="decimal"></div>
+      </div>
+      <p class="hint">These go only into the .pnwx file. The defaults come from your saved MP219050 project. The map converts MGA to lat/long for display only, so the basemap can be about 2 m out depending on the datum.</p>
+    </div></details>
+  </aside>
+
+  <section class="panel map-wrap" aria-label="Map">
+    <div id="map"></div>
+    <div class="map-over"><select id="basemap" aria-label="Basemap"><option value="street">Street map</option><option value="esri">Aerial imagery</option><option value="light">Light</option></select></div>
+    <div class="legend" aria-label="Map legend">
+      <span><i style="border-color:#2f6ea4;background:#2f6ea4"></i>Pole in profile (LiDAR)</span>
+      <span><i style="border-color:#2f6ea4;background:#fff"></i>Other surveyed pole</span>
+      <span><i style="border-color:#b42318;background:#fff"></i>Pole with an error</span>
+      <span><i style="border-color:#7a8a9c;background:transparent;border-style:dashed;border-radius:2px"></i>GIS position</span>
+    </div>
+    <div class="empty-map" id="emptyMap"><div><b>No poles yet</b>Drop the QLINK LiDAR export (and optionally the GIS, inspection and defect exports) onto this page.</div></div>
+  </section>
+</div>
+
+<section class="panel tablepanel" aria-label="Data table">
+  <div class="tabs" role="tablist">
+    <button class="on" data-tab="poles" role="tab">Poles</button>
+    <button data-tab="issues" role="tab">Issues</button>
+    <div class="tools"><input id="search" type="search" placeholder="Search pole, equipment no…" aria-label="Search"><select id="filter" aria-label="Filter"><option value="all">All poles</option><option value="profile">In profile</option><option value="error">With errors</option><option value="warning">With warnings</option><option value="unmatched">Not matched across files</option></select></div>
+  </div>
+  <div class="tablewrap" id="tableWrap"></div>
+</section>
+</main>
+
+<div class="dlg" id="review" hidden role="dialog" aria-modal="true" aria-labelledby="reviewTitle">
+  <div class="dlg-card">
+    <div class="dlg-head"><h2 id="reviewTitle">Review ground profile</h2><button class="btn" id="closeReview">Back to map</button></div>
+    <div class="dlg-body" id="reviewBody"></div>
+  </div>
+</div>
+
+<footer><a class="footer-brand" href="../#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer>
+</div>
+<script src="app.js?v=20261027"></script>
+</body>
+</html>
