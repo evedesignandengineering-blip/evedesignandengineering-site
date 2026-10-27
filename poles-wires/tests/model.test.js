@@ -189,3 +189,26 @@ test('DCSH Part 10 stringing tables: sag read from the table and scaled from the
   assert.match(M.tableSag(li, 'final', 15, 90, 90).reason, /outside the table/);
   assert.ok(Math.abs(M.rulingSpan([30, 40]) - Math.sqrt((27000 + 64000) / 70)) < 1e-12);
 });
+
+test('design editing: add a pole, string a strain section, change and remove them', { skip: have ? false : 'fixtures not found' }, () => {
+  const src = read(FILES[0]), p = M.readPnwx(src);
+  // MES in Ishan's project is the ruling span of the section
+  assert.equal(p.segments[0].MES, '38.93');
+  M.addPole(p, { id: 'NEW1', chainage: 15, length: 12.5, sunk: 1.85 });
+  assert.deepEqual(p.poles.map((r) => r.ID), ['S119846', 'NEW1', 'S119850', 'S120776', 'S120378']);
+  assert.ok(M.groundAt(p, 15) != null, 'a ground point is added at the new pole');
+  const c = M.addConstruction(p, 'NEW1', { code: 'LV1', kingbolt: 10.42, attachments: [{ x: -1, y: 0, order: 1 }, { x: 1, y: 0, order: 2 }], isNew: true });
+  assert.equal(M.updatePole(p, 'NEW1', { length: 14, sunk: 2 }).shift, 1.35);
+  assert.equal(p.constructions.find((r) => r.unique === c.unique).attht, '11.77');
+  const lv = p.constructions.find((r) => r.pole === 'S119846' && /^LV/.test(r.code));
+  const name = M.addSection(p, { conductor: { code: 'NEWC', name: 'Test', cbl: 10, mass: 0.2 }, tension: 8, poles: [{ id: 'S119846', unique: lv.unique }, { id: 'NEW1', unique: c.unique }] });
+  assert.equal(name, 'SS3');
+  const q = M.readPnwx(M.writePnwx(p));
+  assert.equal(q.segments.find((s) => s.StrainSect === 'SS3').numconds, '2');
+  assert.equal(q.conditions.filter((r) => r.strsection === 'SS3').length, 4);
+  assert.ok(q.conductors.some((r) => r.Code === 'NEWC'));
+  assert.equal(M.designModel(q, {}).wires.filter((w) => w.segment === 'SS3').length, 2);
+  assert.throws(() => M.removePole(q, 'NEW1'), /strain section SS3/);
+  M.removeSection(q, 'SS3'); M.removePole(q, 'NEW1');
+  assert.equal(q.poles.length, 4); assert.equal(q.segments.length, 2); assert.equal(q.segPoles.length, 8); assert.equal(q.constructions.length, 8);
+});

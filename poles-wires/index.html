@@ -146,7 +146,7 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
 .con-wrap{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}.con-title{font:800 12px Manrope;color:#102b46;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .con{border:1px solid #e3eaf1;border-radius:9px;padding:8px 9px;margin-top:7px}.con.add{background:#fbfdff}
 .con-h{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin-bottom:6px}.con-h small{color:var(--muted)}.con-h .pill{white-space:normal}
-.con .hint{margin:4px 0}.hint.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+.con .hint{margin:4px 0}.secform{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.addpole{margin-top:6px}.att input{width:64px;padding:2px 4px}.addpole summary{cursor:pointer;font-weight:700;font-size:12px}.hint.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
 table.att{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}table.att th{color:var(--muted);font-weight:700;text-align:left;font-size:10px}table.att td,table.att th{padding:2px 4px;border-bottom:1px solid #eef2f6}
 .muted{color:var(--muted)}.con.ai{background:#f7fbff}.ai-thumb{display:block;max-width:160px;border-radius:6px;margin:6px 0}.ai-m{border-top:1px solid #e3eaf1;padding:6px 0}.ai-m select{font-size:11px;padding:3px 5px;border:1px solid #d6e0eb;border-radius:6px;max-width:190px}.tag.ai{background:#e0f2fe;color:#075985}
 table.grid.reg td{vertical-align:top}table.grid td.wrap{white-space:normal;min-width:220px;max-width:360px}table.grid select{font-size:11px;padding:2px 4px;border:1px solid #d6e0eb;border-radius:6px}
@@ -267,6 +267,7 @@ table.grid.reg td{vertical-align:top}table.grid td.wrap{white-space:normal;min-w
     <button class="on" data-tab="poles" role="tab">Poles</button>
     <button data-tab="issues" role="tab">Issues</button>
     <button data-tab="register" role="tab">Construction register</button>
+    <button data-tab="sections" role="tab">Strain sections</button>
     <button data-tab="log" role="tab">Change log</button>
     <div class="tools"><input id="search" type="search" placeholder="Search pole, equipment no…" aria-label="Search"><select id="filter" aria-label="Filter"><option value="all">All poles</option><option value="profile">In profile</option><option value="error">With errors</option><option value="warning">With warnings</option><option value="unmatched">Not matched across files</option></select></div>
   </div>

@@ -28,6 +28,17 @@ all kept outside this repo: the PNW library tables pasted from PNW (`.txt`), the
 | Sag | Off by default. "DCSH Part 10": sag at the ruling span (√(ΣL³/ΣL)) from the matched or chosen table, existing/final row, scaled by (L/RS)². "Illustrative": w·L²/8T at the stringing tension |
 | Construction status | Approved only when an engineer sets it in the register. Otherwise compared with the DCSH register (5 mm tolerance) and marked for engineering review |
 
+With no saved project, "Start a design from this ground profile" (in the pole panel) uses the generated `.pnwx` as the design.
+In the design you can:
+
+- edit a pole's length, setting depth and "new" flag, or pick a PNW library pole type. Constructions move with the tip so they keep their distance below it.
+- add a pole on the ground line at a distance from another pole. A ground point is added at its chainage, interpolated from the profile. Remove a pole that is not in a strain section.
+- add, recode or remove constructions and type their attachment points. Typed points are logged as manual and stay under engineering review.
+- string conductors in the Strain sections tab. Choose the end poles and the circuit (construction code prefix); every pole in between is included. The conductor is copied from the PNW library into Table4, MES is set to the ruling span (it matches the saved projects), and load conditions are copied from an existing section or default to the saved projects' set. Change the conductor, tension or DCSH sag table, or remove a section.
+
+New rows carry every field PNW 7 writes, in PNW's order. A private copy can set `window.PNW_BUILTIN` (library,
+DCSH register, Part 10 text, known layouts) so nothing needs uploading. That data stays outside this repo.
+
 Every edit writes into the project XML through `pnw-model.js`, which keeps every other byte unchanged (the four
 saved projects round-trip byte for byte). Edits are undoable, logged with original, proposed and approved value,
 source (manual, calculated, AI suggestion) and reference, and exported as the updated `.pnwx` plus a CSV change log.

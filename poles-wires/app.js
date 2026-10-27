@@ -204,7 +204,11 @@
         '<select data-role="' + i + '" aria-label="Role of ' + esc(f.name) + '">' + opts + '</select>') +
         '<details><summary>Sheets and headers</summary><div class="heads">' + heads + '</div></details>' +
         '<div class="acts"><button class="btn small" data-replace="' + i + '">Replace…</button><button class="btn small" data-remove="' + i + '">Remove</button></div></div>';
-    }).join('');
+    }).join('') + builtinNote();
+  }
+  function builtinNote() {
+    var roles = Object.keys(BUILTIN); if (!roles.length) return '';
+    return '<p class="hint">Built in: ' + roles.map(function (r) { var used = filesOf(r)[0] === BUILTIN[r]; return esc(BUILTIN[r].name) + (used ? '' : ' <small>(replaced by your file)</small>'); }).join(' · ') + '. Drop your own file to use a newer copy.</p>';
   }
   $('files').addEventListener('change', function (e) { var i = e.target.dataset.role; if (i != null) reassign(S.files[+i].name, e.target.value); });
   var replaceIdx = null;
@@ -346,6 +350,7 @@
     if (tab === 'issues') return renderIssueTable();
     if (tab === 'register') return renderRegister();
     if (tab === 'log') return renderLog();
+    if (tab === 'sections') return renderSections();
     var q = $('search').value.trim().toLowerCase(), f = $('filter').value;
     var list = Object.keys(merged.poles).map(function (id) { return merged.poles[id]; }).filter(function (p) {
       if (q && (p.id + ' ' + (p.survey ? p.survey.equipNo : '') + ' ' + (p.gis ? p.gis.equipNo + ' ' + p.gis.description : '')).toLowerCase().indexOf(q) < 0) return false;
@@ -516,7 +521,10 @@
       return Object.assign(base, { role: 'stringing', summary: st.tables.length + ' stringing tables read' + (st.issues.length ? ', ' + st.issues.length + ' not readable' : ''), issues: st.issues.map(function (m) { return txtIssue(name, 'info', m); }) });
     throw new Error('not a PNW project, PNW library tables, DCSH register or DCSH Part 10 text.');
   }
-  function filesOf(role) { return S.files.filter(function (f) { return f.role === role && f.status === 'ok' && f.text; }); }
+  // Reference data built into a private copy of the page (window.PNW_BUILTIN); a file the user drops replaces it.
+  var BUILTIN = {};
+  Object.keys(window.PNW_BUILTIN || {}).forEach(function (r) { var b = window.PNW_BUILTIN[r]; if (!TEXT_ROLES[r]) return; BUILTIN[r] = { name: b.name, text: b.text, role: r, status: 'ok', builtin: true }; });
+  function filesOf(role) { var l = S.files.filter(function (f) { return f.role === role && f.status === 'ok' && f.text; }); return l.length || !BUILTIN[role] ? l : [BUILTIN[role]]; }
   function dcshReg() { var f = filesOf('dcsh').slice(-1)[0]; return f ? cached(f, M.parseDcshRegister) : null; }
   function stringing() { var f = filesOf('stringing').slice(-1)[0]; return f ? cached(f, M.parseStringingTables).tables : []; }
 
@@ -557,7 +565,7 @@
   }
   function poleTypeFor(id, len) {
     if (!lib) return null;
-    var t = project && project.tiploads[id] && project.tiploads[id].attrs.poletype;
+    var t = (S.design.poleTypes || {})[id] || (project && project.tiploads[id] && project.tiploads[id].attrs.poletype);
     if (t) { var hit = lib.poles.filter(function (x) { return x.code === t; })[0]; if (hit) return hit; }
     var g = merged.poles[id] && merged.poles[id].gis, m = M.matchPoleType(lib, g && g.stock, len);
     return m.length ? m[0].pole : null;
@@ -681,6 +689,105 @@
     S.design.log = liveLog().concat([logEntry('', r ? r.code : id, 'Register status', before, v || 'review', 'manual', r && r.dcsh ? 'DCSH ' + r.dcsh.drawing : '')]);
     recompute();
   });
+  /* strain sections: conductors strung between constructions, edited in the linked project (Table3, Table4, Table6, Table7) */
+  function startDesign() {
+    if (!built || built.rows.length < 2) { setStatus('Build a ground profile with at least two poles first.', 'bad'); return; }
+    var name = 'Ground Profile - ' + baseName() + ' (design).pnwx', text = pnwxText(), r = importText(name, text);
+    r.size = text.length; r.status = 'ok'; upsertFile(r);
+    S.design = Object.assign(blankDesign(), { register: S.design.register, link: name });
+    recompute(); setStatus('Started a design from the ground profile. Add constructions to each pole, then string conductors in the Strain sections tab.', 'good');
+  }
+  var secForm = { tension: 7, units: '%CBL' };
+  function conductorOptions(cur) {
+    var list = {}; (lib ? lib.conductors : []).forEach(function (c) { list[c.code] = c.name + (c.name2 ? ' · ' + c.name2 : ''); });
+    (project ? project.conductors : []).forEach(function (c) { if (!(c.Code in list)) list[c.Code] = (c.Name1 || '') + ' (this project)'; });
+    if (cur && !(cur in list)) list[cur] = '';
+    return '<option value="">Choose a conductor…</option>' + Object.keys(list).sort().map(function (k) { return '<option value="' + esc(k) + '"' + (k === cur ? ' selected' : '') + '>' + esc(k) + (list[k] ? ' · ' + esc(list[k]) : '') + '</option>'; }).join('');
+  }
+  // A library conductor, or one already in the project (Table4) turned into the same shape.
+  function conductorFor(code) {
+    var c = lib && lib.conductors.filter(function (x) { return x.code === code; })[0];
+    if (c) return c;
+    var r = project && project.conductors.filter(function (x) { return x.Code === code; })[0];
+    return r ? { code: r.Code, name: r.Name1 } : null;
+  }
+  function levelOf(code) { return (String(code || '').match(/^[A-Z]+/i) || [''])[0].toUpperCase(); }
+  // Poles from one pole to another in line order, each with its construction on the chosen circuit level.
+  function sectionMembers(f) {
+    if (!project) return [];
+    var ids = project.poles.map(function (r) { return r.ID; }), a = ids.indexOf(f.from), b = ids.indexOf(f.to);
+    if (a < 0 || b < 0 || a === b) return [];
+    var run = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+    if (a > b) run.reverse();
+    return run.map(function (id) {
+      var cs = project.constructions.filter(function (c) { return c.pole === id && levelOf(c.code) === f.level; }).sort(function (x, y) { return PNW.num(y.attht) - PNW.num(x.attht); });
+      var pick = (f.pick && f.pick[id] && cs.filter(function (c) { return c.unique === f.pick[id]; })[0]) || cs[0] || null;
+      return { id: id, options: cs, c: pick };
+    });
+  }
+  function renderSections() {
+    if (!project) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">Link a PNW project, or start a design from the ground profile (select a pole), to string conductors.</p>'; return; }
+    var tables = stringing(), h = '<table class="grid"><thead><tr><th>Section</th><th>Conductor</th><th>Tension</th><th>Units</th><th>Wires</th><th>Poles and constructions</th><th>Ruling span</th><th>DCSH sag table</th><th></th></tr></thead><tbody>';
+    project.segments.forEach(function (sg) {
+      var n = sg.StrainSect, mem = project.segPoles.filter(function (x) { return x.strsection === n; }), sp = [];
+      for (var i = 1; i < mem.length; i++) { var A = project.poles.filter(function (r) { return r.ID === mem[i - 1].id; })[0], B = project.poles.filter(function (r) { return r.ID === mem[i].id; })[0]; if (A && B) sp.push(Math.hypot(PNW.num(B.Easting) - PNW.num(A.Easting), PNW.num(B.Northing) - PNW.num(A.Northing))); }
+      var pick = (S.design.tables || {})[n] || '', sug = suggestTable(sg)[0];
+      h += '<tr><td><b>' + esc(n) + '</b>' + (sg.New === 'True' ? ' <span class="pill info">New</span>' : '') + '</td>' +
+        '<td><select data-seccond="' + esc(n) + '" style="max-width:220px">' + conductorOptions(sg.Conductor) + '</select></td>' +
+        '<td><input data-secten="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal" style="width:70px"></td>' +
+        '<td><select data-secunits="' + esc(n) + '"><option' + (sg.TensionUnits === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (sg.TensionUnits === 'kN' ? ' selected' : '') + '>kN</option></select></td>' +
+        '<td class="num">' + esc(sg.numconds) + '</td><td style="white-space:normal">' + mem.map(function (x) { return esc(x.id) + ' <small>' + esc(x.constr) + '</small>'; }).join(' → ') + '</td>' +
+        '<td class="num">' + (sp.length ? M.rulingSpan(sp).toFixed(1) + ' m' : '') + '</td>' +
+        '<td><select data-secsag="' + esc(n) + '" style="max-width:240px"><option value="">' + (sug ? 'Matched: ' + esc(sug.title) : 'None matched') + '</option>' + tables.filter(function (t) { return !t.legacy; }).map(function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === pick ? ' selected' : '') + '>' + esc(t.title) + ' (p' + t.page + ')</option>'; }).join('') + '</select></td>' +
+        '<td><button class="btn small" data-secdel="' + esc(n) + '">Remove</button></td></tr>';
+    });
+    if (!project.segments.length) h += '<tr><td colspan="9" class="muted">No strain sections yet.</td></tr>';
+    h += '</tbody></table>';
+    var f = secForm, ids = project.poles.map(function (r) { return r.ID; });
+    if (ids.indexOf(f.from) < 0) f.from = ids[0]; if (ids.indexOf(f.to) < 0) f.to = ids[ids.length - 1];
+    var levels = []; project.constructions.forEach(function (c) { var l = levelOf(c.code); if (l && levels.indexOf(l) < 0 && (c.pole === f.from || c.pole === f.to)) levels.push(l); });
+    if (levels.indexOf(f.level) < 0) f.level = levels[0] || '';
+    var mem = sectionMembers(f), missing = mem.filter(function (m) { return !m.c; });
+    var poleSel = function (key, cur) { return '<select data-secf="' + key + '">' + ids.map(function (i) { return '<option' + (i === cur ? ' selected' : '') + '>' + esc(i) + '</option>'; }).join('') + '</select>'; };
+    h += '<div class="con add" style="margin:10px 8px"><div class="con-title">String conductors (new strain section)</div><div class="secform">' +
+      '<div class="field"><label>From pole</label>' + poleSel('from', f.from) + '</div><div class="field"><label>To pole</label>' + poleSel('to', f.to) + '</div>' +
+      '<div class="field"><label>Circuit (construction codes)</label><select data-secf="level">' + (levels.length ? levels.map(function (l) { return '<option' + (l === f.level ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') : '<option value="">Add constructions first</option>') + '</select></div>' +
+      '<div class="field"><label>Conductor</label><select data-secf="cond">' + conductorOptions(f.cond) + '</select></div>' +
+      '<div class="field"><label>Tension</label><input data-secf="tension" value="' + esc(f.tension) + '" inputmode="decimal"></div>' +
+      '<div class="field"><label>Units</label><select data-secf="units"><option' + (f.units === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (f.units === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
+    h += mem.length ? '<p class="meta">' + mem.map(function (m) { return '<b>' + esc(m.id) + '</b> ' + (m.options.length > 1 ? '<select data-secpick="' + esc(m.id) + '">' + m.options.map(function (c) { return '<option value="' + esc(c.unique) + '"' + (c === m.c ? ' selected' : '') + '>' + esc(c.descr) + '</option>'; }).join('') + '</select>' : m.c ? esc(m.c.descr) : '<span class="pill bad">no ' + esc(f.level || '') + ' construction</span>'); }).join(' → ') + '</p>' : '<p class="hint">Choose two different poles.</p>';
+    h += '<div class="btnrow"><button class="btn small primary" id="secAdd"' + (missing.length || mem.length < 2 ? ' disabled' : '') + '>Add strain section</button></div>' +
+      '<p class="hint">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p></div>';
+    $('tableWrap').innerHTML = h;
+  }
+  $('tableWrap').addEventListener('change', function (e) {
+    var t = e.target, d = t.dataset;
+    if (d.secf) { secForm[d.secf] = t.value; if (d.secf === 'from' || d.secf === 'to' || d.secf === 'level') secForm.pick = {}; renderSections(); return; }
+    if (d.secpick) { (secForm.pick = secForm.pick || {})[d.secpick] = t.value; renderSections(); return; }
+    if (d.secsag != null) { var tb = S.design.tables = S.design.tables || {}, before = tb[d.secsag] || 'matched'; if (t.value) tb[d.secsag] = t.value; else delete tb[d.secsag]; S.design.log = liveLog().concat([logEntry('', d.secsag, 'DCSH sag table', before, t.value || 'matched', 'manual')]); recompute(); return; }
+    if (d.seccond != null) {
+      var c = conductorFor(t.value); if (!c) return;
+      commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === d.seccond; })[0], from = sg.Conductor; M.updateSection(p, d.seccond, { conductor: c }); return [logEntry('', d.seccond, 'Conductor', from, c.code, 'manual', lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '')]; });
+      return;
+    }
+    if (d.secten != null || d.secunits != null) {
+      var n = d.secten || d.secunits;
+      commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = sg.Tension + ' ' + sg.TensionUnits; M.updateSection(p, n, d.secten != null ? { tension: PNW.num(t.value) } : { units: t.value }); return [logEntry('', n, 'Tension', from, sg.Tension + ' ' + sg.TensionUnits, 'manual')]; });
+    }
+  });
+  $('tableWrap').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b || tab !== 'sections') return;
+    if (b.dataset.secdel != null) { var n = b.dataset.secdel; commit(function (p) { M.removeSection(p, n); return [logEntry('', n, 'Strain section', n, 'removed', 'manual')]; }); return; }
+    if (b.id === 'secAdd') {
+      var f = secForm, c = conductorFor(f.cond), mem = sectionMembers(f);
+      if (!c) { setStatus('Choose the conductor for the new strain section.', 'bad'); return; }
+      commit(function (p) {
+        var name = M.addSection(p, { conductor: c, tension: PNW.num(f.tension), units: f.units, poles: mem.map(function (m) { return { id: m.id, unique: m.c.unique }; }) });
+        setStatus('Added strain section ' + name + '.', 'good');
+        return [logEntry(mem[0].id + '→' + mem[mem.length - 1].id, name, 'Strain section', '', c.code + ' at ' + f.tension + ' ' + f.units + ' on ' + mem.map(function (m) { return m.id + ' ' + m.c.descr; }).join(', '), 'manual', lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '')];
+      });
+    }
+  });
   function renderLog() {
     var l = liveLog();
     if (!l.length) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">No design changes yet. Changes you make to constructions and register approvals are recorded here.</p>'; return; }
@@ -696,14 +803,48 @@
     return Object.keys(codes).sort().map(function (c) { return '<option value="' + esc(c) + '"' + (c === cur ? ' selected' : '') + '>' + esc(c) + (codes[c] ? ' · ' + esc(codes[c]) : '') + '</option>'; }).join('');
   }
   function lastSource(pole, descr, field) { var l = liveLog().filter(function (x) { return x.pole === pole && x.construction === descr && (x.field === field || x.field === 'Construction'); }).slice(-1)[0]; return l ? l.source : 'imported'; }
-  function knownLayout(code) { var r = registerRows().filter(function (x) { return x.code === code && x.attachments.length; }); var d = M.dcshFor(dcshReg(), code)[0]; return d && d.attachments && d.attachments.every(function (a) { return a.y != null; }) ? { attachments: d.attachments, source: 'DCSH ' + d.drawing } : r.length ? { attachments: r[0].attachments, source: 'your project ' + r[0].sources[0] } : null; }
+  // Attachment layout for a code: a fully dimensioned DCSH drawing, else one of the imported projects, else a layout built into
+  // the private copy from Ishan's saved projects (window.PNW_BUILTIN.layouts).
+  function knownLayout(code) {
+    var d = M.dcshFor(dcshReg(), code)[0];
+    if (d && d.attachments && d.attachments.every(function (a) { return a.y != null; })) return { attachments: d.attachments, source: 'DCSH ' + d.drawing };
+    var r = registerRows().filter(function (x) { return x.code === code && x.attachments.length; });
+    if (r.length) return { attachments: r[0].attachments, source: 'your project ' + r[0].sources[0] };
+    var b = ((window.PNW_BUILTIN || {}).layouts || []).filter(function (x) { return x.code === code; })[0];
+    return b ? { attachments: b.attachments, source: b.source } : null;
+  }
+  function poleTypeOptions(cur, keepLabel) {
+    return '<option value="">' + keepLabel + '</option>' + (lib ? lib.poles : []).map(function (t) { return '<option value="' + esc(t.code) + '"' + (t.code === cur ? ' selected' : '') + '>' + esc(t.code) + (t.description ? ' · ' + esc(t.description) : '') + '</option>'; }).join('');
+  }
+  // Setting depth rule from the ground profile: 10% of the pole length + 0.6 m.
+  function defaultSunk(L) { return Math.round((L * 0.1 + 0.6) * 100) / 100; }
+  function poleBlock(id, row, pt) {
+    var inSec = project.segPoles.some(function (s) { return s.id === id; }), next = project.poles[project.poles.indexOf(row) + 1];
+    var gap = next ? Math.round((PNW.num(next.Distance) - PNW.num(row.Distance)) / 2 * 100) / 100 : 20;
+    var h = '<div class="con"><div class="con-h"><b>Pole ' + esc(id) + '</b>' + (row.New === 'True' ? '<span class="pill info">New</span>' : '') + (pt.poleType ? '<small>' + esc(pt.poleType) + (pt.diamTip ? ' · tip ' + pt.diamTip + ' mm' : '') + '</small>' : '') + '</div>' +
+      '<div class="field"><label>Pole type (PNW library)</label><select data-ptype="' + esc(id) + '">' + poleTypeOptions((S.design.poleTypes || {})[id] || '', 'Not set (length and depth as typed)') + '</select></div>' +
+      '<div class="row2"><div class="field"><label>Length (m)</label><input data-pfield="length" value="' + esc(row.Length) + '" inputmode="decimal"></div><div class="field"><label>Setting depth (m)</label><input data-pfield="sunk" value="' + esc(row.Sunk) + '" inputmode="decimal"></div></div>' +
+      '<p class="meta">' + esc(row.HeightAG) + ' m above ground · chainage ' + esc(row.Distance) + ' m · <label><input type="checkbox" data-pnew' + (row.New === 'True' ? ' checked' : '') + '> new pole</label></p>' +
+      '<div class="btnrow">' + (inSec ? '<span class="meta">In a strain section, so it cannot be removed here.</span>' : '<button class="btn small" data-pdel="' + esc(id) + '">Remove pole from design</button>') + '</div>' +
+      '<details class="addpole"><summary>Add a new pole near ' + esc(id) + '</summary><div class="row2"><div class="field"><label>New pole ID</label><input id="poleAddId" placeholder="e.g. P1"></div><div class="field"><label>Distance from ' + esc(id) + ' (m)</label><input id="poleAddDist" value="' + gap + '" inputmode="decimal" title="Positive is towards the next pole, negative towards the previous one"></div></div>' +
+      '<div class="field"><label>Pole type</label><select id="poleAddType">' + poleTypeOptions('', 'Type the length') + '</select></div>' +
+      '<div class="row2"><div class="field"><label>Length (m)</label><input id="poleAddLen" value="' + esc(row.Length) + '" inputmode="decimal"></div><div class="field"><label>Setting depth (m)</label><input id="poleAddSunk" placeholder="10% + 0.6 m" inputmode="decimal"></div></div>' +
+      '<div class="btnrow"><button class="btn small primary" id="poleAdd" data-from="' + esc(id) + '">Add pole</button></div><p class="hint">The new pole goes on the ground line at that distance (positive is towards the next pole), with the ground level read from the profile.</p></details></div>';
+    return h;
+  }
+  function sectionsOnPole(id) {
+    var names = []; project.segPoles.forEach(function (s) { if (s.id === id && names.indexOf(s.strsection) < 0) names.push(s.strsection); });
+    var h = '<div class="con"><div class="con-h"><b>Conductors</b></div>';
+    h += names.length ? names.map(function (n) { var sg = project.segments.filter(function (x) { return x.StrainSect === n; })[0] || {}, at = project.segPoles.filter(function (x) { return x.strsection === n && x.id === id; })[0]; return '<p class="meta"><b>' + esc(n) + '</b> · ' + esc(sg.Conductor) + ' at ' + esc(sg.Tension) + ' ' + esc(sg.TensionUnits) + ' · ' + esc(sg.numconds) + ' wires on ' + esc(at ? at.constr : '') + '</p>'; }).join('') : '<p class="hint">No conductors attached to this pole.</p>';
+    return h + '<div class="btnrow"><button class="btn small" data-gotab="sections">Strain sections…</button></div></div>';
+  }
   function designPanel(id) {
-    if (!project) return lib || filesOf('pnwx').length ? '' : '<p class="hint">Drop your saved PNW project (.pnwx) to see and edit this pole\'s constructions in plan, 3D and profile.</p>';
+    if (!project) return '<div class="con-wrap"><p class="hint">Drop a saved PNW project (.pnwx) to edit its design, or start a new design from this ground profile.</p>' + (built && built.rows.length > 1 ? '<div class="btnrow"><button class="btn small primary" id="designStart">Start a design from this ground profile</button></div>' : '') + '</div>';
     var row = project.poles.filter(function (r) { return r.ID === id; })[0];
     if (!row) return '<p class="hint">' + esc(id) + ' is not in the linked PNW project ' + esc(linked.name) + '.</p>';
     var hag = PNW.num(row.HeightAG), cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
     var pt = (dm && dm.allPoles.filter(function (p) { return p.id === id; })[0]) || {};
-    var h = '<div class="con-wrap"><div class="con-title">Constructions <span class="pill info">' + esc(linked.name) + '</span></div><p class="meta">Pole ' + esc(row.Length) + ' m · ' + esc(row.HeightAG) + ' m above ground · sunk ' + esc(row.Sunk) + ' m' + (pt.poleType ? ' · ' + esc(pt.poleType) + ' (tip ' + pt.diamTip + ' mm)' : '') + '</p>';
+    var h = '<div class="con-wrap"><div class="con-title">Design <span class="pill info">' + esc(linked.name) + '</span></div>' + poleBlock(id, row, pt) + '<div class="con-title" style="margin-top:10px">Constructions</div>';
     cons.forEach(function (c, i) {
       var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), above = i > 0 ? cons[i - 1].kingbolt : null, def = M.defaultKingbolt(lib, c.code, hag, above);
       var carries = project.segPoles.filter(function (s) { return s.id === id && s.constr === c.descr; }).map(function (s) { return s.strsection; });
@@ -713,17 +854,49 @@
         '<div class="field"><label>King bolt above ground (m) <span class="tag ' + (src === 'manual' ? 'edit' : src === 'imported' ? 'src' : 'der') + '">' + esc(src) + '</span></label><input data-ckb="' + esc(c.unique) + '" value="' + fmt(c.kingbolt) + '" inputmode="decimal"></div></div>';
       if (def && c.kingbolt != null && Math.abs(def.value - c.kingbolt) > 0.0005) h += '<p class="hint">' + esc(def.source) + ': <b>' + def.value + ' m</b> (' + def.below + ' m). <button class="btn small" data-cdef="' + esc(c.unique) + '" data-v="' + def.value + '" data-ref="' + esc(def.source) + '">Use default</button></p>';
       if (cmp && cmp.notes.length) h += '<p class="hint warn">' + esc(cmp.notes.join(' ')) + '</p>';
-      h += c.attachments.length ? '<table class="att"><tr><th>#</th><th>x</th><th>y</th><th>Height AG</th></tr>' + c.attachments.map(function (a) { return '<tr><td>' + a.order + '</td><td>' + fmt(a.x) + '</td><td>' + fmt(a.y) + '</td><td>' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td></tr>'; }).join('') + '</table>' : '<p class="hint warn">No attachment points in the project, so no conductors can be drawn. Needs engineering review.</p>';
+      var u = esc(c.unique);
+      h += c.attachments.length ? '<table class="att"><tr><th>#</th><th>x</th><th>y</th><th>Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal"></td><td>' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '">×</button>') + '</td></tr>'; }).join('') + '</table>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
+      if (!carries.length) h += '<div class="btnrow"><button class="btn small" data-aadd="' + u + '">Add attachment point</button></div>';
       h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + '</span>' : '<button class="btn small" data-cdel="' + esc(c.unique) + '">Remove</button>') + '</div></div>';
     });
+    h += sectionsOnPole(id);
     h += aiPanel(id, cons);
     var lowest = cons.length ? cons[cons.length - 1].kingbolt : null;
     h += '<div class="con add"><div class="row2"><div class="field"><label>Add construction</label><select id="conAddCode"><option value="">Choose a code…</option>' + codeOptions('') + '</select></div><div class="field"><label>King bolt (m)</label><input id="conAddKb" inputmode="decimal" placeholder="library default"></div></div>' +
-      '<div class="btnrow"><button class="btn small primary" id="conAdd" data-pole="' + esc(id) + '" data-lowest="' + (lowest == null ? '' : lowest) + '" data-hag="' + hag + '">Add to ' + esc(id) + '</button></div><p class="hint">The king bolt starts at the PNW library default. Attachment offsets are copied from a DCSH drawing or one of your projects when one exists for the code; otherwise the construction is added without attachment points and flagged for engineering review. It is not attached to a strain section; do that in PNW.</p></div></div>';
+      '<div class="btnrow"><button class="btn small primary" id="conAdd" data-pole="' + esc(id) + '" data-lowest="' + (lowest == null ? '' : lowest) + '" data-hag="' + hag + '">Add to ' + esc(id) + '</button></div><p class="hint">The king bolt starts at the PNW library default. Attachment offsets are copied from a DCSH drawing or one of your projects when one exists for the code; otherwise the construction is added without attachment points and flagged for engineering review. Attach it to conductors in the Strain sections tab.</p></div></div>';
     return h;
   }
   $('selected').addEventListener('change', function (e) {
     var t = e.target, id = S.selected;
+    if (t.id === 'poleAddType') { var pt = lib && lib.poles.filter(function (x) { return x.code === t.value; })[0]; if (pt) { $('poleAddLen').value = pt.length; $('poleAddSunk').value = pt.sinking != null ? pt.sinking : ''; } return; }
+    if (t.dataset.ptype != null) {
+      var ty = lib && lib.poles.filter(function (x) { return x.code === t.value; })[0], types = S.design.poleTypes = S.design.poleTypes || {}, before = types[id] || '';
+      if (!ty) { delete types[id]; S.design.log = liveLog().concat([logEntry(id, '', 'Pole type', before, 'not set', 'manual')]); recompute(); return; }
+      commit(function (p) {
+        var r = p.poles.filter(function (x) { return x.ID === id; })[0], from = r.Length + ' m / ' + r.Sunk + ' m', res = M.updatePole(p, id, { length: ty.length, sunk: ty.sinking != null ? ty.sinking : defaultSunk(ty.length) });
+        types[id] = ty.code;
+        return [logEntry(id, '', 'Pole type', before || from, ty.code + ' (' + ty.length + ' m, sunk ' + PNW.num(r.Sunk) + ' m)', 'manual', 'PNW library ' + ty.code + (res.shift ? '; constructions moved ' + res.shift + ' m with the tip' : ''))];
+      });
+      return;
+    }
+    if (t.dataset.pfield != null) {
+      var v = PNW.num(t.value);
+      if (!(v >= 0) || v > 60) { setStatus('"' + t.value + '" is not a valid value in metres.', 'bad'); renderSelected(); return; }
+      commit(function (p) {
+        var r = p.poles.filter(function (x) { return x.ID === id; })[0], f = {}, field = t.dataset.pfield === 'length' ? 'Length' : 'Sunk', from = r[field];
+        f[t.dataset.pfield] = v; var res = M.updatePole(p, id, f);
+        if (S.design.poleTypes) delete S.design.poleTypes[id];
+        return [logEntry(id, '', field === 'Length' ? 'Pole length' : 'Setting depth', from, String(v), 'manual', 'Height above ground ' + res.heightAG + ' m' + (res.shift ? '; constructions moved ' + res.shift + ' m with the tip' : ''))];
+      });
+      return;
+    }
+    if (t.dataset.ax != null || t.dataset.ay != null) {
+      var key = (t.dataset.ax || t.dataset.ay).split('|'), axis = t.dataset.ax != null ? 'x' : 'y', nv = PNW.num(t.value);
+      if (nv == null || !isFinite(nv) || Math.abs(nv) > 10) { setStatus('"' + t.value + '" is not a valid offset in metres.', 'bad'); renderSelected(); return; }
+      editAttachments(id, key[0], function (list) { var a = list[+key[1]], from = a[axis]; a[axis] = nv; return ['Attachment ' + a.order + ' ' + axis, from, nv]; });
+      return;
+    }
+    if (t.dataset.pnew != null) { commit(function (p) { M.updatePole(p, id, { isNew: t.checked }); return [logEntry(id, '', 'New pole', t.checked ? 'False' : 'True', t.checked ? 'True' : 'False', 'manual')]; }); return; }
     if (t.id === 'conAddCode') { var lo = PNW.num($('conAdd').dataset.lowest), d = M.defaultKingbolt(lib, t.value, PNW.num($('conAdd').dataset.hag), lo); $('conAddKb').value = d ? d.value : ''; $('conAddKb').title = d ? d.source : 'No library default: type the king bolt height'; return; }
     if (t.dataset.ckb != null) {
       var v = PNW.num(t.value);
@@ -732,6 +905,14 @@
     }
     if (t.dataset.ccode != null) changeCode(id, t.dataset.ccode, t.value, 'manual', '');
   });
+  // Attachment offsets typed by the designer: always logged as manual and left for engineering review.
+  function editAttachments(id, unique, change) {
+    commit(function (p) {
+      var r = p.constructions.filter(function (x) { return x.unique === unique; })[0], list = M.constructionFrom(r).attachments, ch = change(list);
+      M.updateConstruction(p, unique, { attachments: list });
+      return [logEntry(id, r.descr, ch[0], String(ch[1]), String(ch[2]), 'manual')];
+    });
+  }
   // Changes a construction's code; offsets come from a DCSH drawing or your projects when one fits, else they are kept and flagged.
   function changeCode(id, unique, code, source, reference) {
     return commit(function (p) {
@@ -747,6 +928,22 @@
   $('selected').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     var id = S.selected;
+    if (b.id === 'designStart') { startDesign(); return; }
+    if (b.dataset.aadd != null) { editAttachments(id, b.dataset.aadd, function (list) { var n = list.reduce(function (m, a) { return Math.max(m, a.order); }, 0) + 1; list.push({ x: 0, y: 0, order: n }); return ['Attachment ' + n, '', 'added at 0, 0']; }); return; }
+    if (b.dataset.arm != null) { var ak = b.dataset.arm.split('|'); editAttachments(id, ak[0], function (list) { var a = list.splice(+ak[1], 1)[0]; return ['Attachment ' + a.order, a.x + ', ' + a.y, 'removed']; }); return; }
+    if (b.dataset.gotab) { setTab(b.dataset.gotab); return; }
+    if (b.dataset.pdel != null) { commit(function (p) { M.removePole(p, b.dataset.pdel); return [logEntry(b.dataset.pdel, '', 'Pole', b.dataset.pdel, 'removed', 'manual')]; }); return; }
+    if (b.id === 'poleAdd') {
+      var nid = $('poleAddId').value.trim(), dist = PNW.num($('poleAddDist').value), L = PNW.num($('poleAddLen').value), sk = $('poleAddSunk').value.trim() === '' ? defaultSunk(L) : PNW.num($('poleAddSunk').value), ty = $('poleAddType').value;
+      if (!(dist != null) || !isFinite(dist)) { setStatus('Type the distance from ' + b.dataset.from + ' in metres.', 'bad'); return; }
+      var ok = commit(function (p) {
+        var from = p.poles.filter(function (x) { return x.ID === b.dataset.from; })[0], r = M.addPole(p, { id: nid, chainage: PNW.num(from.Distance) + dist, length: L, sunk: sk, isNew: true });
+        if (ty) (S.design.poleTypes = S.design.poleTypes || {})[nid] = ty;
+        return [logEntry(nid, '', 'Pole', '', 'added at chainage ' + r.Distance + ' m, ' + L + ' m long, sunk ' + sk + ' m', 'manual', (ty ? 'PNW library ' + ty + '; ' : '') + 'ground level from the profile')];
+      });
+      if (ok) { select(nid); setStatus('Added pole ' + nid + '.', 'good'); }
+      return;
+    }
     if (b.dataset.cdef != null) commit(function (p) { var r = p.constructions.filter(function (x) { return x.unique === b.dataset.cdef; })[0], from = r.attht; M.updateConstruction(p, r.unique, { kingbolt: Number(b.dataset.v) }); return [logEntry(id, r.descr, 'King bolt height', from, b.dataset.v, 'calculated', b.dataset.ref)]; });
     if (b.dataset.cdel != null) commit(function (p) { var r = p.constructions.filter(function (x) { return x.unique === b.dataset.cdel; })[0]; M.removeConstruction(p, r.unique); return [logEntry(id, r.descr, 'Construction', r.descr, 'removed', 'manual')]; });
     if (b.id === 'conAdd') {
