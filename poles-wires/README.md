@@ -41,7 +41,7 @@ and nothing changes until the designer approves a suggestion.
 
 - The `.pnwx` export has not yet been reopened in PNW. Only the edited fields change, but PNW's own checks are not reproduced.
 - Strength, tipload and clearance calculations stay in PNW. The clearance line in the profile is the project's Clearance 1, for reference only.
-- Attachment offsets exist only for codes found in the user's projects or the DCSH register (LV3 and LV5 match DCSH L03/L05). HV drawings need the Part 4 PDF; the text extraction has no drawings.
+- Attachment offsets exist only for codes found in the user's projects or the DCSH register. LV3, LV5 and HV5 match DCSH L03, L05 and H04-1. HV1, HV1_AS and HV45 drawings dimension the king bolt and phase spacing but not insulator heights, so heights stay unverified. HV9 has no matching Part 4 drawing. A register entry can give `y: null` for a height the drawing does not dimension; only x is then checked.
 - New constructions are not attached to a strain section; that is still done in PNW.
 - DCSH Part 10 tables whose text extraction is scrambled (HDBC tables, some rural tables) are skipped and listed.
 - Crossarm side (+x) follows one convention for the whole line, as PNW does.

@@ -152,7 +152,7 @@ test('design model joins poles, ground, constructions and wires for the 3D and p
 const DCSH = path.join(DIR, 'dcsh');
 const dcshOpts = { skip: have && fs.existsSync(path.join(DCSH, 'DCSH standards register.json')) ? false : 'DCSH files not found in ' + DCSH };
 
-test('DCSH register: LV3 and LV5 offsets in the saved project match drawings L03 and L05', dcshOpts, () => {
+test('DCSH register: saved project offsets checked against L03, L05, H01-1 and H04-1', dcshOpts, () => {
   const reg = M.parseDcshRegister(fs.readFileSync(path.join(DCSH, 'DCSH standards register.json'), 'utf8'));
   assert.deepEqual(reg.issues, []);
   const p = M.readPnwx(read(FILES[0]));
@@ -161,10 +161,16 @@ test('DCSH register: LV3 and LV5 offsets in the saved project match drawings L03
     const e = M.dcshFor(reg, code)[0];
     assert.equal(M.compareDcsh(e, c, +p.poles.find((x) => x.ID === c.pole).HeightAG).offsets, true, code);
   }
-  // HV1 on S119850 sits 0.23 below the tip; its drawing has not been read, so nothing is claimed
   const hv1 = M.dcshFor(reg, 'HV1')[0];
-  assert.equal(hv1.status, 'pending');
-  assert.deepEqual(M.compareDcsh(hv1, M.constructionFrom(p.constructions[2], 'f'), 9.3), { kingbolt: null, offsets: null, notes: [] });
+  // H01-1 dimensions the 900 mm spacing but not the insulator heights: an x-only match
+  assert.equal(hv1.status, 'partial');
+  assert.equal(M.compareDcsh(hv1, M.constructionFrom(p.constructions[2], 'f'), null).offsets, 'x');
+  // H04-1 dimensions everything for HV5 and matches the saved project
+  const hv5 = M.dcshFor(reg, 'HV5')[0];
+  assert.equal(hv5.status, 'verified');
+  assert.equal(M.compareDcsh(hv5, M.constructionFrom(p.constructions[0], 'f'), null).offsets, true);
+  // HV9 has no matching Part 4 drawing
+  assert.equal(M.dcshFor(reg, 'HV9')[0].status, 'unsupported');
   assert.throws(() => M.parseDcshRegister('{"kind":"x"}'), /Not a DCSH standards register/);
 });
 

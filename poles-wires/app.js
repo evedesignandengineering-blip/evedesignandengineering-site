@@ -651,6 +651,7 @@
     if (r.user.status === 'unsupported') return { cls: 'bad', text: 'Marked unsupported' };
     if (!r.code) return { cls: 'warn', text: 'Blank construction, needs engineering review' };
     if (r.dcsh && r.check && r.check.offsets === true) return { cls: 'info', text: 'Matches DCSH ' + r.dcsh.drawing + ', awaiting engineer approval' };
+    if (r.dcsh && r.check && r.check.offsets === 'x') return { cls: 'warn', text: 'Spacing matches DCSH ' + r.dcsh.drawing + ', heights not dimensioned, needs engineering review' };
     if (r.dcsh && r.check && r.check.offsets === false) return { cls: 'bad', text: 'Differs from DCSH ' + r.dcsh.drawing + ', needs engineering review' };
     if (r.dcsh) return { cls: 'warn', text: (M.DCSH_STATUS[r.dcsh.status] || r.dcsh.status) + ' (' + r.dcsh.drawing + '), needs engineering review' };
     return { cls: 'warn', text: 'No DCSH reference linked, needs engineering review' };
@@ -695,7 +696,7 @@
     return Object.keys(codes).sort().map(function (c) { return '<option value="' + esc(c) + '"' + (c === cur ? ' selected' : '') + '>' + esc(c) + (codes[c] ? ' · ' + esc(codes[c]) : '') + '</option>'; }).join('');
   }
   function lastSource(pole, descr, field) { var l = liveLog().filter(function (x) { return x.pole === pole && x.construction === descr && (x.field === field || x.field === 'Construction'); }).slice(-1)[0]; return l ? l.source : 'imported'; }
-  function knownLayout(code) { var r = registerRows().filter(function (x) { return x.code === code && x.attachments.length; }); var d = M.dcshFor(dcshReg(), code)[0]; return d && d.attachments ? { attachments: d.attachments, source: 'DCSH ' + d.drawing } : r.length ? { attachments: r[0].attachments, source: 'your project ' + r[0].sources[0] } : null; }
+  function knownLayout(code) { var r = registerRows().filter(function (x) { return x.code === code && x.attachments.length; }); var d = M.dcshFor(dcshReg(), code)[0]; return d && d.attachments && d.attachments.every(function (a) { return a.y != null; }) ? { attachments: d.attachments, source: 'DCSH ' + d.drawing } : r.length ? { attachments: r[0].attachments, source: 'your project ' + r[0].sources[0] } : null; }
   function designPanel(id) {
     if (!project) return lib || filesOf('pnwx').length ? '' : '<p class="hint">Drop your saved PNW project (.pnwx) to see and edit this pole\'s constructions in plan, 3D and profile.</p>';
     var row = project.poles.filter(function (r) { return r.ID === id; })[0];

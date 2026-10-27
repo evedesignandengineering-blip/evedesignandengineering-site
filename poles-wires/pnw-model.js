@@ -443,7 +443,7 @@
     j.entries.forEach(function (e, i) {
       if (!e.id || !e.drawing) issues.push('Entry ' + (i + 1) + ' has no id or drawing number.');
       if (!DCSH_STATUS[e.status]) issues.push((e.id || 'Entry ' + (i + 1)) + ': unknown status "' + e.status + '".');
-      if (e.attachments && !e.attachments.every(function (a) { return isFinite(a.x) && isFinite(a.y); })) issues.push(e.id + ': attachment offsets must be numbers.');
+      if (e.attachments && !e.attachments.every(function (a) { return isFinite(a.x) && (a.y == null || isFinite(a.y)); })) issues.push(e.id + ': attachment offsets must be numbers (y may be null when the drawing does not dimension it).');
     });
     return { source: j.source || '', entries: j.entries, issues: issues };
   }
@@ -461,8 +461,11 @@
     }
     if (entry.attachments) {
       var a = c.attachments.slice().sort(function (p, q) { return p.order - q.order; }), b = entry.attachments.slice().sort(function (p, q) { return p.order - q.order; });
-      out.offsets = a.length === b.length && a.every(function (p, i) { return Math.abs(p.x - b[i].x) <= 0.005 && Math.abs(p.y - b[i].y) <= 0.005; });
-      if (!out.offsets) out.notes.push('Attachment offsets differ from ' + entry.drawing + ' (' + b.map(function (p) { return p.x + ', ' + p.y; }).join(' / ') + ').');
+      // y null = height not dimensioned on the drawing: only x is checked, and the match is partial.
+      var xOnly = b.some(function (p) { return p.y == null; });
+      out.offsets = a.length === b.length && a.every(function (p, i) { return Math.abs(p.x - b[i].x) <= 0.005 && (b[i].y == null || Math.abs(p.y - b[i].y) <= 0.005); });
+      if (out.offsets && xOnly) { out.offsets = 'x'; out.notes.push('Horizontal offsets match ' + entry.drawing + '; heights are not dimensioned on the drawing.'); }
+      if (!out.offsets) out.notes.push('Attachment offsets differ from ' + entry.drawing + ' (' + b.map(function (p) { return p.x + ', ' + (p.y == null ? '?' : p.y); }).join(' / ') + ').');
     }
     return out;
   }
