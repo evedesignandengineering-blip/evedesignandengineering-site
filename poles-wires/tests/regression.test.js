@@ -209,3 +209,13 @@ test('rejects unsupported file types and never evaluates formulas', () => {
   const s = PNW.importFile(XLSX, 'f.xlsx', XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
   assert.equal(s.items[0].easting, 400000); // cached value only
 });
+
+test('reads GIS HV and LV overhead conductor exports', { skip: fs.existsSync(path.join(DIR, 'gis-conductors')) ? false : 'GIS conductor exports not found' }, () => {
+  const hv = load('gis-conductors/Export 14 - HV overhead conductors.xlsx'), lv = load('gis-conductors/Export 13 - LV overhead conductors.xlsx');
+  assert.equal(hv.role, 'gisConductors'); assert.equal(lv.role, 'gisConductors');
+  assert.equal(load('gis-conductors/Export 15 - poles.xlsx').role, 'gisPoles');
+  assert.equal(hv.items.length, 5);
+  assert.deepEqual([hv.items[0].level, hv.items[0].wires, hv.items[0].conductor, hv.items[0].feeder], ['HV', 3, '7/3.75 AAC', 'WGA 505.0 1 AMBITION GATE RMU']);
+  assert.deepEqual([...new Set(lv.items.map((x) => x.description))].sort(), ['4X7/3.75 AAC', '4X7/4.75 AAC']);
+  assert.ok(hv.issues.some((i) => i.code === 'no-geometry'));
+});

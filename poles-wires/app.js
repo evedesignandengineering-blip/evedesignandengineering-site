@@ -320,6 +320,7 @@
       row('Height above ground', r.height != null ? r.height + ' m' : '', '<span class="tag der">derived</span>');
     } else if (ex.value != null) { sec('Pole'); row('Existing length', ex.value + ' m', tagS(ex.source)); }
     if (p.gis) { sec('GIS'); row('Description', p.gis.description); row('Length', p.gis.length != null ? p.gis.length + ' m' : ''); row('Stock', p.gis.stock); row('Species', p.gis.species); row('HV feeder', p.gis.feeder); row('Equip no', p.gis.equipNo); var ll = poleLatLng(p); if (ll && p.gis.lat != null) row('Offset from LiDAR', map.distance(ll, L.latLng(p.gis.lat, p.gis.lng)).toFixed(1) + ' m'); }
+    ['HV', 'LV'].forEach(function (l) { gisConductorsAt(id, l).forEach(function (t, k) { if (!k) sec('GIS ' + l + ' conductor (by feeder)'); row(t.description, gisText(t).slice(t.description.length + 4)); }); });
     if (p.insp) { sec('Inspections (latest)'); row('Records', p.insp.count); ['Pole Length', 'Pole Length (M)', 'Strength (kN)', 'Bay 1 Length (m)', 'Bay 2 Length (m)', 'Bay 3 Length (m)', 'Bay 1 HV Conductor Type', 'Bay 1 LV Conductor Type', 'Height Neutral Phase (m)', 'Height Running Earth (m)', 'Stay 1 Type'].forEach(function (k) { var a = p.insp.attrs[k]; if (a) row(k, a.value + (a.date ? ' (' + new Date(a.date).toLocaleDateString('en-AU') + ')' : '')); }); }
     if (p.defects.length) { sec('Defects (' + p.defects.length + ')'); p.defects.slice(0, 8).forEach(function (d) { row(d.severity || 'Defect', d.description + ' · ' + d.status); }); }
     var iss = allIssues.filter(function (i) { return i.poleId === id; });
@@ -711,6 +712,26 @@
     var r = project && project.conductors.filter(function (x) { return x.Code === code; })[0];
     return r ? { code: r.Code, name: r.Name1 } : null;
   }
+  // GIS conductor runs on a pole's feeders. The export has no line coordinates, so runs are tied to poles by feeder only:
+  // HV runs by the pole's HV feeder, LV runs by its LV feeder.
+  function gisRuns() { return [].concat.apply([], S.files.filter(function (f) { return f.role === 'gisConductors' && f.status === 'ok'; }).map(function (f) { return f.items; })); }
+  function libConductorNamed(name) {
+    var k = String(name || '').replace(/\s+/g, '').toUpperCase();
+    return (lib ? lib.conductors : []).filter(function (c) { return String(c.name).replace(/\s+/g, '').toUpperCase() === k; })[0] || null;
+  }
+  function gisConductorsAt(id, level) {
+    var p = merged.poles[id], g = p && p.gis; if (!g) return [];
+    var feeder = level === 'HV' ? g.feeder : g.lvFeeder; if (!feeder) return [];
+    var by = {};
+    gisRuns().forEach(function (r) {
+      if (r.level !== level || (r.feeder !== feeder && r.feeder2 !== feeder)) return;
+      var t = by[r.description] || (by[r.description] = { description: r.description, conductor: r.conductor, wires: r.wires, feeder: feeder, runs: [], length: 0, lib: libConductorNamed(r.conductor) });
+      t.runs.push(r.id); t.length += r.length || 0;
+    });
+    return Object.keys(by).map(function (k) { return by[k]; });
+  }
+  function circuitOf(prefix) { return /^H/.test(prefix) ? 'HV' : /^(L|AB)/.test(prefix) ? 'LV' : null; }
+  function gisText(t) { return t.description + ' on ' + t.feeder + ' (' + t.runs.length + ' run' + (t.runs.length > 1 ? 's' : '') + ', ' + Math.round(t.length) + ' m)' + (t.lib ? ' = library ' + t.lib.code : ', not in the PNW library'); }
   function levelOf(code) { return (String(code || '').match(/^[A-Z]+/i) || [''])[0].toUpperCase(); }
   // Poles from one pole to another in line order, each with its construction on the chosen circuit level.
   function sectionMembers(f) {
@@ -747,6 +768,8 @@
     if (ids.indexOf(f.from) < 0) f.from = ids[0]; if (ids.indexOf(f.to) < 0) f.to = ids[ids.length - 1];
     var levels = []; project.constructions.forEach(function (c) { var l = levelOf(c.code); if (l && levels.indexOf(l) < 0 && (c.pole === f.from || c.pole === f.to)) levels.push(l); });
     if (levels.indexOf(f.level) < 0) f.level = levels[0] || '';
+    var gis = circuitOf(f.level) ? gisConductorsAt(f.from, circuitOf(f.level)) : [];
+    if (!f.condUser) { f.cond = gis.length === 1 && gis[0].lib ? gis[0].lib.code : ''; f.gis = f.cond ? gis[0] : null; }
     var mem = sectionMembers(f), missing = mem.filter(function (m) { return !m.c; });
     var poleSel = function (key, cur) { return '<select data-secf="' + key + '">' + ids.map(function (i) { return '<option' + (i === cur ? ' selected' : '') + '>' + esc(i) + '</option>'; }).join('') + '</select>'; };
     h += '<div class="con add" style="margin:10px 8px"><div class="con-title">String conductors (new strain section)</div><div class="secform">' +
@@ -755,6 +778,7 @@
       '<div class="field"><label>Conductor</label><select data-secf="cond">' + conductorOptions(f.cond) + '</select></div>' +
       '<div class="field"><label>Tension</label><input data-secf="tension" value="' + esc(f.tension) + '" inputmode="decimal"></div>' +
       '<div class="field"><label>Units</label><select data-secf="units"><option' + (f.units === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (f.units === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
+    if (gis.length) h += '<p class="meta"><span class="tag src">GIS</span> ' + gis.map(function (t) { return esc(gisText(t)); }).join(' · ') + (gis.length > 1 ? ' <b>More than one conductor on this feeder, so choose it yourself.</b>' : f.gis && !f.condUser ? ' (conductor filled in from this)' : '') + '</p>';
     h += mem.length ? '<p class="meta">' + mem.map(function (m) { return '<b>' + esc(m.id) + '</b> ' + (m.options.length > 1 ? '<select data-secpick="' + esc(m.id) + '">' + m.options.map(function (c) { return '<option value="' + esc(c.unique) + '"' + (c === m.c ? ' selected' : '') + '>' + esc(c.descr) + '</option>'; }).join('') + '</select>' : m.c ? esc(m.c.descr) : '<span class="pill bad">no ' + esc(f.level || '') + ' construction</span>'); }).join(' → ') + '</p>' : '<p class="hint">Choose two different poles.</p>';
     h += '<div class="btnrow"><button class="btn small primary" id="secAdd"' + (missing.length || mem.length < 2 ? ' disabled' : '') + '>Add strain section</button></div>' +
       '<p class="hint">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p></div>';
@@ -762,7 +786,7 @@
   }
   $('tableWrap').addEventListener('change', function (e) {
     var t = e.target, d = t.dataset;
-    if (d.secf) { secForm[d.secf] = t.value; if (d.secf === 'from' || d.secf === 'to' || d.secf === 'level') secForm.pick = {}; renderSections(); return; }
+    if (d.secf) { secForm[d.secf] = t.value; if (d.secf === 'cond') secForm.condUser = !!t.value; if (d.secf === 'from' || d.secf === 'to' || d.secf === 'level') secForm.pick = {}; renderSections(); return; }
     if (d.secpick) { (secForm.pick = secForm.pick || {})[d.secpick] = t.value; renderSections(); return; }
     if (d.secsag != null) { var tb = S.design.tables = S.design.tables || {}, before = tb[d.secsag] || 'matched'; if (t.value) tb[d.secsag] = t.value; else delete tb[d.secsag]; S.design.log = liveLog().concat([logEntry('', d.secsag, 'DCSH sag table', before, t.value || 'matched', 'manual')]); recompute(); return; }
     if (d.seccond != null) {
@@ -784,7 +808,7 @@
       commit(function (p) {
         var name = M.addSection(p, { conductor: c, tension: PNW.num(f.tension), units: f.units, poles: mem.map(function (m) { return { id: m.id, unique: m.c.unique }; }) });
         setStatus('Added strain section ' + name + '.', 'good');
-        return [logEntry(mem[0].id + '→' + mem[mem.length - 1].id, name, 'Strain section', '', c.code + ' at ' + f.tension + ' ' + f.units + ' on ' + mem.map(function (m) { return m.id + ' ' + m.c.descr; }).join(', '), 'manual', lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '')];
+        return [logEntry(mem[0].id + '→' + mem[mem.length - 1].id, name, 'Strain section', '', c.code + ' at ' + f.tension + ' ' + f.units + ' on ' + mem.map(function (m) { return m.id + ' ' + m.c.descr; }).join(', '), f.gis && !f.condUser ? 'calculated' : 'manual', [lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '', f.gis && !f.condUser ? 'GIS ' + f.gis.description + ' on feeder ' + f.gis.feeder + ' (' + f.gis.runs.join(', ') + ')' : ''].filter(Boolean).join('; '))];
       });
     }
   });
@@ -836,6 +860,7 @@
     var names = []; project.segPoles.forEach(function (s) { if (s.id === id && names.indexOf(s.strsection) < 0) names.push(s.strsection); });
     var h = '<div class="con"><div class="con-h"><b>Conductors</b></div>';
     h += names.length ? names.map(function (n) { var sg = project.segments.filter(function (x) { return x.StrainSect === n; })[0] || {}, at = project.segPoles.filter(function (x) { return x.strsection === n && x.id === id; })[0]; return '<p class="meta"><b>' + esc(n) + '</b> · ' + esc(sg.Conductor) + ' at ' + esc(sg.Tension) + ' ' + esc(sg.TensionUnits) + ' · ' + esc(sg.numconds) + ' wires on ' + esc(at ? at.constr : '') + '</p>'; }).join('') : '<p class="hint">No conductors attached to this pole.</p>';
+    ['HV', 'LV'].forEach(function (l) { gisConductorsAt(id, l).forEach(function (t) { h += '<p class="meta"><span class="tag src">GIS</span> ' + l + ': ' + esc(gisText(t)) + '</p>'; }); });
     return h + '<div class="btnrow"><button class="btn small" data-gotab="sections">Strain sections…</button></div></div>';
   }
   function designPanel(id) {

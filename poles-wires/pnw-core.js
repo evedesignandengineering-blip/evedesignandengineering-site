@@ -17,6 +17,7 @@
   var ROLES = {
     survey: 'LiDAR structure survey (QLINK)',
     gisPoles: 'GIS pole export',
+    gisConductors: 'GIS conductor export (HV / LV overhead)',
     inspections: 'Pole inspections',
     defects: 'Pole defects',
     poleList: 'Pole list',
@@ -94,6 +95,7 @@
   var SIGNATURES = [
     { role: 'survey', need: ['pick_id', 'x_coord_base', 'y_coord_base', 'z_coord_base'] },
     { role: 'gisPoles', need: ['pick id', 'geometry', 'length (m)'] },
+    { role: 'gisConductors', need: ['pick id', 'carrier model description', 'distribution level'] },
     { role: 'inspections', need: ['dfis id', 'insp attribute description', 'insp result description'] },
     { role: 'defects', need: ['dfis id', 'defect description'] },
     { role: 'groundProfile', need: ['easting', 'northing', 'pole number'] }
@@ -191,6 +193,25 @@
     return { items: items, issues: issues };
   }
 
+  // GIS "Distribution HV / LV Overhead" exports: one row per conductor run. "3X7/3.75 AAC" = 3 wires of 7/3.75 AAC.
+  // The Geocortex export carries no line coordinates, so a run can only be tied to poles through its feeder.
+  function parseGisConductors(sheet, hr, file) {
+    var items = [], issues = [], noGeo = 0;
+    records(sheet, hr).forEach(function (r) {
+      var id = str(r['pick id']), at = { file: file, row: r._row };
+      var desc = str(r['carrier model description']), m = desc.match(/^\s*(\d+)\s*X\s*(.+?)\s*$/i), lvl = str(r['distribution level']).toUpperCase();
+      if (!/X:\s*-?[\d.]+/i.test(str(r['geometry']))) noGeo++;
+      if (!desc) { issues.push(issue('warning', 'missing-value', (id || 'Row ' + r._row) + ': no carrier model description, so the conductor is unknown.', at)); return; }
+      var len = num(r['shape.len']);
+      items.push({ id: id, level: /^HV/.test(lvl) ? 'HV' : /^LV/.test(lvl) ? 'LV' : lvl, subtype: str(r['subtype']) || str(r['subtype cd']), phases: str(r['phase designation']),
+        code: str(r['carrier model code']), description: desc, wires: m ? Number(m[1]) : null, conductor: m ? m[2].replace(/\s+/g, ' ') : desc,
+        voltage: str(r['nominal voltage']), feeder: str(r['feeder id']), feeder2: str(r['feeder id 2']), length: len != null && !isNaN(len) ? round(len, 1) : null,
+        stock: str(r['stock code']), src: at });
+    });
+    if (noGeo) issues.push(issue('info', 'no-geometry', file + ': ' + noGeo + ' conductor run' + (noGeo > 1 ? 's have' : ' has') + ' no line coordinates in the export, so conductors are matched to poles by feeder only.', { file: file }));
+    return { items: items, issues: issues };
+  }
+
   // Keeps the latest result for each inspection attribute per pole.
   function parseInspections(sheet, hr, file) {
     var by = {}, issues = [];
@@ -238,7 +259,7 @@
     return { items: items, issues: issues, sheetName: sheet.name };
   }
 
-  var PARSERS = { survey: parseSurvey, gisPoles: parseGisPoles, inspections: parseInspections, defects: parseDefects, groundProfile: parseGroundProfile };
+  var PARSERS = { survey: parseSurvey, gisPoles: parseGisPoles, gisConductors: parseGisConductors, inspections: parseInspections, defects: parseDefects, groundProfile: parseGroundProfile };
 
   // Full import of one file. role may be forced by the user.
   function importFile(XLSX, name, data, forcedRole) {

@@ -36,6 +36,8 @@ In the design you can:
 - add, recode or remove constructions and type their attachment points. Typed points are logged as manual and stay under engineering review.
 - string conductors in the Strain sections tab. Choose the end poles and the circuit (construction code prefix); every pole in between is included. The conductor is copied from the PNW library into Table4, MES is set to the ruling span (it matches the saved projects), and load conditions are copied from an existing section or default to the saved projects' set. Change the conductor, tension or DCSH sag table, or remove a section.
 
+GIS "Distribution HV / LV Overhead" exports are read as conductor runs ("3X7/3.75 AAC" = 3 wires of 7/3.75 AAC). The Geocortex export has no line coordinates, so a run is tied to poles by feeder only: HV runs through the pole's HV feeder, LV runs through its LV feeder. The run is matched to the library conductor of the same name and pre-fills the strain section conductor when the feeder has only one conductor type. The source is logged as GIS.
+
 New rows carry every field PNW 7 writes, in PNW's order. A private copy can set `window.PNW_BUILTIN` (library,
 DCSH register, Part 10 text, known layouts) so nothing needs uploading. That data stays outside this repo.
 
