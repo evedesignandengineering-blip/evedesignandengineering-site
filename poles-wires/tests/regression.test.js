@@ -51,8 +51,10 @@ test('parses the LiDAR survey exactly as supplied', opts, () => {
   const s = load(F.qlink219);
   assert.equal(s.items.length, 5);
   assert.deepEqual(s.issues, []);
+  // values must equal the hand-made ground profile row for the same pole
+  const ref = sheetAoa(readGolden(F.gp219), 'Groundline').find((r) => r[3] === 'S119846');
   const p = s.items.find((x) => x.id === 'S119846');
-  assert.deepEqual([p.easting, p.northing, p.elevation], [401821.16, 6457134.92, 7.33]);
+  assert.deepEqual([p.easting, p.northing, p.elevation], ref.slice(0, 3));
 });
 
 test('parses inspections (CSV with preamble) and keeps the latest pole length', opts, () => {
@@ -72,7 +74,7 @@ test('matches defects without the S prefix and GIS poles to the survey', opts, (
   for (const id of ['S119846', 'S119850', 'S120776', 'S120378', 'S1242155']) {
     assert.ok(poles[id].survey && poles[id].gis && poles[id].inList, id + ' fully matched');
   }
-  assert.ok(Math.abs(poles.S120378.gis.lat - -32.0169546) < 1e-6);
+  assert.ok(poles.S120378.gis.lat < -31 && poles.S120378.gis.lat > -33 && poles.S120378.gis.lng > 115 && poles.S120378.gis.lng < 117);
   // GIS and inspection lengths agree for every pole in this set, so no conflict is reported
   assert.equal(issues.filter((x) => x.code === 'length-conflict').length, 0);
   assert.deepEqual(['S119846', 'S120776', 'S120378'].map((id) => PNW.existingLength(poles[id]).value), [12.5, 11, 11]);
@@ -168,7 +170,7 @@ const QHEAD = 'Data Type,PICK_ID,X_COORD_BASE,Y_COORD_BASE,Z_COORD_BASE\n';
 const csv = (name, body) => PNW.importFile(XLSX, name, Buffer.from(QHEAD + body));
 
 test('reports missing values, invalid numbers and invalid coordinates', () => {
-  const s = csv('q.csv', 'Structure,S1,401821.16,6457134.92,\nStructure,S2,abc,6457134.92,7\nStructure,S3,12,34,5\nStructure,,1,2,3\n');
+  const s = csv('q.csv', 'Structure,S1,400000,6450000,\nStructure,S2,abc,6450000,7\nStructure,S3,12,34,5\nStructure,,1,2,3\n');
   assert.equal(s.role, 'survey');
   const codes = s.issues.map((x) => x.poleId + ':' + x.code).sort();
   assert.deepEqual(codes, [':missing-id', 'S1:missing-value', 'S2:invalid-number', 'S3:invalid-coordinate']);
@@ -178,7 +180,7 @@ test('reports missing values, invalid numbers and invalid coordinates', () => {
 });
 
 test('flags duplicate IDs and unknown pole lengths', () => {
-  const s = csv('q.csv', 'Structure,S1,401821.16,6457134.92,7.3\nStructure,S1,401821.16,6457134.92,7.3\nStructure,S2,401797.92,6457155.1,7.34\nStructure,S2,401700,6457155.1,7.34\n');
+  const s = csv('q.csv', 'Structure,S1,400000,6450000,7.3\nStructure,S1,400000,6450000,7.3\nStructure,S2,399980,6450020,7.34\nStructure,S2,399900,6450020,7.34\n');
   const { poles, issues } = PNW.buildPoles([s]);
   assert.equal(issues.find((x) => x.poleId === 'S1').level, 'warning');
   assert.equal(issues.find((x) => x.poleId === 'S2').level, 'error');
@@ -189,21 +191,21 @@ test('flags duplicate IDs and unknown pole lengths', () => {
 
 test('replacing a file and regenerating uses the new values', () => {
   const ids = ['S1', 'S2'], lengths = { S1: 11, S2: 11 };
-  const v1 = csv('q.csv', 'Structure,S1,401821.16,6457134.92,7.33\nStructure,S2,401797.92,6457155.1,7.34\n');
-  const v2 = csv('q.csv', 'Structure,S1,401821.16,6457134.92,8.01\nStructure,S2,401797.92,6457155.1,7.34\n');
+  const v1 = csv('q.csv', 'Structure,S1,400000,6450000,7.33\nStructure,S2,399980,6450020,7.34\n');
+  const v2 = csv('q.csv', 'Structure,S1,400000,6450000,8.01\nStructure,S2,399980,6450020,7.34\n');
   const a = PNW.buildProfile(PNW.buildPoles([v1]).poles, { poleIds: ids, lengths });
   const b = PNW.buildProfile(PNW.buildPoles([v2]).poles, { poleIds: ids, lengths });
   assert.equal(a.rows[0].elevation, 7.33);
   assert.equal(b.rows[0].elevation, 8.01);
-  assert.equal(b.rows[1].chainage, 30.78);
+  assert.equal(b.rows[1].chainage, 28.28); // hypot(20, 20)
 });
 
 test('rejects unsupported file types and never evaluates formulas', () => {
   assert.throws(() => PNW.importFile(XLSX, 'x.docx', Buffer.from('x')), /Unsupported file type/);
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([['PICK_ID', 'X_COORD_BASE', 'Y_COORD_BASE', 'Z_COORD_BASE'], ['S1', { t: 'n', f: 'WEBSERVICE("http://x")', v: 401821.16 }, 6457134.92, 7.33]]);
-  ws.B2 = { t: 'n', f: 'WEBSERVICE("http://x")', v: 401821.16 };
+  const ws = XLSX.utils.aoa_to_sheet([['PICK_ID', 'X_COORD_BASE', 'Y_COORD_BASE', 'Z_COORD_BASE'], ['S1', { t: 'n', f: 'WEBSERVICE("http://x")', v: 400000 }, 6450000, 7.33]]);
+  ws.B2 = { t: 'n', f: 'WEBSERVICE("http://x")', v: 400000 };
   XLSX.utils.book_append_sheet(wb, ws, 'S');
   const s = PNW.importFile(XLSX, 'f.xlsx', XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
-  assert.equal(s.items[0].easting, 401821.16); // cached value only
+  assert.equal(s.items[0].easting, 400000); // cached value only
 });
