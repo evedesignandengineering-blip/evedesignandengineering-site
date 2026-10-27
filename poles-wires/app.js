@@ -772,9 +772,13 @@
       var x = r.resp;
       if (x.photo_quality) h += '<p class="meta">Photo: ' + esc(x.photo_quality) + '</p>';
       if (x.components.length) h += '<p class="meta"><b>Seen:</b> ' + x.components.map(function (c) { return esc(c.name) + (c.count ? ' ×' + c.count : '') + ' (' + esc(c.level) + ', ' + Math.round(c.confidence * 100) + '%)'; }).join(' · ') + '</p>';
-      var opts = cons.map(function (c) { return '<option value="' + esc(c.unique) + '">Replace ' + esc(c.descr || '(blank)') + '</option>'; }).join('') + '<option value="new">Add as a new construction</option>';
+      // default target: the construction on the same circuit level (HV / LV / RE prefix), else add new
+      var optsFor = function (m) {
+        var pre = (String(m.code).match(/^[A-Z]{2}/i) || [''])[0].toUpperCase(), hit = cons.filter(function (c) { return String(c.code).toUpperCase().indexOf(pre) === 0; })[0];
+        return cons.map(function (c) { return '<option value="' + esc(c.unique) + '"' + (c === hit ? ' selected' : '') + '>Replace ' + esc(c.descr || '(blank)') + '</option>'; }).join('') + '<option value="new"' + (hit ? '' : ' selected') + '>Add as a new construction</option>';
+      };
       x.matches.slice().sort(function (a, b) { return a.rank - b.rank || b.confidence - a.confidence; }).forEach(function (m, i) {
-        var lc = M.libraryConstruction(lib, m.code), d = M.dcshFor(dcshReg(), m.code)[0];
+        var opts = optsFor(m), lc = M.libraryConstruction(lib, m.code), d = M.dcshFor(dcshReg(), m.code)[0];
         h += '<div class="ai-m"><div><b>' + esc(m.code) + '</b> <span class="pill ' + (m.confidence >= 0.7 ? 'ok' : m.confidence >= 0.5 ? 'warn' : 'bad') + '">' + Math.round(m.confidence * 100) + '%</span> <small>' + esc(m.level) + (lc ? ' · ' + esc(lc.description) : '') + (d ? ' · DCSH ' + esc(d.drawing) : '') + '</small></div>' +
           (m.reasons.length ? '<small class="muted">' + esc(m.reasons.join(' ')) + '</small>' : '') +
           '<div class="btnrow"><select data-aitarget="' + i + '">' + opts + '</select><button class="btn small primary" data-aiok="' + i + '">Approve</button></div></div>';
