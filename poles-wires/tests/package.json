@@ -4,7 +4,7 @@
   "description": "Regression tests for the Poles and Wires tool. Set PNW_FIXTURES to the folder with the reference files. Browser tests (npm run e2e) need Playwright and PNW_E2E_URL.",
   "scripts": {
     "test": "node --test regression.test.js model.test.js",
-    "e2e": "node e2e/camera.e2e.js && node e2e/scenarios.e2e.js && node e2e/layout.e2e.js && node e2e/ai.e2e.js"
+    "e2e": "node e2e/camera.e2e.js && node e2e/scenarios.e2e.js && node e2e/layout.e2e.js && node e2e/ai.e2e.js && node e2e/intersect.e2e.js"
   },
   "devDependencies": {
     "xlsx": "0.18.5"

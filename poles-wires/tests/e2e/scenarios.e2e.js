@@ -90,6 +90,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const heights = await pg.$eval('#selected table.att', (e) => e.innerText).catch(() => '');
   ok(/HV5/.test(heights), '5 attachment heights table on the Conductors tab');
   await pg.click('[data-instab="design"]'); await pg.waitForTimeout(200);
+  await pg.click('details.offs summary'); await pg.waitForTimeout(100);
   await pg.fill('[data-ay]', '0.6'); await pg.press('[data-ay]', 'Enter'); await pg.waitForTimeout(700);
   await pg.click('[data-tab="heights"]'); await pg.waitForTimeout(200);
   const hv = await pg.$eval('#tableWrap', (e) => e.innerText); ok(/P1/.test(hv) && /HV5/.test(hv), '5 attachments & heights table lists P1 HV5');

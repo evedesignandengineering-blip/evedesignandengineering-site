@@ -51,6 +51,9 @@ function mount(el, cb) {
   controls.enableDamping = true; controls.dampingFactor = 0.12; controls.screenSpacePanning = true;
   controls.zoomToCursor = true; controls.minDistance = 0.4; controls.maxDistance = 20000;
   controls.zoomSpeed = 1.1; controls.rotateSpeed = 0.8;
+  // Middle button (wheel pressed) pans like the right button; stop the browser's middle-click autoscroll.
+  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
+  host.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
   controls.addEventListener('change', invalidate);
   controls.addEventListener('start', () => { tween = null; });
   group = new THREE.Group(); scene.add(group);
@@ -186,18 +189,22 @@ function update(data) {
   if (newSite) origin = { e: poles[0].easting, n: poles[0].northing, z: base };
 
   // Ground ribbon through the surveyed pole base levels (known only at the poles; straight between them).
-  if (poles.length > 1) {
+  // One ribbon per line (data.ribbons when intersecting lines are drawn, else the poles in order).
+  const ribbons = data.ribbons || [poles.map((p, i) => ({ easting: p.easting, northing: p.northing, ground: p.ground, right: data.axes[i] ? data.axes[i].right : [1, 0] }))];
+  ribbons.forEach((rb) => {
+    rb = rb.filter((p) => isFinite(p.easting) && isFinite(p.northing) && isFinite(p.ground));
+    if (rb.length < 2) return;
     const pos = [];
-    poles.forEach((p, i) => {
-      const r = data.axes[i] ? data.axes[i].right : [1, 0];
+    rb.forEach((p) => {
+      const r = p.right;
       [-12, 12].forEach((w) => { const v = P(p.easting + r[0] * w, p.northing + r[1] * w, p.ground); pos.push(v.x, v.y, v.z); });
     });
     const idx = [];
-    for (let i = 0; i < poles.length - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    for (let i = 0; i < rb.length - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
     const ribbon = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0xb9c8a6, side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
     ribbon.renderOrder = -1; group.add(ribbon);
-  }
+  });
 
   poles.forEach((p) => {
     const b = P(p.easting, p.northing, p.ground);
@@ -220,7 +227,7 @@ function update(data) {
   const byPole = {}; poles.forEach((p) => { byPole[p.id] = p; });
   (data.constructions || []).forEach((c) => {
     const p = byPole[c.pole]; if (!p || c.kingbolt == null) return;
-    const xs = c.attachments.map((a) => a.x), r = axisOf[c.pole];
+    const xs = c.attachments.map((a) => a.x), r = c.axis || axisOf[c.pole];
     const lo = Math.min(0, ...xs), hi = Math.max(0, ...xs);
     if (hi - lo > 0.05) {
       const a = P(p.easting + r[0] * lo, p.northing + r[1] * lo, p.ground + c.kingbolt), b = P(p.easting + r[0] * hi, p.northing + r[1] * hi, p.ground + c.kingbolt);
@@ -246,6 +253,7 @@ function update(data) {
     const line = new Line2(g, mt); line.computeLineDistances();
     line.userData = { segment: w.segment, pole: w.from.pole, color: COLORS[kind(w)], pts: vs };
     group.add(line); wireLines.push(line); fitObjects.push(line);
+    if (data.showLabels !== false && w.sag && w.phase === 1) label('sag ' + w.sag.toFixed(2) + ' m', vs[12].clone().add(new THREE.Vector3(0, -0.6, 0)), 'l3d sag');
   });
 
   // Reference grid on the lowest pole base (not part of the fit).

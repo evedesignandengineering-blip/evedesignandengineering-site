@@ -153,6 +153,7 @@ button,input,select{font:inherit}button{cursor:pointer}
 .v-3d .map-over,.v-profile .map-over,.v-split .map-over,.v-3d .legend:not(.v3legend),.v-profile .legend,.v-split .legend:not(.v3legend),.v-3d .empty-map,.v-profile .empty-map,.v-split .empty-map{display:none}
 .v3legend{bottom:10px;display:block;max-width:min(560px,calc(100% - 290px));min-width:150px;padding:4px 9px}.v3legend summary{cursor:pointer;font-weight:700;color:#43566d;list-style:none}.v3legend summary::-webkit-details-marker{display:none}.v3legend summary:before{content:"\25B8  "}.v3legend[open] summary:before{content:"\25BE  "}.v3legend .lg{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:3px}.legend .sw{display:inline-block;width:16px;height:3px;border-radius:2px}
 .v-split .v3legend{display:none}
+.l3d.sag{font-weight:600;color:#7c2d12;background:#fff7ede6;border-color:#fed7aa}
 .v3scale{position:absolute;right:10px;bottom:10px;z-index:5;pointer-events:none;display:grid;justify-items:end;gap:2px;background:#ffffffe0;border:1px solid #d9e3ed;border-radius:6px;padding:4px 8px 3px}
 .v3scale .bar{height:6px;border:2px solid #1f2d3d;border-top:0;min-width:10px}
 .v3scale .txt{font:600 10.5px "DM Sans",system-ui,sans-serif;color:#1f2d3d;white-space:nowrap}
@@ -203,7 +204,7 @@ table.grid input{font-size:11px;padding:2px 4px;border:1px solid #d6e0eb;border-
 table.att{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}table.att th{color:var(--muted);font-weight:700;text-align:left;font-size:10px}table.att td,table.att th{padding:2px 4px;border-bottom:1px solid #eef2f6}
 table.att td.num,table.att th.num{text-align:right}
 .meta{font-size:11px;color:#43566d;margin:3px 0}
-.muted{color:var(--muted)}.con.ai{background:#f7fbff}.ai-g{border-top:1px solid #d6e0eb;margin-top:8px;padding-top:6px}.ai-gh{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.ai-m{display:flex;gap:9px;align-items:flex-start}.ai-mb{display:grid;gap:2px;min-width:0}.ai-mb small{display:block}.hint.ok,small.ok{color:#1f7a3a}
+.muted{color:var(--muted)}details.offs{margin:4px 0}details.offs summary{cursor:pointer;font-size:11px;color:#5b6f86;font-weight:700}#map.mpan{cursor:grabbing}.con.ai{background:#f7fbff}.ai-g{border-top:1px solid #d6e0eb;margin-top:8px;padding-top:6px}.ai-gh{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.ai-m{display:flex;gap:9px;align-items:flex-start}.ai-mb{display:grid;gap:2px;min-width:0}.ai-mb small{display:block}.hint.ok,small.ok{color:#1f7a3a}
 .dcsh-thumb{flex:none;display:inline-grid;justify-items:center;gap:1px;width:66px;padding:3px;border:1px solid #c9d6e3;border-radius:6px;background:#fff;cursor:zoom-in;vertical-align:top;margin:0 6px 2px 0}.dcsh-thumb img{width:58px;height:78px;object-fit:cover;object-position:top;display:block}.dcsh-thumb span{font:700 9.5px "DM Sans",system-ui,sans-serif;color:#43566d}.dcsh-thumb:hover,.dcsh-thumb:focus-visible{border-color:var(--navy);outline:2px solid #b8cde3}
 #dcshPop{position:fixed;z-index:1000;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1100px,94vw);max-height:90vh;background:#fff;border:1px solid #b8c7d6;border-radius:10px;box-shadow:0 18px 50px #0f1e3266;display:flex;flex-direction:column;pointer-events:none}#dcshPop.pinned{pointer-events:auto}#dcshPop[hidden]{display:none}
 #dcshPop .dp-h{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #e3eaf1;font-size:12px}#dcshPop .dp-h span{flex:1;color:#43566d}
@@ -363,13 +364,13 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
         <button id="v3reset" title="Reset the camera to the isometric view of the whole line (R)">Reset</button>
       </div>
       <span class="grow"></span>
-      <span class="nonplan"><select id="sagMode" aria-label="Sag" title="How conductor sag is drawn"><option value="none">No sag (chords)</option><option value="dcsh">Sag from DCSH Part 10 tables</option><option value="illustrative">Illustrative sag (w·L²/8T)</option></select><select id="sagTemp" aria-label="Temperature" hidden></select></span>
+      <span class="nonplan"><select id="sagMode" aria-label="Sag" title="How conductor sag is drawn"><option value="auto">Sag: DCSH table, else w·L²/8T</option><option value="none">No sag (chords)</option><option value="dcsh">Sag from DCSH Part 10 tables</option><option value="illustrative">Illustrative sag (w·L²/8T)</option></select><select id="sagTemp" aria-label="Temperature" hidden></select></span>
     </div>
     <div class="stage" id="stage">
       <div id="map"></div>
-      <div id="view3d"><div id="v3host" aria-label="3D view. Drag to orbit, right-drag or shift-drag to pan, wheel to zoom towards the cursor."></div><p class="v3msg" id="v3empty" hidden>No poles with coordinates and ground levels yet.</p>
+      <div id="view3d"><div id="v3host" aria-label="3D view. Drag to orbit, right-drag, middle-drag or shift-drag to pan, wheel to zoom towards the cursor."></div><p class="v3msg" id="v3empty" hidden>No poles with coordinates and ground levels yet.</p>
         <details class="legend v3legend" id="v3legend" open><summary>Legend</summary><div class="lg"><span><b class="sw" style="background:#c2410c"></b>HV conductor</span><span><b class="sw" style="background:#2f6ea4"></b>LV conductor</span><span><b class="sw" style="background:#64748b"></b>Running earth</span><span><b class="sw" style="background:#0f766e"></b>Voltage not set</span><span><b class="sw" style="background:#f59e0b"></b>Selected section</span><span><b class="sw" style="background:#5b4636;opacity:.5"></b>Embedment (below ground)</span><span class="muted" title="PNW attachment x offsets are drawn to the right of the line, looking along increasing chainage">Crossarm +x to the right along chainage</span></div></details>
-        <div class="v3help" id="v3help">Drag to orbit · right-drag to pan · wheel zooms about 10% per notch toward the cursor (scale bar bottom right) · click a pole or wire to select it · double-click to focus</div>
+        <div class="v3help" id="v3help">Drag to orbit · right- or wheel-drag to pan · wheel zooms about 10% per notch toward the cursor (scale bar bottom right) · click a pole or wire to select it · double-click to focus</div>
       </div>
       <div id="profileView"></div>
       <p class="sagnote nonplan" id="sagNote"></p>

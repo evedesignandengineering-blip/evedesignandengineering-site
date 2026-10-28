@@ -25,8 +25,8 @@ const stub = () => {
   ok(JSON.stringify(g[0].codes) === '["HV1","HV5"]', 'HV1 listed once for the three HV conductors (' + g[0].codes + ')');
   ok(JSON.stringify(g[1].codes) === '["LV1"]', 'LV1 listed once for the four LV conductors (' + g[1].codes + ')');
   ok(/3 conductors seen/.test(g[0].head) && /4 conductors seen/.test(g[1].head), 'conductor counts shown per circuit');
-  ok(/listed it 3 times/.test(g[0].text) && /listed it 4 times/.test(g[1].text), 'duplicates explained');
-  ok(/removed/.test(await pg.$eval('#selected', (e) => e.textContent)), 'code not in the library dropped');
+  ok(!/NOTACODE/.test(await pg.$eval('#selected', (e) => e.textContent)), 'code not in the library dropped');
+  ok(!/three pin insulators|listed it|Seen:/.test(await pg.$eval('#selected', (e) => e.textContent)), 'no AI explanation text in the panel');
   const thumbs = await pg.$$eval('.ai-g .dcsh-thumb', (els) => els.map((e) => e.dataset.dcshimg));
   ok(thumbs.includes('H01-1') && thumbs.includes('L01'), 'DCSH thumbnails beside matches: ' + thumbs.join(', '));
   await pg.screenshot({ path: OUT + 'ai-panel.png' });
@@ -49,7 +49,7 @@ const stub = () => {
   ok(after === before + 1, 'approving LV1 adds exactly one construction (' + before + ' → ' + after + ')');
   await pg.click('[data-instab="photo"]'); await pg.waitForTimeout(200);
   const lv = await pg.$$eval('.ai-g', (els) => ({ btns: els[1].querySelectorAll('[data-aiok]').length, text: els[1].textContent }));
-  ok(lv.btns === 0 && /already on this pole/.test(lv.text), 'LV circuit now reports LV1 already on the pole, no second approve');
+  ok(lv.btns === 0 && /Already on this pole/.test(lv.text), 'LV circuit now reports LV1 already on the pole, no second approve');
   ok(!logs.filter((l) => !noise(l)).length, 'console clean ' + logs.filter((l) => !noise(l)).join(' | '));
   console.log(fails ? fails + ' FAILED' : 'ALL PASSED'); await b.close(); process.exitCode = fails ? 1 : 0;
 })();
