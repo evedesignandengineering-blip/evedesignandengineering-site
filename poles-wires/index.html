@@ -15,10 +15,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261031"></script>
-<script src="pnw-model.js?v=20261031"></script>
+<script src="pnw-core.js?v=20261101"></script>
+<script src="pnw-model.js?v=20261101"></script>
+<script src="pnw-tipload.js?v=20261101"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<script type="module" src="view3d.js?v=20261031"></script>
+<script type="module" src="view3d.js?v=20261101"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#09284b;--ink:#172638;--muted:#64748b;--line:#dbe4ed;--bg:#f2f6fa;--blue:#2f6ea4;--teal:#0f766e;--white:#fff;--bad:#b42318;--warn:#b54708;--ok:#1f7a45;--ground:#2f6ea4;--pole:#c2410c;--sel:#f59e0b;--focus:#2563eb;color-scheme:light}
@@ -240,6 +241,18 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
 .chart{border:1px solid var(--line);border-radius:10px;padding:8px;position:relative}
 .chart svg{width:100%;height:auto;display:block}
 .chart .tt{position:absolute;pointer-events:none;background:#102b46;color:#fff;border-radius:7px;padding:6px 8px;font-size:11px;line-height:1.35;white-space:nowrap}
+.tip-opts summary{cursor:pointer;font-weight:700;color:var(--navy)}.tip-opts{border:1px solid var(--line);border-radius:10px;padding:10px 12px}.tip-opts[open] summary{margin-bottom:8px}
+.tip-opts input{padding:3px 5px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12px}
+.tip-optrow{display:flex;flex-wrap:wrap;gap:8px 16px;margin:8px 0;font-size:12px}.tip-optrow label{display:flex;align-items:center;gap:6px}.tip-optrow select{font:inherit;font-size:12px}
+.tip-paste{display:flex;gap:8px;align-items:flex-start}.tip-paste textarea{flex:1;font:12px/1.4 ui-monospace,monospace;border:1px solid var(--line);border-radius:8px;padding:6px}
+.tip-all{max-height:240px;border:1px solid var(--line);border-radius:10px}.tip-all tr[data-tippick]{cursor:pointer}.tip-all tr[data-tippick]:hover td{background:#f5f8fb}.tip-all tr.sel td{background:#fff4e6}
+.tip-head{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}.tip-head h3{margin:0}
+.tip-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,560px);gap:16px;align-items:start}@media(max-width:900px){.tip-grid{grid-template-columns:1fr}}
+.tip-res th:first-child{text-align:left;white-space:nowrap}.tip-figs{display:grid;gap:6px;justify-items:center}
+.tip-polar{width:300px;max-width:100%;height:auto}.tip-polar .ax,.tip-curve .ax{font-size:10px;fill:#64748b}.tip-polar .ax.b{font-weight:800;fill:#172638}
+.tip-curve{position:relative;width:100%}.tip-curve svg{width:100%;height:auto;display:block}.tip-curve .tt{position:absolute;pointer-events:none;background:#102b46;color:#fff;border-radius:7px;padding:6px 8px;font-size:11px;line-height:1.4;white-space:nowrap}
+.sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:baseline}
+.tip-sum>div{font-size:12px;margin:2px 0}.tip-sum .pill{margin-left:4px}
 .chart-legend{display:flex;gap:16px;font-size:11px;color:#43566d;margin:0 0 2px 4px;flex-wrap:wrap}.chart-legend span{display:flex;align-items:center;gap:6px;white-space:nowrap}.chart-legend svg{flex:none;width:22px;height:8px}.chart-note{margin:0 0 4px 4px;font-size:10.5px;color:var(--muted)}
 .exports{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
 .exp{border:1px solid var(--line);border-radius:10px;padding:11px 12px;display:grid;gap:6px;align-content:start}
@@ -282,6 +295,7 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
     <button class="btn" id="tbFit" title="Fit the whole project in the current view (map, 3D or profile)"><span class="ic">⤢</span><span class="lbl">Fit project</span></button>
     <button class="btn" id="tbLayers" title="Map layers" aria-haspopup="true" aria-expanded="false"><span class="ic">☰</span><span class="lbl opt">Layers</span></button>
     <button class="btn on" id="tbLabels" title="Show or hide pole labels" aria-pressed="true"><span class="ic">🏷</span><span class="lbl opt">Labels</span></button>
+    <button class="btn" id="tbTip" title="Tipload of every pole: PNW method with your load combinations, stays and plant"><span class="ic">⇲</span><span class="lbl">Tipload</span></button>
     <button class="btn" id="tbAi" title="Analyse a pole photo with AI: rank the PNW constructions and DCSH drawings that fit"><span class="ic">✨</span><span class="lbl">AI photo match</span></button>
     <button class="btn" id="tbIssues" title="Show data-quality issues"><span class="ic">⚠</span><span class="lbl">Issues</span> <span class="pill mute" id="issueCount">0</span></button>
   </div>
@@ -417,9 +431,16 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
   </div>
 </div>
 
+<div class="dlg" id="tipDlg" hidden role="dialog" aria-modal="true" aria-labelledby="tipTitle">
+  <div class="dlg-card">
+    <div class="dlg-head"><h2 id="tipTitle">Tipload</h2><button class="btn" id="closeTip">Back to the design</button></div>
+    <div class="dlg-body" id="tipBody"></div>
+  </div>
+</div>
+
 <footer><a class="footer-brand" href="../#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer>
 </div>
 <div id="dcshPop" hidden role="dialog" aria-label="DCSH drawing"></div>
-<script src="app.js?v=20261031"></script>
+<script src="app.js?v=20261101"></script>
 </body>
 </html>

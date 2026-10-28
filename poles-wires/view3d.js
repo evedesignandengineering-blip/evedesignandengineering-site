@@ -262,10 +262,10 @@ function update(data) {
     if (!p) return;
   });
 
-  // Stays (PNW tipload fields: attachment height, bearing to the anchor, angle from the pole) and pole-mounted plant.
+  // Stays (PNW tipload fields: attachment height, bearing to the anchor, angle to the ground) and pole-mounted plant.
   (data.stays || []).forEach((st) => {
     const p = byPole[st.pole]; if (!p || !(st.attHt > 0)) return;
-    const lead = st.attHt * Math.tan(THREE.MathUtils.degToRad(st.angle || 45)), b = THREE.MathUtils.degToRad(st.dir || 0);
+    const lead = st.attHt / Math.tan(THREE.MathUtils.degToRad(st.angle || 45)), b = THREE.MathUtils.degToRad(st.dir || 0);
     const top = P(p.easting, p.northing, p.ground + st.attHt), foot = P(p.easting + Math.sin(b) * lead, p.northing + Math.cos(b) * lead, p.ground);
     const g = new LineGeometry(); g.setPositions([top.x, top.y, top.z, foot.x, foot.y, foot.z]);
     const mt = new LineMaterial({ color: 0x334155, linewidth: 2, worldUnits: false }); mt.resolution.set(host.clientWidth || 1, host.clientHeight || 1); lineMats.push(mt);

@@ -89,7 +89,7 @@
     Object.defineProperty(p, '_doc', { value: doc, enumerable: false });
     Object.defineProperty(p, '_root', { value: top, enumerable: false });
     if (p.kind === 'tipload') {
-      p.circuits = rows(top, 'ccts').length ? els(el(top, 'ccts'), 'cct').map(record) : [];
+      p.circuits = el(top, 'ccts') ? els(el(top, 'ccts'), 'cct').map(record) : [];
       p.poletype = (rows(top, 'poletype')[0]) || null;
       return p;
     }
@@ -474,7 +474,8 @@
       var m = /(\d+(?:\.\d+)?)\s*m\s*\/\s*(\d+(?:\.\d+)?)\s*kN/i.exec(r.Code + ' ' + r.Description);
       return { code: r.Code, description: r.Description || '', length: numOr(r.Length, null), sinking: numOr(r['Default Sinking'], null),
         height: numOr(r['Default Height'], null), material: r.Material || '', diamTip: numOr(r['Diameter: tip'], null),
-        diamGL: numOr(r['Diameter: groundline'], null), diamButt: numOr(r['Diameter: butt'], null), kN: m ? Number(m[2]) : null,
+        diamGL: numOr(r['Diameter: groundline'], null), diamButt: numOr(r['Diameter: butt'], null), diamAvg: numOr(r['Diameter: average'], null), weight: numOr(r.Weight, null),
+        ultimate: numOr(r['Strength: ultimate'], null), vertical: numOr(r['Strength: vertical'], null), kN: m ? Number(m[2]) : null,
         selfSupporting: /self supporting/i.test(r.Description || ''), line: r._line };
     });
     out.conductors = out.conductors.map(function (r) {
@@ -483,6 +484,7 @@
         strands: numOr(r['No. Strands'], null), strandDiam: numOr(r['Strand Diam mm'], null), insulation: r.Insulation || '', modElast: numOr(r['Mod Elast. Gpa'], null),
         csa: numOr(r['CSA mm\u00b2'], null), expCoeff: r['Exp. Coeff/\u00b0C'] || null, line: r._line };
     });
+    out.stays = out.stays.map(function (r) { return { code: r.Code || r['Wire code'], description: r.Description || '', strength: numOr(r.Strength, null), wire: r['Wire code'] || r.Code, Code: r.Code }; });
     if (!out.constructions.length && !out.poles.length && !out.conductors.length) out.issues.push('No PNW library sections found (expected lines such as "construction:" followed by a header row).');
     var seen = {};
     out.constructions.forEach(function (c) { if (seen[c.code]) out.issues.push('Construction ' + c.code + ' is listed twice (lines ' + seen[c.code] + ' and ' + c.line + ').'); seen[c.code] = c.line; });
