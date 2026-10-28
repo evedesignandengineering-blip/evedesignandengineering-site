@@ -71,7 +71,7 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function () {
-  var VERSION = '202610280107-d93990ba', ENC = 'app-202610280107-d93990ba.bin';
+  var VERSION = '202610280133-cff08566', ENC = 'app-202610280133-cff08566.bin';
   var $ = function (id) { return document.getElementById(id); };
   var views = ['vBusy', 'vSignin', 'vSetpw', 'vDenied'];
   function show(v, msg, cls) { views.forEach(function (x) { $(x).hidden = x !== v; }); var s = $('status'); s.textContent = msg || ''; s.className = 'status' + (cls ? ' ' + cls : ''); }
