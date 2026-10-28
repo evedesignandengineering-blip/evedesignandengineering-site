@@ -55,6 +55,7 @@ Deno.serve(async (req: Request) => {
     candidates, context,
     rules: [
       "Only use codes from candidates. If nothing fits, return no match for that level and say why.",
+      "A construction code covers a whole circuit, not one conductor: one HV1 carries all three HV phases and one LV1 carries all four LV conductors (R W B N). Return at most 3 alternative codes per circuit level, ranked, and never repeat a code for each conductor. In components, count the conductors on each level (name \"conductors\", level HV, LV or earth).",
       "Describe only what is visible: crossarm type and count, insulator type (pin, post, disc/strain, reel), number of conductors per level, terminations, angle or straight-through, stays, pole top plant (transformer, fuses, switches).",
       "Give a confidence between 0 and 1. Use below 0.5 when the photo angle, distance or resolution does not show the hardware clearly.",
       "Do not estimate dimensions, offsets, heights or pole strength; those come from the engineering data, not the photo.",

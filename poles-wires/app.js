@@ -805,7 +805,7 @@
         '<td class="num">' + fmt(r.lib && r.lib.belowTip) + '</td><td class="num">' + fmt(r.lib && r.lib.belowSupercct) + '</td>' +
         '<td>' + (r.attachments.length ? r.attachments.map(function (a) { return fmt(a.x) + ', ' + fmt(a.y); }).join(' · ') : '<span class="muted">none</span>') + '</td>' +
         '<td title="' + esc(r.sources.join('\n')) + '">' + (r.sources.length ? r.sources.length + ' in your projects' : 'library only') + '</td>' +
-        '<td>' + (d ? esc(d.part.split(' ').slice(0, 2).join(' ') + ' · ' + d.drawing + ' rev ' + d.revision + (d.page ? ' · p' + d.page : '')) + '<br><small>' + esc(d.title) + '</small>' : '<span class="muted">not linked</span>') + '</td>' +
+        '<td>' + (d ? dcshThumb(d.drawing) + esc(d.part.split(' ').slice(0, 2).join(' ') + ' · ' + d.drawing + ' rev ' + d.revision + (d.page ? ' · p' + d.page : '')) + '<br><small>' + esc(d.title) + '</small>' : '<span class="muted">not linked</span>') + '</td>' +
         '<td class="wrap"><small>' + esc(d ? [d.conditions, d.statusText].filter(Boolean).join(' ') : '') + (r.check && r.check.notes.length ? ' ' + esc(r.check.notes.join(' ')) : '') + '</small></td>' +
         '<td><span class="pill ' + st.cls + '">' + esc(st.text) + '</span></td>' +
         '<td><select data-regst="' + esc(r.id) + '" aria-label="Engineer status for ' + esc(r.code) + '"><option value="">Needs review</option><option value="approved"' + (r.user.status === 'approved' ? ' selected' : '') + '>Approved</option><option value="unsupported"' + (r.user.status === 'unsupported' ? ' selected' : '') + '>Unsupported</option></select></td></tr>';
@@ -1284,7 +1284,7 @@
       h += '<div class="preview"><dl><dt>Library</dt><dd>' + (ck.lc ? esc(ck.lc.description) + (ck.lc.voltageLL != null ? ' · ' + ck.lc.voltageLL + ' kV' : '') : '<span class="muted">not in the library</span>') + '</dd>' +
         '<dt>King bolt</dt><dd>' + (ck.def ? 'default ' + ck.def.value + ' m (' + esc(ck.def.source) + ')' : '<span class="muted">no library default</span>') + '</dd>' +
         '<dt>Attachments</dt><dd>' + (ck.lay ? esc(ck.lay.attachments.map(function (a) { return '(' + a.x + ', ' + a.y + ')'; }).join(' ')) + ' from ' + esc(ck.lay.source) : '<span class="muted">none known</span>') + '</dd>' +
-        '<dt>DCSH</dt><dd>' + (ck.dc ? esc(ck.dc.drawing + ' rev ' + ck.dc.revision + ' · ' + (M.DCSH_STATUS[ck.dc.status] || ck.dc.status)) : '<span class="muted">not linked</span>') + '</dd></dl></div>';
+        '<dt>DCSH</dt><dd>' + (ck.dc ? esc(ck.dc.drawing + ' rev ' + ck.dc.revision + ' · ' + (M.DCSH_STATUS[ck.dc.status] || ck.dc.status)) + dcshThumb(ck.dc.drawing) : '<span class="muted">not linked</span>') + '</dd></dl></div>';
     }
     h += '<ul class="msgs">' + ck.msgs.map(function (m) { return '<li class="' + m.level + '">' + m.text + '</li>'; }).join('') + '</ul>';
     return { html: h, ok: ck.ok };
@@ -1407,8 +1407,55 @@
 
   /* pole photo: AI identifies hardware and ranks PNW codes; nothing changes until the designer approves */
   var AI_URL = 'https://hszkloepnewfkzdegfhl.supabase.co/functions/v1/pnw-pole-photo-ai', AI_KEY = 'sb_publishable_Avjn-CGtbEdeLaxSWCwQDw_36mgImSu', aiResults = {};
+  // DCSH drawing thumbnail (private copy only: window.PNW_DCSH_IMG); hover or focus enlarges it next to the pole photo.
+  function dcshThumb(drawing, photo) {
+    var im = drawing && window.PNW_DCSH_IMG && window.PNW_DCSH_IMG[drawing];
+    if (!im) return '';
+    return '<button type="button" class="dcsh-thumb" data-dcshimg="' + esc(drawing) + '"' + (photo ? ' data-photo="1"' : '') + ' title="DCSH ' + esc(drawing) + ' · ' + esc(im.title) + ' (hover to enlarge, click to pin)"><img src="' + esc(im.src) + '" alt="DCSH drawing ' + esc(drawing) + '" loading="lazy"><span>' + esc(drawing) + '</span></button>';
+  }
+  // Conductors a construction carries: its attachment points (DCSH, register or layout), else the register's phase count.
+  // Enlarged drawing: shown while hovering a thumbnail, pinned by a click; the pole photo sits beside it to compare.
+  var dcshPin = false;
+  function dcshShow(btn, pin) {
+    var key = btn.dataset.dcshimg, im = window.PNW_DCSH_IMG[key], pop = $('dcshPop'), r = aiResults[S.selected], photo = btn.dataset.photo && r && r.view;
+    pop.innerHTML = '<div class="dp-h"><b>DCSH ' + esc(key) + '</b> <span>' + esc(im.title + ' · ' + im.part + ', page ' + im.page) + '</span>' + (pin ? '<button class="btn small" id="dcshClose" title="Close (Esc)">✕</button>' : '<small class="muted">click the thumbnail to pin</small>') + '</div>' +
+      '<div class="dp-b' + (photo ? ' two' : '') + '">' + (photo ? '<figure><img src="' + photo + '" alt="Pole photo"><figcaption>Your photo of ' + esc(S.selected) + '</figcaption></figure>' : '') + '<figure><img src="' + esc(im.src) + '" alt="DCSH drawing ' + esc(key) + '"><figcaption>DCSH ' + esc(key) + '</figcaption></figure></div>';
+    pop.hidden = false; pop.classList.toggle('pinned', !!pin); dcshPin = !!pin;
+  }
+  function dcshHide(force) { if (dcshPin && !force) return; $('dcshPop').hidden = true; dcshPin = false; }
+  document.addEventListener('mouseover', function (e) { var b = e.target.closest && e.target.closest('[data-dcshimg]'); if (b && !dcshPin) dcshShow(b, false); });
+  document.addEventListener('mouseout', function (e) { var b = e.target.closest && e.target.closest('[data-dcshimg]'); if (b && !b.contains(e.relatedTarget)) dcshHide(false); });
+  document.addEventListener('focusin', function (e) { var b = e.target.closest && e.target.closest('[data-dcshimg]'); if (b && !dcshPin) dcshShow(b, false); });
+  document.addEventListener('focusout', function (e) { if (e.target.closest && e.target.closest('[data-dcshimg]')) dcshHide(false); });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-dcshimg]');
+    if (b) { e.preventDefault(); dcshShow(b, true); return; }
+    if (e.target.closest && e.target.closest('#dcshClose')) dcshHide(true);
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('dcshPop').hidden) { dcshHide(true); e.stopPropagation(); } }, true);
+  function conductorsOf(code) { var lay = knownLayout(code); if (lay && lay.attachments.length) return lay.attachments.length; var c = aiCandidates().filter(function (x) { return x.code === code; })[0]; return c && c.phases ? +c.phases || null : null; }
+  // The AI is asked for one construction per circuit, but it can still list a code once per conductor it sees.
+  // Group by circuit (HV / LV / earth from the code), keep each code once with its best confidence, three options per circuit.
+  function aiGroups(resp) {
+    var groups = {}, order = ['hv', 'lv', 'earth', 'comms', 'other'];
+    resp.matches.forEach(function (m) {
+      var k = circuitClass(m.code), g = groups[k] || (groups[k] = { cls: k, items: {}, seen: null });
+      var o = g.items[m.code];
+      if (!o || m.confidence > o.confidence) g.items[m.code] = { code: m.code, level: m.level, rank: m.rank, confidence: m.confidence, reasons: m.reasons, dup: o ? (o.dup || 1) + 1 : 1 };
+      else o.dup = (o.dup || 1) + 1;
+    });
+    resp.components.forEach(function (c) { // conductors counted on each circuit, if the AI reported them
+      if (!/conductor|wire|phase|neutral/i.test(c.name) || !c.count) return;
+      var k = /hv|high/i.test(c.level) ? 'hv' : /earth/i.test(c.level) ? 'earth' : /lv|low/i.test(c.level) ? 'lv' : null;
+      if (k && groups[k]) groups[k].seen = (groups[k].seen || 0) + c.count;
+    });
+    return order.filter(function (k) { return groups[k]; }).map(function (k) {
+      var g = groups[k]; g.items = Object.keys(g.items).map(function (c) { return g.items[c]; }).sort(function (a, b) { return b.confidence - a.confidence || a.rank - b.rank; }).slice(0, 3);
+      return g;
+    });
+  }
   function aiPanel(id, cons) {
-    var r = aiResults[id] || {}, h = '<div class="con ai"><div class="con-title">✨ Analyse pole photo with AI</div><p class="hint">Upload a photo of ' + esc(id) + '. AI identifies the crossarms, insulators and attachments and ranks the PNW library constructions that fit, with their DCSH drawing.</p>';
+    var r = aiResults[id] || {}, h = '<div class="con ai"><div class="con-title">✨ Analyse pole photo with AI</div><p class="hint">Upload a photo of ' + esc(id) + '. AI identifies the crossarms, insulators and conductors on each circuit and suggests one construction per circuit (one HV1 carries all three HV phases, one LV1 all four LV conductors), with its DCSH drawing to compare.</p>';
     h += '<label class="btn small"><input type="file" id="aiPhoto" accept="image/jpeg,image/png,image/webp" hidden>' + (r.photo ? 'Another photo…' : 'Choose a photo…') + '</label>';
     if (r.thumb) h += '<img class="ai-thumb" src="' + r.thumb + '" alt="Photo of ' + esc(id) + '">';
     if (r.loading) h += '<p class="status">Looking at ' + esc(r.photo) + '…</p>';
@@ -1417,16 +1464,25 @@
       var x = r.resp;
       if (x.photo_quality) h += '<p class="meta">Photo: ' + esc(x.photo_quality) + '</p>';
       if (x.components.length) h += '<p class="meta"><b>Seen:</b> ' + x.components.map(function (c) { return esc(c.name) + (c.count ? ' ×' + c.count : '') + ' (' + esc(c.level) + ', ' + Math.round(c.confidence * 100) + '%)'; }).join(' · ') + '</p>';
-      // default target: the construction on the same circuit level (HV / LV / RE prefix), else add new
-      var optsFor = function (m) {
-        var pre = (String(m.code).match(/^[A-Z]{2}/i) || [''])[0].toUpperCase(), hit = cons.filter(function (c) { return String(c.code).toUpperCase().indexOf(pre) === 0; })[0];
-        return cons.map(function (c) { return '<option value="' + esc(c.unique) + '"' + (c === hit ? ' selected' : '') + '>Replace ' + esc(c.descr || '(blank)') + '</option>'; }).join('') + '<option value="new"' + (hit ? '' : ' selected') + '>Add as a new construction</option>';
-      };
-      x.matches.slice().sort(function (a, b) { return a.rank - b.rank || b.confidence - a.confidence; }).forEach(function (m, i) {
-        var opts = optsFor(m), lc = M.libraryConstruction(lib, m.code), d = M.dcshFor(dcshReg(), m.code)[0];
-        h += '<div class="ai-m"><div><b>' + esc(m.code) + '</b> <span class="pill ' + (m.confidence >= 0.7 ? 'ok' : m.confidence >= 0.5 ? 'warn' : 'bad') + '">' + Math.round(m.confidence * 100) + '%</span> <small>' + esc(m.level) + (lc ? ' · ' + esc(lc.description) : '') + (d ? ' · DCSH ' + esc(d.drawing) : '') + '</small></div>' +
-          (m.reasons.length ? '<small class="muted">' + esc(m.reasons.join(' ')) + '</small>' : '') +
-          '<div class="btnrow"><select data-aitarget="' + i + '">' + opts + '</select><button class="btn small primary" data-aiok="' + i + '">Approve</button></div></div>';
+      r.groups = aiGroups(x);
+      r.groups.forEach(function (g, gi) {
+        var onPole = cons.filter(function (c) { return circuitClass(c.code) === g.cls; }), done = r.approved && r.approved[g.cls];
+        h += '<div class="ai-g"><div class="ai-gh"><b>' + CLASS_LABEL[g.cls] + ' circuit</b>' + (g.seen ? ' <span class="pill mute">' + g.seen + ' conductor' + (g.seen === 1 ? '' : 's') + ' seen</span>' : '') +
+          (onPole.length ? ' <small class="muted">on the pole now: ' + esc(onPole.map(function (c) { return c.descr || c.code; }).join(', ')) + '</small>' : '') + '</div>';
+        if (done) h += '<p class="hint ok">' + esc(done) + ' approved for this circuit.</p>';
+        g.items.forEach(function (m, i) {
+          var lc = M.libraryConstruction(lib, m.code), d = M.dcshFor(dcshReg(), m.code)[0], n = conductorsOf(m.code);
+          var fit = g.seen && n ? (n === g.seen ? '<span class="pill ok" title="One ' + esc(m.code) + ' carries all ' + n + ' conductors seen">carries ' + n + '</span>' : '<span class="pill warn" title="' + esc(m.code) + ' carries ' + n + ' conductors; the AI counted ' + g.seen + '">carries ' + n + ', ' + g.seen + ' seen</span>') : n ? '<span class="pill mute">carries ' + n + '</span>' : '';
+          var same = onPole.filter(function (c) { return String(c.code).toUpperCase() === m.code.toUpperCase(); })[0];
+          var opts = onPole.map(function (c, k) { return '<option value="' + esc(c.unique) + '"' + (k === 0 ? ' selected' : '') + '>Replace ' + esc(c.descr || '(blank)') + '</option>'; }).join('') + '<option value="new"' + (onPole.length ? '' : ' selected') + '>Add as a new construction</option>';
+          h += '<div class="ai-m">' + (d ? dcshThumb(d.drawing, !!r.view) : '') + '<div class="ai-mb"><div><b>' + esc(m.code) + '</b> <span class="pill ' + (m.confidence >= 0.7 ? 'ok' : m.confidence >= 0.5 ? 'warn' : 'bad') + '">' + Math.round(m.confidence * 100) + '%</span> ' + fit + (i === 0 ? ' <span class="pill info">best</span>' : '') + '</div>' +
+            '<small>' + (lc ? esc(lc.description) : '<span class="muted">not in the PNW library</span>') + (d ? ' · DCSH ' + esc(d.drawing + ' ' + d.title) : ' · no DCSH drawing linked') + '</small>' +
+            (m.dup > 1 ? '<small class="muted">The AI listed it ' + m.dup + ' times (once per conductor); one construction covers the circuit.</small>' : '') +
+            (m.reasons.length ? '<small class="muted">' + esc(m.reasons.join(' ')) + '</small>' : '') +
+            (same ? '<small class="ok">' + esc(same.descr || same.code) + ' is already on this pole; nothing to add.</small>' :
+              done ? '' : '<div class="btnrow"><select data-aitarget="' + gi + '-' + i + '">' + opts + '</select><button class="btn small primary" data-aiok="' + gi + '-' + i + '">Approve</button></div>') + '</div></div>';
+        });
+        h += '</div>';
       });
       if (!x.matches.length) h += '<p class="hint">No code from your PNW library fits what the AI could see.</p>';
       if (x.cautions.length) h += '<p class="hint warn">' + esc(x.cautions.join(' ')) + '</p>';
@@ -1443,12 +1499,13 @@
       var k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), c = document.createElement('canvas');
       c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
       var t = document.createElement('canvas'), tk = 160 / Math.max(c.width, c.height); t.width = Math.round(c.width * tk); t.height = Math.round(c.height * tk); t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
-      return { data: c.toDataURL('image/jpeg', 0.85).split(',')[1], thumb: t.toDataURL('image/jpeg', 0.7) };
+      return { data: c.toDataURL('image/jpeg', 0.85).split(',')[1], thumb: t.toDataURL('image/jpeg', 0.7), view: c.toDataURL('image/jpeg', 0.75) };
     });
   }
   var sampleP = IN_CLAUDE && window.claude && window.claude.use ? window.claude.use('sample') : null;
   function aiPrompt(id, existing) {
     return 'You help an Australian power distribution designer. Look at the attached photo of pole ' + id + '. Identify the overhead line hardware you can see and rank which of these Poles n Wires construction codes describe each circuit level (HV, LV, running earth).\n' +
+      'A construction code covers a whole circuit, not one conductor: one HV1 carries all three HV phases and one LV1 carries all four LV conductors (R W B N). Return at most 3 alternative codes per circuit level, ranked, and never repeat a code for each conductor. In components, count the conductors on each level (name "conductors", level HV, LV or earth).\n' +
       'Rules: only use codes from the list; if nothing fits a level, return no match for it. Describe only visible hardware (crossarms, insulator type: pin, post, disc/strain, reel; conductors per level; terminations; angle or straight; stays; pole top plant). Confidence 0 to 1, below 0.5 when the photo does not show the hardware clearly. Do not estimate dimensions, heights or pole strength.\n' +
       'Constructions currently on the pole in the PNW project: ' + (existing.join(', ') || 'none') + '.\n' +
       'Candidate codes (code | description | DCSH | phases):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || ''); }).join('\n') +
@@ -1458,7 +1515,7 @@
     var r = aiResults[id] = { photo: file.name, loading: true }; renderSelected();
     var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
     Promise.all([sampleP || Promise.resolve(null), shrink(file)]).then(function (x) {
-      var sample = x[0], img = x[1]; r.thumb = img.thumb; renderSelected();
+      var sample = x[0], img = x[1]; r.thumb = img.thumb; r.view = img.view; renderSelected();
       if (!sample) throw new Error('Asking Claude is not available in this view of the page.');
       var bytes = atob(img.data), arr = new Uint8Array(bytes.length); for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
       return sample.json(aiPrompt(id, existing), { images: [new Blob([arr], { type: 'image/jpeg' })], modelTier: 'default' });
@@ -1475,7 +1532,7 @@
     if (IN_CLAUDE) return runAiClaude(id, file);
     var r = aiResults[id] = { photo: file.name, loading: true }; renderSelected();
     shrink(file).then(function (img) {
-      r.thumb = img.thumb; renderSelected();
+      r.thumb = img.thumb; r.view = img.view; renderSelected();
       var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
       return fetch(AI_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + AI_KEY }, body: JSON.stringify({ mime: 'image/jpeg', image: img.data, pole: id, existing: existing, candidates: aiCandidates() }) });
     }).then(function (res) {
@@ -1487,13 +1544,16 @@
   $('selected').addEventListener('change', function (e) { if (e.target.id === 'aiPhoto' && e.target.files[0]) runAi(S.selected, e.target.files[0]); });
   $('selected').addEventListener('click', function (e) {
     var b = e.target.closest('[data-aiok]'); if (!b) return;
-    var id = S.selected, r = aiResults[id], m = r.resp.matches.slice().sort(function (a, c) { return a.rank - c.rank || c.confidence - a.confidence; })[+b.dataset.aiok];
+    var id = S.selected, r = aiResults[id], gi = b.dataset.aiok.split('-'), g = r.groups[+gi[0]], m = g.items[+gi[1]];
     var target = document.querySelector('[data-aitarget="' + b.dataset.aiok + '"]').value, ref = 'Photo ' + r.photo + ', ' + m.level + ' rank ' + m.rank + ', ' + Math.round(m.confidence * 100) + '% (' + r.resp.model + ')';
-    if (target !== 'new') { changeCode(id, target, m.code, 'AI suggestion', ref); return; }
+    var mark = function () { (r.approved || (r.approved = {}))[g.cls] = m.code; };
+    if ((((dm && dm.byPole[id]) || []).some(function (c) { return String(c.code).toUpperCase() === m.code.toUpperCase(); }))) { setStatus(m.code + ' is already on ' + id + '; one construction carries the whole circuit.', 'bad'); return; }
+    if (target !== 'new') { mark(); changeCode(id, target, m.code, 'AI suggestion', ref); return; }
     var cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, c) { return (c.kingbolt || 0) - (a.kingbolt || 0); }), row = project.poles.filter(function (x) { return x.ID === id; })[0];
     var d = M.defaultKingbolt(lib, m.code, PNW.num(row.HeightAG), cons.length ? cons[cons.length - 1].kingbolt : null);
     if (!d) { setStatus('No library default height for ' + m.code + '. Add it with the form below and type the king bolt height.', 'bad'); return; }
     var lay = knownLayout(m.code), lc = M.libraryConstruction(lib, m.code);
+    mark();
     commit(function (p) {
       var nr = M.addConstruction(p, id, { code: m.code, kingbolt: d.value, voltage: lc && lc.voltageLL != null ? lc.voltageLL : 0, attachments: lay ? lay.attachments : [], isNew: true });
       return [logEntry(id, nr.descr, 'Construction', '', 'added at ' + d.value + ' m', 'AI suggestion', ref + '; king bolt from ' + d.source + (lay ? '; offsets from ' + lay.source : '; no attachment offsets known'))];

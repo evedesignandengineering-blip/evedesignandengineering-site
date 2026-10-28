@@ -15,10 +15,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261030"></script>
-<script src="pnw-model.js?v=20261030"></script>
+<script src="pnw-core.js?v=20261031"></script>
+<script src="pnw-model.js?v=20261031"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<script type="module" src="view3d.js?v=20261030"></script>
+<script type="module" src="view3d.js?v=20261031"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#09284b;--ink:#172638;--muted:#64748b;--line:#dbe4ed;--bg:#f2f6fa;--blue:#2f6ea4;--teal:#0f766e;--white:#fff;--bad:#b42318;--warn:#b54708;--ok:#1f7a45;--ground:#2f6ea4;--pole:#c2410c;--sel:#f59e0b;--focus:#2563eb;color-scheme:light}
@@ -203,7 +203,11 @@ table.grid input{font-size:11px;padding:2px 4px;border:1px solid #d6e0eb;border-
 table.att{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}table.att th{color:var(--muted);font-weight:700;text-align:left;font-size:10px}table.att td,table.att th{padding:2px 4px;border-bottom:1px solid #eef2f6}
 table.att td.num,table.att th.num{text-align:right}
 .meta{font-size:11px;color:#43566d;margin:3px 0}
-.muted{color:var(--muted)}.con.ai{background:#f7fbff}.ai-thumb{display:block;max-width:160px;border-radius:6px;margin:6px 0}.ai-m{border-top:1px solid #e3eaf1;padding:6px 0}.ai-m select{font-size:11px;padding:3px 5px;border:1px solid #d6e0eb;border-radius:6px;max-width:190px}
+.muted{color:var(--muted)}.con.ai{background:#f7fbff}.ai-g{border-top:1px solid #d6e0eb;margin-top:8px;padding-top:6px}.ai-gh{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.ai-m{display:flex;gap:9px;align-items:flex-start}.ai-mb{display:grid;gap:2px;min-width:0}.ai-mb small{display:block}.hint.ok,small.ok{color:#1f7a3a}
+.dcsh-thumb{flex:none;display:inline-grid;justify-items:center;gap:1px;width:66px;padding:3px;border:1px solid #c9d6e3;border-radius:6px;background:#fff;cursor:zoom-in;vertical-align:top;margin:0 6px 2px 0}.dcsh-thumb img{width:58px;height:78px;object-fit:cover;object-position:top;display:block}.dcsh-thumb span{font:700 9.5px "DM Sans",system-ui,sans-serif;color:#43566d}.dcsh-thumb:hover,.dcsh-thumb:focus-visible{border-color:var(--navy);outline:2px solid #b8cde3}
+#dcshPop{position:fixed;z-index:1000;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1100px,94vw);max-height:90vh;background:#fff;border:1px solid #b8c7d6;border-radius:10px;box-shadow:0 18px 50px #0f1e3266;display:flex;flex-direction:column;pointer-events:none}#dcshPop.pinned{pointer-events:auto}#dcshPop[hidden]{display:none}
+#dcshPop .dp-h{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #e3eaf1;font-size:12px}#dcshPop .dp-h span{flex:1;color:#43566d}
+#dcshPop .dp-b{display:grid;gap:10px;padding:10px;min-height:0;overflow:auto}#dcshPop .dp-b.two{grid-template-columns:1fr 1fr}#dcshPop figure{margin:0;display:grid;gap:4px;justify-items:center;min-height:0}#dcshPop img{max-width:100%;max-height:calc(90vh - 90px);object-fit:contain;border:1px solid #e3eaf1;border-radius:6px}#dcshPop figcaption{font-size:11px;color:#43566d}.ai-thumb{display:block;max-width:160px;border-radius:6px;margin:6px 0}.ai-m{border-top:1px solid #e3eaf1;padding:6px 0}.ai-m select{font-size:11px;padding:3px 5px;border:1px solid #d6e0eb;border-radius:6px;max-width:190px}
 .msgs{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px}.msgs li{font-size:11px;padding:5px 8px;border-radius:7px;border:1px solid}
 .msgs li.error{background:#fef3f2;border-color:#fecdca;color:#b42318}.msgs li.warning{background:#fff7ed;border-color:#fed7aa;color:#9a3412}.msgs li.info{background:#f4f8fc;border-color:#e0e9f2;color:#43566d}.msgs li.ok{background:#f1faf4;border-color:#b7e1c8;color:#1f7a45}
 .chips{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 6px}.chips button{border:1px solid #d6e0eb;background:#fff;border-radius:99px;padding:1px 8px;font-size:10.5px;font-weight:700;color:#43566d}.chips button.on{background:#e8f1fb;border-color:#7aa6d6;color:#123e66}
@@ -412,6 +416,7 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
 
 <footer><a class="footer-brand" href="../#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer>
 </div>
-<script src="app.js?v=20261030"></script>
+<div id="dcshPop" hidden role="dialog" aria-label="DCSH drawing"></div>
+<script src="app.js?v=20261031"></script>
 </body>
 </html>
