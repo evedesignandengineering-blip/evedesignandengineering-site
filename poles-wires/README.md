@@ -28,13 +28,26 @@ all kept outside this repo: the PNW library tables pasted from PNW (`.txt`), the
 | Sag | Off by default. "DCSH Part 10": sag at the ruling span (√(ΣL³/ΣL)) from the matched or chosen table, existing/final row, scaled by (L/RS)². "Illustrative": w·L²/8T at the stringing tension |
 | Construction status | Approved only when an engineer sets it in the register. Otherwise compared with the DCSH register (5 mm tolerance) and marked for engineering review |
 
+### Workspace
+
+The page fills the window: a toolbar, a resizable side panel (inputs), the map / 3D / profile stage, a bottom dock
+(poles, conductor schedule, heights, register, issues, log) and an inspector for the selected pole or section. Drag
+the gutters or use the arrow keys on them to resize; the toolbar hides or shows each panel and the layout is
+remembered in the browser. Construction and conductor fields are searchable lists grouped by source (neighbouring
+poles, this project, your PNW projects, the PNW library, GIS feeder) and filtered by circuit voltage, arrangement and
+conductor material. Each form shows its checks (errors block the change, warnings and notes do not) before it applies.
+
+3D camera: drag to orbit, right-drag to pan, wheel zooms toward the cursor. Fit (F) frames every pole and wire,
+Reset (R) returns to the default view, Focus (Z or double-click) centres the selected pole, and Iso / Side / Front /
+Top set standard views. Clicking a wire selects its strain section. The view renders only when something changes.
+
 With no saved project, "Start a design from this ground profile" (in the pole panel) uses the generated `.pnwx` as the design.
 In the design you can:
 
 - edit a pole's length, setting depth and "new" flag, or pick a PNW library pole type. Constructions move with the tip so they keep their distance below it.
 - add a pole on the ground line at a distance from another pole. A ground point is added at its chainage, interpolated from the profile. Remove a pole that is not in a strain section.
 - add, recode or remove constructions and type their attachment points. Typed points are logged as manual and stay under engineering review.
-- string conductors in the Strain sections tab. Choose the end poles and the circuit (construction code prefix); every pole in between is included. The conductor is copied from the PNW library into Table4, MES is set to the ruling span (it matches the saved projects), and load conditions are copied from an existing section or default to the saved projects' set. Change the conductor, tension or DCSH sag table, or remove a section.
+- string conductors in the Conductor schedule tab. Choose the end poles and the circuit (construction code prefix); every pole in between is included. The conductor is copied from the PNW library into Table4, MES is set to the ruling span (it matches the saved projects), and load conditions are copied from an existing section or default to the saved projects' set. Change the conductor, tension or DCSH sag table, or remove a section.
 
 GIS "Distribution HV / LV Overhead" exports are read as conductor runs ("3X7/3.75 AAC" = 3 wires of 7/3.75 AAC). The Geocortex export has no line coordinates, so a run is tied to poles by feeder only: HV runs through the pole's HV feeder, LV runs through its LV feeder. The run is matched to the library conductor of the same name and pre-fills the strain section conductor when the feeder has only one conductor type. The source is logged as GIS.
 
@@ -82,4 +95,11 @@ The regression tests compare output with Ishan's real workbooks and PNW projects
 
 ```
 cd poles-wires/tests && npm install && PNW_FIXTURES=/path/to/files npm test
+```
+
+Browser tests (Playwright) drive the page through the camera, the 12 design scenarios and five desktop sizes, and
+fail on console errors, failed requests or horizontal overflow. Serve the page and point `PNW_E2E_URL` at it:
+
+```
+PNW_E2E_URL=http://localhost:8000/poles-wires/ PNW_FIXTURES=/path/to/files npm run e2e
 ```

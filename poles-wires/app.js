@@ -27,7 +27,59 @@
     } catch (e) { /* storage unavailable or corrupt: start clean */ }
   }
 
+  var IN_CLAUDE = !!window.PNW_ARTIFACT;
   function setStatus(t, cls) { var n = $('status'); n.textContent = t; n.className = 'status' + (cls ? ' ' + cls : ''); }
+
+  /* ---------- layout: project panel | viewport + table dock | inspector, each resizable and collapsible ---------- */
+  var UI_KEY = 'eve-poles-wires-ui-v1', U = { lw: Math.round(Math.min(300, window.innerWidth * 0.2)), rw: Math.round(Math.min(390, window.innerWidth * 0.27)), dh: Math.round(Math.min(250, window.innerHeight * 0.28)), left: true, right: true, dock: true, dockMin: false, insTab: 'pole', tab: 'poles' };
+  try { Object.assign(U, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch (e) { /* storage blocked: defaults */ }
+  function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify(U)); } catch (e) { /* ignore */ } }
+  var LIMITS = { lw: [220, 560], rw: [300, 680], dh: [120, 2000] };
+  function clampUi() {
+    var W = window.innerWidth, H = $('center') ? $('center').clientHeight : 600;
+    U.lw = Math.max(LIMITS.lw[0], Math.min(LIMITS.lw[1], U.lw, W * 0.32));
+    U.rw = Math.max(LIMITS.rw[0], Math.min(LIMITS.rw[1], U.rw, W * 0.4));
+    U.dh = Math.max(LIMITS.dh[0], Math.min(U.dh, Math.max(LIMITS.dh[0], H - 220)));
+  }
+  function applyLayout() {
+    var ws = $('workspace'), c = $('center');
+    // The workspace fills the window below the toolbar; the page itself never scrolls sideways.
+    var top = ws.getBoundingClientRect().top + window.scrollY;
+    ws.style.setProperty('--wsh', Math.max(540, window.innerHeight - top - 10) + 'px');
+    clampUi();
+    ws.style.setProperty('--lw', U.lw + 'px'); ws.style.setProperty('--rw', U.rw + 'px'); c.style.setProperty('--dh', U.dh + 'px');
+    ws.classList.toggle('no-left', !U.left); ws.classList.toggle('no-right', !U.right);
+    $('dock').hidden = !U.dock; c.classList.toggle('dock-min', U.dock && U.dockMin);
+    c.style.gridTemplateRows = U.dock ? '' : 'minmax(0,1fr) 0 0';
+    document.querySelector('.gutter.gh').hidden = !U.dock || U.dockMin;
+    $('dockMin').textContent = U.dockMin ? '▴' : '▾';
+    [['tbSide', U.left], ['tbInspector', U.right], ['tbDock', U.dock && !U.dockMin]].forEach(function (x) { $(x[0]).classList.toggle('on', x[1]); $(x[0]).setAttribute('aria-pressed', x[1]); });
+    saveUi();
+    if (map && map.invalidateSize) setTimeout(function () { map.invalidateSize(); }, 30);
+  }
+  // Dragging (or arrow keys on) a gutter resizes the panel next to it.
+  Array.prototype.forEach.call(document.querySelectorAll('.gutter'), function (g) {
+    var k = g.dataset.resize, start = null;
+    function set(v) { if (k === 'left') U.lw = v; else if (k === 'right') U.rw = v; else U.dh = v; applyLayout(); }
+    function cur() { return k === 'left' ? U.lw : k === 'right' ? U.rw : U.dh; }
+    g.addEventListener('pointerdown', function (e) { start = { x: e.clientX, y: e.clientY, v: cur() }; g.setPointerCapture(e.pointerId); g.classList.add('drag'); e.preventDefault(); });
+    g.addEventListener('pointermove', function (e) { if (!start) return; var d = k === 'dock' ? start.y - e.clientY : k === 'left' ? e.clientX - start.x : start.x - e.clientX; set(start.v + d); });
+    g.addEventListener('pointerup', function () { start = null; g.classList.remove('drag'); });
+    g.addEventListener('dblclick', function () { set(k === 'left' ? 300 : k === 'right' ? 390 : 250); });
+    g.addEventListener('keydown', function (e) {
+      var step = e.shiftKey ? 60 : 20, d = 0;
+      if (k === 'dock') d = e.key === 'ArrowUp' ? step : e.key === 'ArrowDown' ? -step : 0;
+      else d = e.key === 'ArrowRight' ? step : e.key === 'ArrowLeft' ? -step : 0;
+      if (k === 'right') d = -d;
+      if (d) { e.preventDefault(); set(cur() + d); }
+    });
+  });
+  window.addEventListener('resize', applyLayout);
+  // Project settings inputs follow the state (after start-up, opening a project file or starting a new project).
+  function syncInputs() {
+    $('zone').value = S.zone; $('createdBy').value = S.settings.createdBy || ''; $('optionSet').value = S.settings.optionSet || ''; $('clr1').value = S.settings.clr1 == null ? '' : S.settings.clr1; $('clr2').value = S.settings.clr2 == null ? '' : S.settings.clr2;
+    $('tbLabels').classList.toggle('on', S.labels); $('tbLabels').setAttribute('aria-pressed', S.labels);
+  }
 
   /* ---------- map ---------- */
   var map = L.map('map', { zoomControl: true, maxZoom: 21 }).setView([-31.95, 115.86], 11);
@@ -36,8 +88,9 @@
     esri: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 21, maxNativeZoom: 19, attribution: 'Tiles &copy; Esri' }),
     light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 21, maxNativeZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' })
   };
-  var activeBase = bases.street.addTo(map);
-  $('basemap').onchange = function () { map.removeLayer(activeBase); activeBase = bases[this.value].addTo(map); };
+  // Inside Claude (window.PNW_ARTIFACT) the page cannot load map tiles from other hosts, so there is no basemap there.
+  var activeBase = IN_CLAUDE ? null : bases.street.addTo(map);
+  $('basemap').onchange = function () { if (activeBase) map.removeLayer(activeBase); activeBase = bases[this.value] ? bases[this.value].addTo(map) : null; };
   var lyGis = L.layerGroup().addTo(map), lyAlign = L.layerGroup().addTo(map), lySpan = L.layerGroup().addTo(map), lySurvey = L.layerGroup().addTo(map), lyExtent = L.layerGroup(), lySel = L.layerGroup().addTo(map);
   var markers = {};
   map.on('click', function () { select(null); });
@@ -110,7 +163,7 @@
 
   /* ---------- import ---------- */
   var worker = null, wid = 0, waiting = {};
-  try { worker = new Worker('worker.js'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
+  try { if (IN_CLAUDE) throw new Error('parse on the main thread inside Claude'); worker = new Worker('worker.js'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
   function parse(name, buf, role) {
     if (worker) return new Promise(function (resolve, reject) { var id = ++wid; waiting[id] = { resolve: resolve, reject: reject }; worker.postMessage({ id: id, name: name, buffer: buf.slice(0), role: role }); })
       .catch(function (e) { if (/importScripts|NetworkError|Failed to execute/i.test(e.message)) { worker = null; return PNW.importFile(XLSX, name, buf, role); } throw e; });
@@ -291,26 +344,63 @@
   });
   $('segments').addEventListener('click', function (e) { var t = e.target.closest('[data-segdel]'); if (t) { prof().segments.splice(+t.dataset.segdel, 1); recompute(); } });
 
-  /* ---------- selection ---------- */
-  function select(id) {
+  /* ---------- selection and inspector ---------- */
+  // info.segment: a wire was clicked in 3D (or a row in the conductor schedule), so its strain section is selected too.
+  function select(id, info) {
     S.selected = id; flags.inspected = true;
+    if (info && info.segment !== undefined) { S.selSection = info.segment || null; if (info.segment) U.insTab = 'conductors'; }
+    else if (!id) S.selSection = null;
+    if (id && !U.right) { U.right = true; applyLayout(); }
     renderSelected(); highlight(); renderProfile(); renderSteps();
-    Array.prototype.forEach.call(document.querySelectorAll('#tableWrap tr[data-id]'), function (tr) { tr.classList.toggle('sel', tr.dataset.id === id); });
-    if (id) $('secSelected').open = true;
-    if (window.PNW3D && mounted3d) window.PNW3D.select(id);
+    Array.prototype.forEach.call(document.querySelectorAll('#tableWrap tr[data-id]'), function (tr) { tr.classList.toggle('sel', !!id && tr.dataset.id === id); });
+    Array.prototype.forEach.call(document.querySelectorAll('#tableWrap tr[data-sec]'), function (tr) { tr.classList.toggle('sel', tr.dataset.sec === S.selSection); });
+    if (window.PNW3D && mounted3d) { window.PNW3D.select(id); window.PNW3D.selectSection(S.selSection); }
     if (S.view === 'profile' || S.view === 'split') renderProfileView();
   }
+  // Shows a pole in whatever view is open: the map pans to it, the 3D camera frames it.
+  function showPole(id) {
+    if (!id) return;
+    if ((S.view === '3d' || S.view === 'split') && window.PNW3D && mounted3d) { if (!window.PNW3D.focus(id)) setStatus(id + ' is not drawn in 3D (no coordinates or ground level).', 'bad'); }
+    else if (S.view === 'plan') zoomTo(id);
+  }
   function tagS(t) { return '<span class="tag src">' + t + '</span>'; }
+  function fact(k, v, cls, title) { return '<div class="fact ' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : esc(v)) + '</b></div>'; }
+  var INS_TABS = [['pole', 'Pole'], ['design', 'Constructions'], ['conductors', 'Conductors'], ['photo', 'Photo'], ['checks', 'Checks']];
   function renderSelected() {
     var id = S.selected, p = id && merged.poles[id];
-    if (!p) { $('selected').innerHTML = '<p class="status">Click a pole on the map or in the table.</p>'; return; }
+    $('insTitle').textContent = p ? 'Pole ' + id : 'Project summary';
+    $('insZoom').hidden = $('insClear').hidden = !p;
+    if (!p) { if (id) S.selected = null; $('selected').innerHTML = projectSummary(); return; }
     var r = built && built.rows.filter(function (x) { return x.id === id; })[0], inProf = prof().poleIds.indexOf(id) >= 0, ex = PNW.existingLength(p);
-    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '')) + '<button class="btn small" id="selZoom">Zoom to</button></div><table class="props">';
+    var prow = project && project.poles.filter(function (x) { return x.ID === id; })[0];
+    var iss = allIssues.filter(function (i) { return i.poleId === id; }), ne = iss.filter(function (i) { return i.level === 'error'; }).length, nw = iss.filter(function (i) { return i.level === 'warning'; }).length;
+    var cons = (dm && dm.byPole[id]) || [], secs = project ? project.segPoles.filter(function (s) { return s.id === id; }).map(function (s) { return s.strsection; }).filter(function (v, i, a) { return a.indexOf(v) === i; }) : [];
+    var L = prow ? PNW.num(prow.Length) : r ? r.length : ex.value, hag = prow ? PNW.num(prow.HeightAG) : r ? r.height : null, sunk = prow ? PNW.num(prow.Sunk) : r ? r.sunk : null;
+    var ch = prow ? PNW.num(prow.Distance) : r ? r.chainage : null, gl = p.survey ? p.survey.elevation : null;
+    var h = '<div class="inspane" style="padding-bottom:0"><div class="ins-title"><b>' + esc(id) + '</b>' + (inProf ? '<span class="pill info">In profile #' + (prof().poleIds.indexOf(id) + 1) + '</span>' : '<span class="pill mute">Not in profile</span>') + (prow ? (prow.New === 'True' ? '<span class="pill info">New pole</span>' : '<span class="pill mute">Existing pole</span>') : '') + (ne ? '<span class="pill bad">' + ne + ' error' + (ne > 1 ? 's' : '') + '</span>' : nw ? '<span class="pill warn">' + nw + ' warning' + (nw > 1 ? 's' : '') + '</span>' : '<span class="pill ok">No errors or warnings</span>') + '</div>' +
+      '<div class="facts">' + fact('Chainage (m)', fmt(ch, 2)) + fact('Pole length (m)', fmt(L), L == null ? 'warn' : '', L == null ? 'No pole length from any source' : '') + fact('Above ground (m)', fmt(hag)) +
+      fact('Setting depth (m)', fmt(sunk)) + fact('Ground level (m)', fmt(gl, 2), gl == null ? 'warn' : '', gl == null ? 'No LiDAR elevation' : 'LiDAR') + fact('Span back (m)', r && r.span != null ? fmt(r.span, 2) : '') +
+      (project ? fact('Constructions', cons.length, prow && !cons.length ? 'warn' : '') + fact('Strain sections', secs.length) + fact('Attachment points', cons.reduce(function (n, c) { return n + c.attachments.length; }, 0)) : '') + '</div></div>';
+    var tab = U.insTab || 'pole';
+    h += '<div class="instabs" role="tablist" aria-label="Pole details">' + INS_TABS.map(function (t) {
+      var badge = t[0] === 'checks' && (ne || nw) ? ' <span class="pill ' + (ne ? 'bad' : 'warn') + '">' + (ne + nw) + '</span>' : t[0] === 'design' && project ? ' <span class="pill mute">' + cons.length + '</span>' : t[0] === 'conductors' && project ? ' <span class="pill mute">' + secs.length + '</span>' : '';
+      return '<button role="tab" data-instab="' + t[0] + '" aria-selected="' + (t[0] === tab) + '" class="' + (t[0] === tab ? 'on' : '') + '">' + t[1] + badge + '</button>';
+    }).join('') + '</div><div class="inspane" role="tabpanel">';
+    if (tab === 'pole') h += polePane(id, p, r, inProf, ex);
+    else if (tab === 'design') h += designPanel(id);
+    else if (tab === 'conductors') h += project ? (prow ? sectionsOnPole(id) : '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>') : startDesignHint();
+    else if (tab === 'photo') h += project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : startDesignHint();
+    else h += iss.length ? '<ul class="msgs">' + iss.map(function (i) { return '<li class="' + i.level + '">' + esc(i.message) + '</li>'; }).join('') + '</ul>' : '<ul class="msgs"><li class="ok">No issues recorded for ' + esc(id) + '.</li></ul>';
+    $('selected').innerHTML = h + '</div>';
+    if ($('selAdd')) $('selAdd').onclick = function () { var ids = prof().poleIds; ids.push(id); prof().poleIds = PNW.autoOrder(merged.poles, ids); S.generated = false; recompute(); setStatus(id + ' added and the profile re-ordered along the line. Use ↑ ↓ to adjust.', 'good'); };
+    if ($('selRemove')) $('selRemove').onclick = function () { prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; }); S.generated = false; recompute(); };
+  }
+  function polePane(id, p, r, inProf, ex) {
+    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '</div><table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
-    sec(esc(id));
-    if (p.survey) { var sk = p.survey.kind || 'LiDAR'; row('Easting', fmt(p.survey.easting), tagS(sk)); row('Northing', fmt(p.survey.northing), tagS(sk)); row('Elevation', fmt(p.survey.elevation), tagS(sk)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Bays', p.survey.bays); row('Bay angles', p.survey.bayAngles.join(', ')); row('Equipment no', p.survey.equipNo); row('Surveyed', p.survey.surveyed); row('Source', p.survey.src.file + ' row ' + p.survey.src.row); }
-    else row('Survey', 'No LiDAR survey row');
+    if (p.survey) { var sk = p.survey.kind || 'LiDAR'; sec('Survey'); row('Easting', fmt(p.survey.easting), tagS(sk)); row('Northing', fmt(p.survey.northing), tagS(sk)); row('Elevation', fmt(p.survey.elevation), tagS(sk)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Bays', p.survey.bays); row('Bay angles', p.survey.bayAngles.join(', ')); row('Equipment no', p.survey.equipNo); row('Surveyed', p.survey.surveyed); row('Source', p.survey.src.file + ' row ' + p.survey.src.row); }
+    else { sec('Survey'); row('Survey', 'No LiDAR survey row'); }
     if (r) {
       sec('Ground profile');
       row('Chainage', fmt(r.chainage, 2) + ' m', '<span class="tag der">derived</span>');
@@ -319,18 +409,39 @@
       row('Setting depth', r.sunk != null ? r.sunk + ' m' : '', '<span class="tag der">derived</span>');
       row('Height above ground', r.height != null ? r.height + ' m' : '', '<span class="tag der">derived</span>');
     } else if (ex.value != null) { sec('Pole'); row('Existing length', ex.value + ' m', tagS(ex.source)); }
-    if (p.gis) { sec('GIS'); row('Description', p.gis.description); row('Length', p.gis.length != null ? p.gis.length + ' m' : ''); row('Stock', p.gis.stock); row('Species', p.gis.species); row('HV feeder', p.gis.feeder); row('Equip no', p.gis.equipNo); var ll = poleLatLng(p); if (ll && p.gis.lat != null) row('Offset from LiDAR', map.distance(ll, L.latLng(p.gis.lat, p.gis.lng)).toFixed(1) + ' m'); }
+    if (p.gis) { sec('GIS'); row('Description', p.gis.description); row('Length', p.gis.length != null ? p.gis.length + ' m' : ''); row('Stock', p.gis.stock); row('Species', p.gis.species); row('HV feeder', p.gis.feeder); row('LV feeder', p.gis.lvFeeder); row('Equip no', p.gis.equipNo); var ll = poleLatLng(p); if (ll && p.gis.lat != null) row('Offset from LiDAR', map.distance(ll, L.latLng(p.gis.lat, p.gis.lng)).toFixed(1) + ' m'); }
     ['HV', 'LV'].forEach(function (l) { gisConductorsAt(id, l).forEach(function (t, k) { if (!k) sec('GIS ' + l + ' conductor (by feeder)'); row(t.description, gisText(t).slice(t.description.length + 4)); }); });
     if (p.insp) { sec('Inspections (latest)'); row('Records', p.insp.count); ['Pole Length', 'Pole Length (M)', 'Strength (kN)', 'Bay 1 Length (m)', 'Bay 2 Length (m)', 'Bay 3 Length (m)', 'Bay 1 HV Conductor Type', 'Bay 1 LV Conductor Type', 'Height Neutral Phase (m)', 'Height Running Earth (m)', 'Stay 1 Type'].forEach(function (k) { var a = p.insp.attrs[k]; if (a) row(k, a.value + (a.date ? ' (' + new Date(a.date).toLocaleDateString('en-AU') + ')' : '')); }); }
     if (p.defects.length) { sec('Defects (' + p.defects.length + ')'); p.defects.slice(0, 8).forEach(function (d) { row(d.severity || 'Defect', d.description + ' · ' + d.status); }); }
-    var iss = allIssues.filter(function (i) { return i.poleId === id; });
-    h += '</table>' + designPanel(id) + '<table class="props">';
-    if (iss.length) { sec('Issues'); iss.forEach(function (i) { h += '<tr><td colspan="2" style="color:' + (i.level === 'error' ? 'var(--bad)' : i.level === 'warning' ? 'var(--warn)' : 'inherit') + '">' + esc(i.message) + '</td></tr>'; }); }
-    $('selected').innerHTML = h + '</table>';
-    if ($('selAdd')) $('selAdd').onclick = function () { var ids = prof().poleIds; ids.push(id); prof().poleIds = PNW.autoOrder(merged.poles, ids); S.generated = false; recompute(); setStatus(id + ' added and the profile re-ordered along the line. Use ↑ ↓ to adjust.', 'good'); };
-    if ($('selRemove')) $('selRemove').onclick = function () { prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; }); S.generated = false; recompute(); };
-    $('selZoom').onclick = function () { zoomTo(id); };
+    return h + '</table>';
   }
+  function startDesignHint() {
+    return '<p class="hint">Drop a saved PNW project (.pnwx) to edit its design, or start a new design from this ground profile.</p>' + (built && built.rows.length > 1 ? '<div class="btnrow"><button class="btn small primary" id="designStart">Start a design from this ground profile</button></div>' : '<p class="hint">Build a ground profile with at least two poles first.</p>');
+  }
+  // Empty state of the inspector: where the project stands and the next step.
+  function projectSummary() {
+    var ids = Object.keys(merged.poles), e = allIssues.filter(function (i) { return i.level === 'error'; }).length, w = allIssues.filter(function (i) { return i.level === 'warning'; }).length;
+    var steps = [
+      [S.files.length > 0, 'Import the survey', S.files.length ? S.files.length + ' file' + (S.files.length > 1 ? 's' : '') + ' imported, ' + ids.length + ' poles' : 'Drop the QLINK LiDAR export and the GIS exports.', S.files.length ? '' : '<button class="btn small primary" data-act="import">Import files…</button>'],
+      [!!(built && built.rows.length > 1), 'Build the ground profile', built ? built.rows.length + ' poles in ' + esc(prof().name || 'the profile') + ', ' + fmt(built.rows.length ? built.rows[built.rows.length - 1].chainage : 0, 1) + ' m' : 'Order the surveyed poles in the Project panel.', ''],
+      [!!project, 'Link or start a design', project ? esc(linked.name) : 'Drop a .pnwx project, or start one from the profile.', !project && built && built.rows.length > 1 ? '<button class="btn small" id="designStart">Start a design</button>' : ''],
+      [!!(project && project.constructions.length), 'Add constructions', project ? project.constructions.length + ' constructions on ' + project.poles.length + ' poles' : 'Select a pole, then add constructions in the inspector.', ''],
+      [!!(project && project.segments.length), 'String conductors', project ? project.segments.length + ' strain section' + (project.segments.length === 1 ? '' : 's') : 'Use the Conductor schedule tab.', project ? '<button class="btn small" data-gotab="sections">Conductor schedule</button>' : ''],
+      [!!flags.exported, 'Review and export', e ? e + ' error' + (e > 1 ? 's' : '') + ' to fix first' : 'Workbook, .pnwx and change log.', '<button class="btn small" data-act="export">Review…</button>']
+    ];
+    var now = steps.map(function (s) { return s[0]; }).indexOf(false);
+    return '<div class="inspane"><div class="facts">' + fact('Poles', ids.length) + fact('In profile', built ? built.rows.length : 0) + fact('Errors', e, e ? 'bad' : '') + fact('Warnings', w, w ? 'warn' : '') + fact('Constructions', project ? project.constructions.length : '') + fact('Strain sections', project ? project.segments.length : '') + '</div>' +
+      '<ul class="summary-list">' + steps.map(function (s, i) { return '<li class="' + (s[0] ? 'done' : i === now ? 'now' : '') + '"><span class="ix">' + (s[0] ? '✓' : i + 1) + '</span><div><b>' + s[1] + '</b><div class="meta">' + s[2] + '</div>' + (s[3] ? '<div class="btnrow" style="margin-top:4px">' + s[3] + '</div>' : '') + '</div></li>'; }).join('') + '</ul>' +
+      '<p class="hint">Select a pole on the map, in 3D, in the profile or in the Poles table to inspect and edit it. Click a conductor in 3D to select its strain section.</p></div>';
+  }
+  $('selected').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-instab],[data-act]'); if (!t) return;
+    if (t.dataset.instab) { U.insTab = t.dataset.instab; saveUi(); renderSelected(); return; }
+    if (t.dataset.act === 'import') $('fileInput').click();
+    if (t.dataset.act === 'export') { recompute(); openReview(); }
+  });
+  $('insZoom').onclick = function () { showPole(S.selected); };
+  $('insClear').onclick = function () { select(null); };
 
   /* ---------- table ---------- */
   var COLS = [
@@ -352,6 +463,7 @@
     if (tab === 'register') return renderRegister();
     if (tab === 'log') return renderLog();
     if (tab === 'sections') return renderSections();
+    if (tab === 'heights') return renderHeights();
     var q = $('search').value.trim().toLowerCase(), f = $('filter').value;
     var list = Object.keys(merged.poles).map(function (id) { return merged.poles[id]; }).filter(function (p) {
       if (q && (p.id + ' ' + (p.survey ? p.survey.equipNo : '') + ' ' + (p.gis ? p.gis.equipNo + ' ' + p.gis.description : '')).toLowerCase().indexOf(q) < 0) return false;
@@ -384,10 +496,17 @@
   }
   $('tableWrap').addEventListener('click', function (e) {
     var th = e.target.closest('th[data-sort]'); if (th) { if (sortCol === th.dataset.sort) sortDesc = !sortDesc; else { sortCol = th.dataset.sort; sortDesc = false; } renderTable(); return; }
-    var tr = e.target.closest('tr[data-id]'); if (tr && tr.dataset.id && tab !== 'register') { select(tr.dataset.id); zoomTo(tr.dataset.id); }
+    var tr = e.target.closest('tr[data-id]'); if (tr && tr.dataset.id && tab !== 'register' && tab !== 'sections' && !e.target.closest('input,select,button,.combo')) { select(tr.dataset.id); showPole(tr.dataset.id); }
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tabs [data-tab]'), function (b) { b.onclick = function () { setTab(b.dataset.tab); }; });
-  function setTab(t) { tab = t; Array.prototype.forEach.call(document.querySelectorAll('.tabs [data-tab]'), function (b) { b.classList.toggle('on', b.dataset.tab === t); }); $('filter').hidden = t !== 'poles'; renderTable(); }
+  var SEARCH_HINT = { poles: 'Search pole, equipment no…', sections: 'Search section, pole, conductor…', heights: 'Search pole or construction…', register: 'Search code, description, DCSH…', issues: 'Search issues…', log: 'Search…' };
+  function setTab(t) {
+    tab = t; U.tab = t; saveUi();
+    Array.prototype.forEach.call(document.querySelectorAll('.tabs [data-tab]'), function (b) { var on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    $('filter').hidden = t !== 'poles'; $('search').placeholder = SEARCH_HINT[t] || 'Search…'; renderTable();
+  }
+  // Opens a table tab and makes sure the dock is showing.
+  function openTab(t) { if (!U.dock || U.dockMin) { U.dock = true; U.dockMin = false; applyLayout(); } setTab(t); }
   $('search').oninput = renderTable; $('filter').onchange = renderTable;
 
   function renderValidation() {
@@ -397,7 +516,7 @@
     $('valCount').textContent = e ? e + ' errors' : w ? w + ' warnings' : ids.length ? 'OK' : '';
     $('validation').innerHTML = '<div class="tiles"><div class="tile ' + (e ? 'bad' : '') + '"><small>Errors</small><b>' + e + '</b></div><div class="tile ' + (w ? 'warn' : '') + '"><small>Warnings</small><b>' + w + '</b></div></div>' +
       '<p class="hint">' + matched + ' of ' + ids.length + ' poles have a LiDAR survey row. ' + inf + ' informational note' + (inf === 1 ? '' : 's') + '.</p><div class="btnrow"><button class="btn small" id="openIssues">Show all issues</button></div>';
-    $('openIssues').onclick = function () { setTab('issues'); $('tableWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+    $('openIssues').onclick = function () { openTab('issues'); };
   }
 
   /* ---------- review ---------- */
@@ -479,7 +598,16 @@
 
   /* ---------- exports ---------- */
   function baseName() { return (prof().name || 'Profile').replace(/[\\/:*?"<>|]+/g, '-'); }
-  function download(blob, name) { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000); flags.exported = true; renderSteps(); }
+  // Inside Claude files are offered through the viewer's save prompt; .pnwx is not an allowed type there, so it goes in a .zip.
+  var dlP = IN_CLAUDE && window.claude && window.claude.use ? window.claude.use('downloads') : null;
+  function download(blob, name) {
+    if (!IN_CLAUDE) { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000); flags.exported = true; renderSteps(); return; }
+    var go = /\.pnwx$/i.test(name) ? new JSZip().file(name, blob).generateAsync({ type: 'blob' }).then(function (z) { name = name + '.zip'; return z; }) : Promise.resolve(blob);
+    Promise.all([dlP || Promise.resolve(null), go]).then(function (r) {
+      if (!r[0]) { setStatus('Saving files is not available in this view of the page.', 'bad'); return; }
+      return r[0].save({ filename: name, data: r[1] }).then(function () { flags.exported = true; renderSteps(); setStatus('Saved ' + name + '.', 'good'); });
+    }).catch(function (e) { setStatus(e && e.code === 'declined' ? 'Save cancelled.' : 'Could not save ' + name + ': ' + ((e && (e.message || e.code)) || e), 'bad'); });
+  }
   function xlsxBytes(wb) { return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }); }
   function guard() { recompute(); if (!built || !built.ok) { setStatus('Export blocked: fix the profile errors first.', 'bad'); openReview(); return false; } return true; }
   function gpBlob() { return new Blob([xlsxBytes(PNW.groundProfileWorkbook(XLSX, built, prof().segments))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); }
@@ -580,9 +708,9 @@
   }
   function suggestTable(seg) {
     var tables = stringing(); if (!tables.length || !seg) return [];
-    var cond = project && project.conductors.filter(function (c) { return String(c.Code).toUpperCase() === String(seg.Conductor).toUpperCase(); })[0];
-    var name = cond ? (String(cond.Name2 || '').split(/[\s-]/)[0] || '').toUpperCase() : '', pct = seg.TensionUnits === '%CBL' ? Number(seg.Tension) : NaN;
-    return tables.filter(function (t) { return !t.legacy && name.length > 2 && t.title.toUpperCase().indexOf(name) >= 0 && new RegExp('\\b' + pct + '\\s*%').test(t.title.replace(/(\d) (\d)/, '$1$2')); });
+    // A table drawn for this conductor at the section's %CBL tension (same rules as the tension suggestions).
+    var pct = seg.TensionUnits === '%CBL' ? Number(seg.Tension) : NaN;
+    return M.tablesForConductor(tables, conductorFor(seg.Conductor)).filter(function (x) { return x.pct === pct; }).map(function (x) { return x.table; });
   }
   function applySag() {
     if (!dm) return;
@@ -698,19 +826,13 @@
     S.design = Object.assign(blankDesign(), { register: S.design.register, link: name });
     recompute(); setStatus('Started a design from the ground profile. Add constructions to each pole, then string conductors in the Strain sections tab.', 'good');
   }
-  var secForm = { tension: 7, units: '%CBL' };
-  function conductorOptions(cur) {
-    var list = {}; (lib ? lib.conductors : []).forEach(function (c) { list[c.code] = c.name + (c.name2 ? ' · ' + c.name2 : ''); });
-    (project ? project.conductors : []).forEach(function (c) { if (!(c.Code in list)) list[c.Code] = (c.Name1 || '') + ' (this project)'; });
-    if (cur && !(cur in list)) list[cur] = '';
-    return '<option value="">Choose a conductor…</option>' + Object.keys(list).sort().map(function (k) { return '<option value="' + esc(k) + '"' + (k === cur ? ' selected' : '') + '>' + esc(k) + (list[k] ? ' · ' + esc(list[k]) : '') + '</option>'; }).join('');
-  }
+  var secForm = { tension: '', units: '%CBL' };
   // A library conductor, or one already in the project (Table4) turned into the same shape.
   function conductorFor(code) {
     var c = lib && lib.conductors.filter(function (x) { return x.code === code; })[0];
     if (c) return c;
     var r = project && project.conductors.filter(function (x) { return x.Code === code; })[0];
-    return r ? { code: r.Code, name: r.Name1 } : null;
+    return r ? { code: r.Code, name: r.Name1 || '', name2: r.Name2 || '', material: r.Material || '' } : null;
   }
   // GIS conductor runs on a pole's feeders. The export has no line coordinates, so runs are tied to poles by feeder only:
   // HV runs by the pole's HV feeder, LV runs by its LV feeder.
@@ -746,70 +868,168 @@
       return { id: id, options: cs, c: pick };
     });
   }
+  // Conductor schedule: every strain section of the linked project, editable, plus the form to string a new one.
+  function spansOf(ids) {
+    var out = [];
+    for (var i = 1; i < ids.length; i++) { var A = project.poles.filter(function (r) { return r.ID === ids[i - 1]; })[0], B = project.poles.filter(function (r) { return r.ID === ids[i]; })[0]; if (A && B) out.push(Math.hypot(PNW.num(B.Easting) - PNW.num(A.Easting), PNW.num(B.Northing) - PNW.num(A.Northing))); }
+    return out;
+  }
+  function parsedCon(id, unique) { return ((dm && dm.byPole[id]) || []).filter(function (c) { return c.unique === unique; })[0] || null; }
   function renderSections() {
-    if (!project) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">Link a PNW project, or start a design from the ground profile (select a pole), to string conductors.</p>'; return; }
-    var tables = stringing(), h = '<table class="grid"><thead><tr><th>Section</th><th>Conductor</th><th>Tension</th><th>Units</th><th>Wires</th><th>Poles and constructions</th><th>Ruling span</th><th>DCSH sag table</th><th></th></tr></thead><tbody>';
+    if (!project) { $('tableWrap').innerHTML = '<div style="padding:14px">' + startDesignHint() + '<p class="hint">The conductor schedule lists the strain sections of the linked PNW project.</p></div>'; return; }
+    var tables = stringing(), q = $('search').value.trim().toLowerCase();
+    var h = '<table class="grid"><thead><tr><th>Section</th><th>Poles</th><th>Conductor</th><th>Tension</th><th>Units</th><th class="num">Wires</th><th class="num">Spans</th><th class="num">Length</th><th class="num">Ruling span</th><th>DCSH sag table</th><th></th></tr></thead><tbody>';
+    var shown = 0;
     project.segments.forEach(function (sg) {
-      var n = sg.StrainSect, mem = project.segPoles.filter(function (x) { return x.strsection === n; }), sp = [];
-      for (var i = 1; i < mem.length; i++) { var A = project.poles.filter(function (r) { return r.ID === mem[i - 1].id; })[0], B = project.poles.filter(function (r) { return r.ID === mem[i].id; })[0]; if (A && B) sp.push(Math.hypot(PNW.num(B.Easting) - PNW.num(A.Easting), PNW.num(B.Northing) - PNW.num(A.Northing))); }
-      var pick = (S.design.tables || {})[n] || '', sug = suggestTable(sg)[0];
-      h += '<tr><td><b>' + esc(n) + '</b>' + (sg.New === 'True' ? ' <span class="pill info">New</span>' : '') + '</td>' +
-        '<td><select data-seccond="' + esc(n) + '" style="max-width:220px">' + conductorOptions(sg.Conductor) + '</select></td>' +
-        '<td><input data-secten="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal" style="width:70px"></td>' +
-        '<td><select data-secunits="' + esc(n) + '"><option' + (sg.TensionUnits === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (sg.TensionUnits === 'kN' ? ' selected' : '') + '>kN</option></select></td>' +
-        '<td class="num">' + esc(sg.numconds) + '</td><td style="white-space:normal">' + mem.map(function (x) { return esc(x.id) + ' <small>' + esc(x.constr) + '</small>'; }).join(' → ') + '</td>' +
+      var n = sg.StrainSect, mem = project.segPoles.filter(function (x) { return x.strsection === n; }), sp = spansOf(mem.map(function (x) { return x.id; }));
+      if (q && (n + ' ' + sg.Conductor + ' ' + mem.map(function (x) { return x.id + ' ' + x.constr; }).join(' ')).toLowerCase().indexOf(q) < 0) return;
+      shown++;
+      var pick = (S.design.tables || {})[n] || '', sug = suggestTable(sg)[0], c = conductorFor(sg.Conductor), lvl = mem[0] ? levelOf(mem[0].constr) : '';
+      h += '<tr data-sec="' + esc(n) + '" class="' + (S.selSection === n ? 'sel' : '') + '"><td><b>' + esc(n) + '</b>' + (sg.New === 'True' ? ' <span class="pill info">New</span>' : '') + '</td>' +
+        '<td style="white-space:normal;min-width:180px">' + mem.map(function (x) { return esc(x.id) + ' <small class="muted">' + esc(x.constr) + '</small>'; }).join(' → ') + '</td>' +
+        '<td style="min-width:200px">' + combo('seccond|' + n, { value: sg.Conductor, placeholder: 'Search conductor…', aria: 'Conductor of ' + n, groups: function () { return conductorGroups(mem[0] && mem[0].id, lvl); }, onPick: function (v) {
+          var cc = conductorFor(v); if (!cc) { setStatus(v + ' is not in the PNW library or this project.', 'bad'); renderTable(); return; }
+          commit(function (p) { var s0 = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = s0.Conductor; M.updateSection(p, n, { conductor: cc }); return [logEntry('', n, 'Conductor', from, cc.code, 'manual', lib && lib.conductors.indexOf(cc) >= 0 ? 'PNW library ' + cc.code : '')]; });
+        } }) + (c && c.name ? '<small class="muted">' + esc(c.name) + '</small>' : '') + '</td>' +
+        '<td><input data-secten="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal" style="width:64px" aria-label="Tension of ' + esc(n) + '"></td>' +
+        '<td><select data-secunits="' + esc(n) + '" aria-label="Tension units of ' + esc(n) + '"><option' + (sg.TensionUnits === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (sg.TensionUnits === 'kN' ? ' selected' : '') + '>kN</option></select></td>' +
+        '<td class="num">' + esc(sg.numconds) + '</td><td class="num">' + sp.length + '</td><td class="num">' + (sp.length ? sp.reduce(function (a, b) { return a + b; }, 0).toFixed(1) + ' m' : '') + '</td>' +
         '<td class="num">' + (sp.length ? M.rulingSpan(sp).toFixed(1) + ' m' : '') + '</td>' +
-        '<td><select data-secsag="' + esc(n) + '" style="max-width:240px"><option value="">' + (sug ? 'Matched: ' + esc(sug.title) : 'None matched') + '</option>' + tables.filter(function (t) { return !t.legacy; }).map(function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === pick ? ' selected' : '') + '>' + esc(t.title) + ' (p' + t.page + ')</option>'; }).join('') + '</select></td>' +
-        '<td><button class="btn small" data-secdel="' + esc(n) + '">Remove</button></td></tr>';
+        '<td><select data-secsag="' + esc(n) + '" aria-label="DCSH sag table for ' + esc(n) + '"><option value="">' + (sug ? 'Matched: ' + esc(sug.title) : 'None matched') + '</option>' + tables.filter(function (t) { return !t.legacy; }).map(function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === pick ? ' selected' : '') + '>' + esc(t.title) + ' (p' + t.page + ')</option>'; }).join('') + '</select></td>' +
+        '<td><button class="btn small danger" data-secdel="' + esc(n) + '" title="Remove this strain section">Remove</button></td></tr>';
     });
-    if (!project.segments.length) h += '<tr><td colspan="9" class="muted">No strain sections yet.</td></tr>';
+    if (!project.segments.length) h += '<tr><td colspan="11" class="muted">No strain sections yet. String the first one with the form below.</td></tr>';
+    else if (!shown) h += '<tr><td colspan="11" class="muted">No strain section matches the search.</td></tr>';
     h += '</tbody></table>';
+    $('tableWrap').innerHTML = h + '<div class="con add" style="margin:10px 8px" id="secFormBox">' + secFormHtml() + '</div>';
+  }
+  function secFormHtml() {
     var f = secForm, ids = project.poles.map(function (r) { return r.ID; });
+    if (!ids.length) return '<p class="hint">The linked project has no poles.</p>';
     if (ids.indexOf(f.from) < 0) f.from = ids[0]; if (ids.indexOf(f.to) < 0) f.to = ids[ids.length - 1];
-    var levels = []; project.constructions.forEach(function (c) { var l = levelOf(c.code); if (l && levels.indexOf(l) < 0 && (c.pole === f.from || c.pole === f.to)) levels.push(l); });
+    var a = ids.indexOf(f.from), b = ids.indexOf(f.to), run = ids.slice(Math.min(a, b), Math.max(a, b) + 1), counts = {};
+    project.constructions.forEach(function (c) { var l = levelOf(c.code); if (l && run.indexOf(c.pole) >= 0) (counts[l] = counts[l] || {})[c.pole] = 1; });
+    var levels = Object.keys(counts).sort(function (x, y) { return Object.keys(counts[y]).length - Object.keys(counts[x]).length; });
     if (levels.indexOf(f.level) < 0) f.level = levels[0] || '';
     var gis = circuitOf(f.level) ? gisConductorsAt(f.from, circuitOf(f.level)) : [];
     if (!f.condUser) { f.cond = gis.length === 1 && gis[0].lib ? gis[0].lib.code : ''; f.gis = f.cond ? gis[0] : null; }
-    var mem = sectionMembers(f), missing = mem.filter(function (m) { return !m.c; });
-    var poleSel = function (key, cur) { return '<select data-secf="' + key + '">' + ids.map(function (i) { return '<option' + (i === cur ? ' selected' : '') + '>' + esc(i) + '</option>'; }).join('') + '</select>'; };
-    h += '<div class="con add" style="margin:10px 8px"><div class="con-title">String conductors (new strain section)</div><div class="secform">' +
-      '<div class="field"><label>From pole</label>' + poleSel('from', f.from) + '</div><div class="field"><label>To pole</label>' + poleSel('to', f.to) + '</div>' +
-      '<div class="field"><label>Circuit (construction codes)</label><select data-secf="level">' + (levels.length ? levels.map(function (l) { return '<option' + (l === f.level ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') : '<option value="">Add constructions first</option>') + '</select></div>' +
-      '<div class="field"><label>Conductor</label><select data-secf="cond">' + conductorOptions(f.cond) + '</select></div>' +
-      '<div class="field"><label>Tension</label><input data-secf="tension" value="' + esc(f.tension) + '" inputmode="decimal"></div>' +
+    var ts = f.cond ? tensionSuggestions(f.cond) : [];
+    if (!f.tensionUser && f.cond && f.autoFor !== f.cond) { f.autoFor = f.cond; if (ts.length === 1) { f.tension = String(ts[0].value); f.units = ts[0].units; f.table = ts[0].table || ''; f.tsrc = ts[0].note; } else { f.tension = ''; f.table = ''; f.tsrc = ''; } }
+    var mem = sectionMembers(f), c = conductorFor(f.cond), ck = secChecks(f, mem, c, gis, ts);
+    var poleSel = function (key, cur, label) { return '<select data-secf="' + key + '" aria-label="' + label + '">' + ids.map(function (i) { return '<option' + (i === cur ? ' selected' : '') + '>' + esc(i) + '</option>'; }).join('') + '</select>'; };
+    var h = '<div class="con-title">String conductors (new strain section)</div><div class="secform">' +
+      '<div class="field"><label>From pole</label>' + poleSel('from', f.from, 'From pole') + '</div><div class="field"><label>To pole</label>' + poleSel('to', f.to, 'To pole') + '</div>' +
+      '<div class="field"><label title="Construction code prefix that carries the circuit, with how many poles in the range have it">Circuit (constructions)</label><select data-secf="level" aria-label="Circuit">' + (levels.length ? levels.map(function (l) { return '<option value="' + esc(l) + '"' + (l === f.level ? ' selected' : '') + '>' + esc(l) + ' · ' + Object.keys(counts[l]).length + ' of ' + run.length + ' poles</option>'; }).join('') : '<option value="">Add constructions first</option>') + '</select></div>' +
+      '<div class="field" style="grid-column:span 2"><label>Conductor</label>' + chipRow('cmat', condFilter, COND_MAT) + combo('secNewCond', { value: f.cond, placeholder: 'Search code, name or stranding…', aria: 'Conductor for the new strain section', groups: function () { return conductorGroups(f.from, f.level); }, emptyText: 'import the PNW library tables or link a project with conductors.', onPick: function (v) { f.cond = v; f.condUser = true; f.gis = null; refreshSecForm(); } }) + '</div>' +
+      '<div class="field"><label>Tension</label><input data-secf="tension" value="' + esc(f.tension) + '" inputmode="decimal" placeholder="from the design"' + (ck.bad.tension ? ' class="invalid"' : '') + '></div>' +
       '<div class="field"><label>Units</label><select data-secf="units"><option' + (f.units === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (f.units === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
-    if (gis.length) h += '<p class="meta"><span class="tag src">GIS</span> ' + gis.map(function (t) { return esc(gisText(t)); }).join(' · ') + (gis.length > 1 ? ' <b>More than one conductor on this feeder, so choose it yourself.</b>' : f.gis && !f.condUser ? ' (conductor filled in from this)' : '') + '</p>';
-    h += mem.length ? '<p class="meta">' + mem.map(function (m) { return '<b>' + esc(m.id) + '</b> ' + (m.options.length > 1 ? '<select data-secpick="' + esc(m.id) + '">' + m.options.map(function (c) { return '<option value="' + esc(c.unique) + '"' + (c === m.c ? ' selected' : '') + '>' + esc(c.descr) + '</option>'; }).join('') + '</select>' : m.c ? esc(m.c.descr) : '<span class="pill bad">no ' + esc(f.level || '') + ' construction</span>'); }).join(' → ') + '</p>' : '<p class="hint">Choose two different poles.</p>';
-    h += '<div class="btnrow"><button class="btn small primary" id="secAdd"' + (missing.length || mem.length < 2 ? ' disabled' : '') + '>Add strain section</button></div>' +
-      '<p class="hint">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p></div>';
-    $('tableWrap').innerHTML = h;
+    if (c) h += '<p class="meta"><b>' + esc(c.code) + '</b> ' + esc(c.name || '') + (c.name2 ? ' · ' + esc(c.name2) : '') + (c.material ? ' · ' + esc(c.material) : '') + (c.cbl != null ? ' · CBL ' + c.cbl + ' kN' : '') + (c.mass != null ? ' · ' + c.mass + ' kg/m' : '') + '</p>';
+    if (ts.length) h += '<div class="meta">Tension suggestions: ' + ts.map(function (t, i) { return '<button class="btn small' + (String(t.value) === String(f.tension) && t.units === f.units && (t.table || '') === (f.table || '') ? ' on' : '') + '" data-tpick="' + i + '" title="' + esc(t.note) + '">' + esc(t.label) + ' · ' + esc(t.note) + '</button>'; }).join(' ') + '</div>';
+    h += mem.length ? '<p class="meta">' + mem.map(function (m) { var pc = m.c ? parsedCon(m.id, m.c.unique) : null; return '<b>' + esc(m.id) + '</b> ' + (m.options.length > 1 ? '<select data-secpick="' + esc(m.id) + '" aria-label="Construction on ' + esc(m.id) + '">' + m.options.map(function (o) { return '<option value="' + esc(o.unique) + '"' + (o === m.c ? ' selected' : '') + '>' + esc(o.descr) + '</option>'; }).join('') + '</select>' : m.c ? esc(m.c.descr) : '<span class="pill bad">no ' + esc(f.level || '') + ' construction</span>') + (pc ? ' <small class="muted">' + pc.attachments.length + ' pts</small>' : ''); }).join(' → ') + '</p>' : '';
+    if (ck.preview) h += '<p class="meta">' + ck.preview + '</p>';
+    h += '<ul class="msgs">' + ck.msgs.map(function (m) { return '<li class="' + m.level + '">' + m.text + '</li>'; }).join('') + '</ul>';
+    h += '<div class="btnrow"><button class="btn small primary" id="secAdd"' + (ck.ok ? '' : ' disabled') + '>Add strain section</button></div>' +
+      '<p class="hint">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p>';
+    return h;
+  }
+  // Checks on the new strain section before it can be added: errors block it, warnings and notes are shown.
+  function secChecks(f, mem, c, gis, ts) {
+    var msgs = [], bad = {}, E = function (t, k) { msgs.push({ level: 'error', text: t }); if (k) bad[k] = 1; }, W = function (t) { msgs.push({ level: 'warning', text: t }); }, I = function (t) { msgs.push({ level: 'info', text: t }); };
+    if (mem.length < 2) E('Choose two different poles.');
+    if (!f.level) E('There are no constructions on these poles yet. Add them in the inspector (Constructions tab) first.');
+    var missing = mem.filter(function (m) { return !m.c; });
+    if (f.level && missing.length) E('No ' + esc(f.level) + ' construction on ' + esc(missing.map(function (m) { return m.id; }).join(', ')) + '. Add one in the inspector, or choose a shorter range.');
+    var pts = mem.filter(function (m) { return m.c; }).map(function (m) { var pc = parsedCon(m.id, m.c.unique); return { id: m.id, descr: m.c.descr, n: pc ? pc.attachments.length : 0 }; });
+    var none = pts.filter(function (x) { return !x.n; });
+    if (none.length) E(esc(none.map(function (x) { return x.id + ' ' + x.descr; }).join(', ')) + ' ' + (none.length > 1 ? 'have' : 'has') + ' no attachment points, so no wire can be strung. Add them in the inspector.');
+    var ns = pts.map(function (x) { return x.n; }).filter(Boolean), nmin = ns.length ? Math.min.apply(null, ns) : 0;
+    if (ns.length && Math.max.apply(null, ns) !== nmin) W('Attachment points differ along the section (' + esc(pts.map(function (x) { return x.id + ' ' + x.n; }).join(', ')) + '), so ' + nmin + ' wire' + (nmin === 1 ? '' : 's') + ' will be strung.');
+    pts.forEach(function (x) { var used = project.segPoles.filter(function (s) { return s.id === x.id && s.constr === x.descr; }).map(function (s) { return s.strsection; }); if (used.length) W(esc(x.id + ' ' + x.descr) + ' already carries ' + esc(used.join(', ')) + '.'); });
+    if (!f.cond) E('Choose the conductor.', 'cond');
+    else if (!c) E(esc(f.cond) + ' is not in the PNW library or this project.', 'cond');
+    else {
+      var circ = circuitOf(f.level), txt = (c.name || '') + ' ' + (c.name2 || '');
+      if (circ === 'HV' && /\bLV\b|service cable/i.test(txt)) W(esc(c.code) + ' (' + esc(txt.trim()) + ') looks like an LV conductor on an HV circuit.');
+      if (circ === 'LV' && /\d\s*kV/i.test(txt)) W(esc(c.code) + ' (' + esc(txt.trim()) + ') is rated for HV but the circuit is LV.');
+      if (gis.length && f.condUser && !gis.some(function (t) { return t.lib && t.lib.code === c.code; })) I('GIS records ' + esc(gis.map(function (t) { return t.description; }).join(', ')) + ' on feeder ' + esc(gis[0].feeder) + '; you chose ' + esc(c.code) + '.');
+    }
+    if (gis.length > 1) I('GIS has more than one conductor on feeder ' + esc(gis[0].feeder) + ' (' + esc(gis.map(function (t) { return t.description; }).join(', ')) + '), so choose it yourself.');
+    else if (gis.length === 1 && !gis[0].lib) I('GIS records ' + esc(gis[0].description) + ' on feeder ' + esc(gis[0].feeder) + ', which is not in the PNW library. Choose the matching library conductor.');
+    else if (gis.length === 1 && f.gis && !f.condUser) I('Conductor filled in from GIS: ' + esc(gisText(gis[0])) + '.');
+    else if (!gis.length && gisRuns().length && circuitOf(f.level)) I('No GIS ' + circuitOf(f.level) + ' conductor is recorded on the feeder of ' + esc(f.from) + '.');
+    var t = PNW.num(f.tension);
+    if (f.tension === '' || f.tension == null) E('Type the stringing tension' + (c && !ts.length ? ' (no DCSH Part 10 table matches ' + esc(c.code) + ')' : ts.length > 1 ? ' or pick one of the suggestions' : '') + '.', 'tension');
+    else if (!(t > 0)) E('"' + esc(f.tension) + '" is not a valid tension.', 'tension');
+    else if (f.units === '%CBL') {
+      var maxPct = Math.max.apply(null, [0].concat(stringing().map(function (x) { var m = x.title.replace(/\b(\d) (\d) ?%/g, '$1$2%').match(/(\d+(?:\.\d+)?)\s*%/g) || []; return Math.max.apply(null, [0].concat(m.map(function (v) { return parseFloat(v); }))); })));
+      if (t > 100) E('A tension above 100 %CBL is not possible.', 'tension');
+      else if (maxPct && t > maxPct) W(t + ' %CBL is above every DCSH Part 10 stringing table (the highest is ' + maxPct + ' %).');
+    } else if (c && c.cbl != null && t >= c.cbl) E(t + ' kN is at or above the conductor\'s CBL (' + c.cbl + ' kN).', 'tension');
+    if (f.tsrc && !f.tensionUser) I('Tension filled in from ' + esc(f.tsrc) + '.');
+    var sp = mem.length > 1 ? spansOf(mem.map(function (m) { return m.id; })) : [];
+    return { msgs: msgs, bad: bad, ok: !msgs.some(function (m) { return m.level === 'error'; }), preview: sp.length ? sp.length + ' span' + (sp.length === 1 ? '' : 's') + ', ' + sp.reduce(function (a, b) { return a + b; }, 0).toFixed(1) + ' m, ruling span ' + M.rulingSpan(sp).toFixed(1) + ' m' + (nmin ? ', ' + nmin + ' wire' + (nmin === 1 ? '' : 's') : '') : '' };
+  }
+  // Attachments & heights: every attachment point of every construction, by pole.
+  function renderHeights() {
+    if (!project || !dm) { $('tableWrap').innerHTML = '<div style="padding:14px">' + startDesignHint() + '</div>'; return; }
+    var q = $('search').value.trim().toLowerCase(), carry = {}, h = '';
+    project.segPoles.forEach(function (s) { var k = s.id + '|' + s.constr; (carry[k] = carry[k] || []).push(s.strsection); });
+    var segCond = {}; project.segments.forEach(function (s) { segCond[s.StrainSect] = s.Conductor; });
+    var n = 0;
+    project.poles.forEach(function (r) {
+      var id = r.ID, cons = ((dm.byPole[id]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
+      if (q && (id + ' ' + cons.map(function (c) { return c.descr + ' ' + c.code; }).join(' ')).toLowerCase().indexOf(q) < 0) return;
+      h += '<tr class="group" data-id="' + esc(id) + '"><td colspan="12">' + esc(id) + ' <small class="muted">ch ' + esc(r.Distance) + ' m · ' + esc(r.Length) + ' m pole · ' + esc(r.HeightAG) + ' m above ground' + (cons.length ? '' : ' · no constructions') + '</small></td></tr>';
+      cons.forEach(function (c) {
+        var secs = carry[id + '|' + c.descr] || [], conds = secs.map(function (s) { return s + ' ' + (segCond[s] || ''); }).join(', ');
+        var over = c.kingbolt != null && PNW.num(r.HeightAG) != null && c.kingbolt > PNW.num(r.HeightAG);
+        if (!c.attachments.length) { n++; h += '<tr data-id="' + esc(id) + '"><td></td><td>' + esc(c.descr) + '</td><td>' + esc(c.code) + '</td><td class="num' + (over ? ' miss' : '') + '">' + fmt(c.kingbolt) + '</td><td colspan="5" class="miss">no attachment points</td><td>' + esc(conds) + '</td><td>' + esc(c.source ? c.source.kind : '') + '</td><td></td></tr>'; return; }
+        c.attachments.slice().sort(function (a, b) { return a.order - b.order; }).forEach(function (a) {
+          n++;
+          var hag = c.kingbolt != null ? Math.round((c.kingbolt + a.y) * 1000) / 1000 : null, pt = (dm.points || []).filter(function (p) { return p.pole === id && p.construction === (c.descr || c.code) && p.order === a.order; })[0];
+          h += '<tr data-id="' + esc(id) + '"><td></td><td>' + esc(c.descr) + '</td><td>' + esc(c.code) + '</td><td class="num' + (over ? ' miss' : '') + '">' + fmt(c.kingbolt) + '</td><td class="num">' + a.order + '</td><td class="num">' + fmt(a.x) + '</td><td class="num">' + fmt(a.y) + '</td><td class="num"><b>' + fmt(hag, 3) + '</b></td><td class="num">' + (pt ? fmt(pt.elevation, 3) : '') + '</td><td>' + esc(conds) + '</td><td>' + esc(c.source ? c.source.kind : '') + '</td><td>' + (over ? '<span class="pill bad">above tip</span>' : '') + '</td></tr>';
+        });
+      });
+    });
+    if (!n && !h) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">' + (q ? 'Nothing matches the search.' : 'No constructions in the linked project yet.') + '</p>'; return; }
+    $('tableWrap').innerHTML = '<table class="grid"><thead><tr><th>Pole</th><th>Construction</th><th>Code</th><th class="num">King bolt AG (m)</th><th class="num">#</th><th class="num">x (m)</th><th class="num">y (m)</th><th class="num">Height AG (m)</th><th class="num">Elevation (m)</th><th>Carries</th><th>King bolt source</th><th></th></tr></thead><tbody>' + h + '</tbody></table><p class="hint" style="margin:8px">Height above ground = king bolt + attachment y (PNW manual §7.9.3); elevation = ground level at the pole + height. Values are shown as stored in the project, not rounded for calculation.</p>';
   }
   $('tableWrap').addEventListener('change', function (e) {
     var t = e.target, d = t.dataset;
-    if (d.secf) { secForm[d.secf] = t.value; if (d.secf === 'cond') secForm.condUser = !!t.value; if (d.secf === 'from' || d.secf === 'to' || d.secf === 'level') secForm.pick = {}; renderSections(); return; }
-    if (d.secpick) { (secForm.pick = secForm.pick || {})[d.secpick] = t.value; renderSections(); return; }
-    if (d.secsag != null) { var tb = S.design.tables = S.design.tables || {}, before = tb[d.secsag] || 'matched'; if (t.value) tb[d.secsag] = t.value; else delete tb[d.secsag]; S.design.log = liveLog().concat([logEntry('', d.secsag, 'DCSH sag table', before, t.value || 'matched', 'manual')]); recompute(); return; }
-    if (d.seccond != null) {
-      var c = conductorFor(t.value); if (!c) return;
-      commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === d.seccond; })[0], from = sg.Conductor; M.updateSection(p, d.seccond, { conductor: c }); return [logEntry('', d.seccond, 'Conductor', from, c.code, 'manual', lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '')]; });
-      return;
+    if (d.secf) {
+      var v = t.value.trim();
+      if (d.secf === 'tension') { secForm.tension = v; secForm.tensionUser = v !== ''; secForm.table = ''; secForm.tsrc = ''; }
+      else secForm[d.secf] = v;
+      if (d.secf === 'from' || d.secf === 'to' || d.secf === 'level') secForm.pick = {};
+      if (d.secf === 'units') secForm.table = '';
+      refreshSecForm(); return;
     }
+    if (d.secpick) { (secForm.pick = secForm.pick || {})[d.secpick] = t.value; refreshSecForm(); return; }
+    if (d.secsag != null) { var tb = S.design.tables = S.design.tables || {}, before = tb[d.secsag] || 'matched'; if (t.value) tb[d.secsag] = t.value; else delete tb[d.secsag]; S.design.log = liveLog().concat([logEntry('', d.secsag, 'DCSH sag table', before, t.value || 'matched', 'manual')]); recompute(); return; }
     if (d.secten != null || d.secunits != null) {
-      var n = d.secten || d.secunits;
-      commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = sg.Tension + ' ' + sg.TensionUnits; M.updateSection(p, n, d.secten != null ? { tension: PNW.num(t.value) } : { units: t.value }); return [logEntry('', n, 'Tension', from, sg.Tension + ' ' + sg.TensionUnits, 'manual')]; });
+      var n = d.secten || d.secunits, tv = PNW.num(t.value);
+      if (d.secten != null && !(tv > 0)) { setStatus('"' + t.value + '" is not a valid tension for ' + n + '.', 'bad'); renderTable(); return; }
+      commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = sg.Tension + ' ' + sg.TensionUnits; M.updateSection(p, n, d.secten != null ? { tension: tv } : { units: t.value }); return [logEntry('', n, 'Tension', from, sg.Tension + ' ' + sg.TensionUnits, 'manual')]; });
     }
   });
+  function refreshSecForm() { var box = $('secFormBox'); if (box && project) box.innerHTML = secFormHtml(); }
   $('tableWrap').addEventListener('click', function (e) {
-    var b = e.target.closest('button'); if (!b || tab !== 'sections') return;
-    if (b.dataset.secdel != null) { var n = b.dataset.secdel; commit(function (p) { M.removeSection(p, n); return [logEntry('', n, 'Strain section', n, 'removed', 'manual')]; }); return; }
+    var b = e.target.closest('button');
+    if (!b && tab === 'sections') { var tr = e.target.closest('tr[data-sec]'); if (tr && !e.target.closest('input,select,.combo')) { var mem0 = project.segPoles.filter(function (x) { return x.strsection === tr.dataset.sec; })[0]; select(S.selected || (mem0 && mem0.id) || null, { segment: S.selSection === tr.dataset.sec ? '' : tr.dataset.sec }); } return; }
+    if (!b || tab !== 'sections') return;
+    if (b.dataset.chip) { condFilter = b.dataset.chip.split(':')[1]; refreshSecForm(); return; }
+    if (b.dataset.tpick != null) { var ts = tensionSuggestions(secForm.cond)[+b.dataset.tpick]; if (ts) { secForm.tension = String(ts.value); secForm.units = ts.units; secForm.table = ts.table || ''; secForm.tsrc = ts.note; secForm.tensionUser = true; } refreshSecForm(); return; }
+    if (b.dataset.secdel != null) { var n = b.dataset.secdel; if (S.selSection === n) S.selSection = null; commit(function (p) { M.removeSection(p, n); return [logEntry('', n, 'Strain section', n, 'removed', 'manual')]; }); return; }
     if (b.id === 'secAdd') {
-      var f = secForm, c = conductorFor(f.cond), mem = sectionMembers(f);
-      if (!c) { setStatus('Choose the conductor for the new strain section.', 'bad'); return; }
+      var f = secForm, c = conductorFor(f.cond), mem = sectionMembers(f), gis = circuitOf(f.level) ? gisConductorsAt(f.from, circuitOf(f.level)) : [], ck = secChecks(f, mem, c, gis, c ? tensionSuggestions(f.cond) : []);
+      if (!ck.ok) { setStatus(ck.msgs.filter(function (m) { return m.level === 'error'; })[0].text.replace(/<[^>]+>/g, ''), 'bad'); refreshSecForm(); return; }
+      var added = null;
       commit(function (p) {
-        var name = M.addSection(p, { conductor: c, tension: PNW.num(f.tension), units: f.units, poles: mem.map(function (m) { return { id: m.id, unique: m.c.unique }; }) });
-        setStatus('Added strain section ' + name + '.', 'good');
-        return [logEntry(mem[0].id + '→' + mem[mem.length - 1].id, name, 'Strain section', '', c.code + ' at ' + f.tension + ' ' + f.units + ' on ' + mem.map(function (m) { return m.id + ' ' + m.c.descr; }).join(', '), f.gis && !f.condUser ? 'calculated' : 'manual', [lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '', f.gis && !f.condUser ? 'GIS ' + f.gis.description + ' on feeder ' + f.gis.feeder + ' (' + f.gis.runs.join(', ') + ')' : ''].filter(Boolean).join('; '))];
+        var name = added = M.addSection(p, { conductor: c, tension: PNW.num(f.tension), units: f.units, poles: mem.map(function (m) { return { id: m.id, unique: m.c.unique }; }) });
+        if (f.table) (S.design.tables = S.design.tables || {})[name] = f.table;
+        return [logEntry(mem[0].id + '→' + mem[mem.length - 1].id, name, 'Strain section', '', c.code + ' at ' + f.tension + ' ' + f.units + ' on ' + mem.map(function (m) { return m.id + ' ' + m.c.descr; }).join(', '), f.gis && !f.condUser ? 'calculated' : 'manual', [lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '', f.gis && !f.condUser ? 'GIS ' + f.gis.description + ' on feeder ' + f.gis.feeder + ' (' + f.gis.runs.join(', ') + ')' : '', f.tsrc ? 'tension from ' + f.tsrc : ''].filter(Boolean).join('; '))];
       });
+      if (added) { secForm = { tension: '', units: f.units, from: f.from, to: f.to, level: f.level }; select(S.selected, { segment: added }); setStatus('Added strain section ' + added + '.', 'good'); }
     }
   });
   function renderLog() {
@@ -820,12 +1040,137 @@
   }
 
   /* selected pole: constructions from the linked project, editable */
-  function codeOptions(cur) {
-    var codes = {}; (lib ? lib.constructions : []).forEach(function (c) { codes[c.code] = c.description; });
-    registerRows().forEach(function (r) { if (r.code && !(r.code in codes)) codes[r.code] = ''; });
-    if (cur && !(cur in codes)) codes[cur] = '';
-    return Object.keys(codes).sort().map(function (c) { return '<option value="' + esc(c) + '"' + (c === cur ? ' selected' : '') + '>' + esc(c) + (codes[c] ? ' · ' + esc(codes[c]) : '') + '</option>'; }).join('');
+  /* ---------- suggestions: construction codes and conductors from the PNW library, your projects, GIS and DCSH ---------- */
+  var CLASS_LABEL = { hv: 'HV', lv: 'LV', earth: 'Earth', comms: 'Comms', other: 'Other' };
+  // Circuit of a construction code: the library line-line voltage when it has one, else the code prefix.
+  function circuitClass(code) {
+    var c = String(code || ''), lc = M.libraryConstruction(lib, c);
+    if (/^RE/i.test(c)) return 'earth';
+    if (/^(ADSS|PIL|OPGW)/i.test(c)) return 'comms';
+    if (lc && lc.voltageLL != null) return lc.voltageLL > 1 ? 'hv' : 'lv';
+    return /^H/i.test(c) ? 'hv' : /^(L|AB)/i.test(c) ? 'lv' : 'other';
   }
+  // Arrangement read from the words of the library description (filter only; nothing is assumed from it).
+  var ARR = [['termination', /termination/i, 'Termination'], ['tee-off', /tee.?off/i, 'Tee-off'], ['strain', /strain|angle|in-line/i, 'Strain / angle'], ['intermediate', /intermediate/i, 'Intermediate']];
+  function arrangementOf(desc) { for (var i = 0; i < ARR.length; i++) if (ARR[i][1].test(desc || '')) return ARR[i][0]; return 'other'; }
+  function arrLabel(a) { var x = ARR.filter(function (r) { return r[0] === a; })[0]; return x ? x[2] : 'Other'; }
+  var conFilter = { cls: 'all', arr: 'all' };
+  function constructionItem(code, note) {
+    var lc = M.libraryConstruction(lib, code), lay = knownLayout(code), d = M.dcshFor(dcshReg(), code)[0], cls = circuitClass(code);
+    return { value: code, label: lc ? lc.description : '', cls: cls, arr: lc ? arrangementOf(lc.description) : 'other',
+      note: [CLASS_LABEL[cls], lc ? arrLabel(arrangementOf(lc.description)) : 'not in the PNW library', lay ? lay.attachments.length + ' attachment point' + (lay.attachments.length === 1 ? '' : 's') + ' from ' + lay.source : 'no attachment offsets known', d ? 'DCSH ' + d.drawing + ' (' + (M.DCSH_STATUS[d.status] || d.status) + ')' : '', note].filter(Boolean).join(' · ') };
+  }
+  // Groups for the construction code box: what the neighbouring poles use, codes in your projects, then the PNW library.
+  function constructionGroups(id, filt) {
+    filt = filt || { cls: 'all', arr: 'all' };
+    var seen = {}, groups = [], keep = function (it) { return (filt.cls === 'all' || it.cls === filt.cls) && (filt.arr === 'all' || it.arr === filt.arr); };
+    function add(label, items) { items = items.filter(function (it) { var k = String(it.value).toUpperCase(); if (seen[k] || !keep(it)) return false; seen[k] = 1; return true; }); if (items.length) groups.push({ label: label, items: items }); }
+    if (project) {
+      var ids = project.poles.map(function (r) { return r.ID; }), k = ids.indexOf(id), near = {};
+      [k - 1, k + 1, k - 2, k + 2].forEach(function (j) { if (k < 0 || j < 0 || j >= ids.length) return; project.constructions.forEach(function (c) { if (c.pole === ids[j] && c.code) (near[c.code] = near[c.code] || []).indexOf(ids[j]) < 0 && near[c.code].push(ids[j]); }); });
+      add('On neighbouring poles', Object.keys(near).map(function (c) { return constructionItem(c, 'on ' + near[c].join(', ')); }));
+    }
+    add('Used in your PNW projects', registerRows().filter(function (r) { return r.code && r.sources.length; }).map(function (r) { return constructionItem(r.code, 'seen on ' + r.sources.length + ' pole' + (r.sources.length === 1 ? '' : 's')); }));
+    add('PNW library', (lib ? lib.constructions : []).map(function (c) { return constructionItem(c.code); }).sort(function (a, b) { return a.value < b.value ? -1 : 1; }));
+    return groups;
+  }
+  function chipRow(kind, cur, opts) { return '<div class="chips" role="group">' + opts.map(function (o) { return '<button type="button" data-chip="' + kind + ':' + o[0] + '" class="' + (o[0] === cur ? 'on' : '') + '" aria-pressed="' + (o[0] === cur) + '">' + o[1] + '</button>'; }).join('') + '</div>'; }
+  function conFilterChips() {
+    return chipRow('cls', conFilter.cls, [['all', 'Any circuit'], ['hv', 'HV'], ['lv', 'LV'], ['earth', 'Earth'], ['comms', 'Comms']]) +
+      chipRow('arr', conFilter.arr, [['all', 'Any arrangement'], ['intermediate', 'Intermediate'], ['strain', 'Strain / angle'], ['termination', 'Termination'], ['tee-off', 'Tee-off']]);
+  }
+
+  // Conductors: on this feeder in GIS, already in the project, then the PNW library.
+  var condFilter = 'all';
+  var COND_MAT = [['all', 'Any'], ['AAC', 'AAC'], ['AAAC', 'AAAC'], ['ACSR', 'ACSR'], ['Copper', 'Copper'], ['Steel', 'Steel'], ['insulated', 'Insulated']];
+  function condMatch(c) { return condFilter === 'all' || (condFilter === 'insulated' ? c.insulation && !/^(none|)$/i.test(c.insulation) : c.material === condFilter); }
+  function conductorItem(c, note) { return { value: c.code, label: c.name + (c.name2 ? ' · ' + c.name2 : ''), note: [c.material, c.cbl != null ? 'CBL ' + c.cbl + ' kN' : '', c.insulation && !/^none$/i.test(c.insulation) ? c.insulation + ' insulated' : '', note].filter(Boolean).join(' · ') }; }
+  function conductorGroups(fromId, level) {
+    var seen = {}, groups = [];
+    function add(label, items) { items = items.filter(function (it) { if (seen[it.value]) return false; seen[it.value] = 1; return true; }); if (items.length) groups.push({ label: label, items: items }); }
+    var circuit = circuitOf(level || ''), gis = circuit && fromId ? gisConductorsAt(fromId, circuit) : [];
+    add('On this feeder in GIS', gis.filter(function (t) { return t.lib; }).map(function (t) { return conductorItem(t.lib, 'GIS ' + t.description + ' on ' + t.feeder); }));
+    if (project) add('Already in this project', project.conductors.map(function (r) {
+      var c = conductorFor(r.Code) || { code: r.Code, name: r.Name1 || '' }, used = project.segments.filter(function (s) { return s.Conductor === r.Code; }).map(function (s) { return s.StrainSect; });
+      return conductorItem(c, used.length ? 'used on ' + used.join(', ') : 'not used yet');
+    }));
+    add('PNW library', (lib ? lib.conductors : []).filter(condMatch).map(function (c) { return conductorItem(c); }).sort(function (a, b) { return a.value.toLowerCase() < b.value.toLowerCase() ? -1 : 1; }));
+    return groups;
+  }
+  function tablesFor(c) { return M.tablesForConductor(stringing(), c); }
+  // Tension suggestions: what this project already uses for the conductor, and the DCSH Part 10 table tensions for it.
+  function tensionSuggestions(code) {
+    var out = [], seen = {}, c = conductorFor(code);
+    function add(o) { var k = o.value + o.units + (o.table || ''); if (seen[k]) return; seen[k] = 1; out.push(o); }
+    (project ? project.segments : []).forEach(function (s) { if (s.Conductor === code && PNW.num(s.Tension) > 0) add({ value: PNW.num(s.Tension), units: s.TensionUnits, label: s.Tension + ' ' + s.TensionUnits, note: 'as ' + s.StrainSect + ' in this project' }); });
+    tablesFor(c).forEach(function (x) { add({ value: x.pct, units: '%CBL', table: x.table.id, label: x.pct + ' %CBL', note: x.table.title + ' (DCSH Part 10 p' + x.table.page + ')' }); });
+    return out;
+  }
+
+  // Searchable combo box: an input with grouped suggestions, used for construction codes and conductors.
+  // o: { value, placeholder, aria, groups(): [{label, items:[{value,label,note}]}], onPick(value, item), free: typed values allowed }
+  var combos = {}, comboKey = null, comboAct = -1, comboShown = [];
+  function combo(key, o) {
+    combos[key] = o;
+    return '<div class="combo" data-combo="' + esc(key) + '"><input type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="comboList" autocomplete="off" spellcheck="false" value="' + esc(o.value || '') + '" placeholder="' + esc(o.placeholder || 'Search…') + '"' + (o.aria ? ' aria-label="' + esc(o.aria) + '"' : '') + (o.invalid ? ' class="invalid"' : '') + '><button type="button" class="ctog" tabindex="-1" aria-label="Show suggestions">▼</button></div>';
+  }
+  var comboList = document.createElement('div'); comboList.className = 'combo-list'; comboList.id = 'comboList'; comboList.setAttribute('role', 'listbox'); comboList.hidden = true; document.body.appendChild(comboList);
+  function comboInput(key) { var el = document.querySelector('.combo[data-combo="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"] input'); return el; }
+  function comboOpen(key, q) {
+    var o = combos[key], inp = comboInput(key); if (!o || !inp) return;
+    comboKey = key; comboAct = -1; comboShown = [];
+    var words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean), h = '';
+    o.groups().forEach(function (g) {
+      var items = g.items.filter(function (it) { var s = (it.value + ' ' + (it.label || '') + ' ' + (it.note || '')).toLowerCase(); return words.every(function (w) { return s.indexOf(w) >= 0; }); }).slice(0, 80);
+      if (!items.length) return;
+      h += '<div class="cg">' + esc(g.label) + '</div>' + items.map(function (it) { comboShown.push(it); return '<div class="ci" role="option" data-ci="' + (comboShown.length - 1) + '"><b>' + esc(it.value) + '</b><span>' + esc(it.label || '') + '</span>' + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</div>'; }).join('');
+    });
+    if (!comboShown.length) h = '<div class="none">' + (words.length ? 'Nothing matches "' + esc(q) + '".' + (o.free ? ' Press Enter to use it as typed (it will be flagged for review).' : '') : 'No suggestions available: ' + esc(o.emptyText || 'import the PNW library tables.')) + '</div>';
+    comboList.innerHTML = h; comboList.hidden = false; inp.setAttribute('aria-expanded', 'true');
+    var r = inp.getBoundingClientRect(), below = window.innerHeight - r.bottom;
+    comboList.style.left = Math.max(4, Math.min(r.left, window.innerWidth - 384)) + 'px'; comboList.style.width = Math.max(r.width, 380) + 'px';
+    comboList.style.maxHeight = Math.max(160, Math.min(340, below > 220 ? below - 12 : r.top - 12)) + 'px';
+    if (below > 220 || below > r.top) { comboList.style.top = (r.bottom + 3) + 'px'; comboList.style.bottom = ''; } else { comboList.style.top = ''; comboList.style.bottom = (window.innerHeight - r.top + 3) + 'px'; }
+  }
+  function comboClose(restore) {
+    if (comboKey == null) return;
+    var inp = comboInput(comboKey), o = combos[comboKey];
+    if (inp) { inp.setAttribute('aria-expanded', 'false'); if (restore && o) inp.value = o.value || ''; }
+    comboList.hidden = true; comboKey = null; comboShown = [];
+  }
+  function comboPick(it, typed) {
+    var key = comboKey, o = combos[key], inp = comboInput(key); if (!o) return;
+    var v = it ? it.value : typed;
+    if (inp) inp.value = v;
+    comboClose(false);
+    if (v !== (o.value || '')) { o.value = v; o.onPick(v, it || null); }
+  }
+  function comboMark(i) { comboAct = Math.max(0, Math.min(comboShown.length - 1, i)); Array.prototype.forEach.call(comboList.querySelectorAll('.ci'), function (el) { el.classList.toggle('act', +el.dataset.ci === comboAct); if (+el.dataset.ci === comboAct) el.scrollIntoView({ block: 'nearest' }); }); }
+  document.addEventListener('focusin', function (e) { var c = e.target.closest && e.target.closest('.combo'); if (c && e.target.tagName === 'INPUT') { e.target.select(); comboOpen(c.dataset.combo, ''); } });
+  document.addEventListener('input', function (e) { var c = e.target.closest && e.target.closest('.combo'); if (c) comboOpen(c.dataset.combo, e.target.value); });
+  document.addEventListener('keydown', function (e) {
+    var c = e.target.closest && e.target.closest('.combo'); if (!c) return;
+    if (comboKey !== c.dataset.combo && /Arrow|Enter/.test(e.key)) comboOpen(c.dataset.combo, '');
+    if (e.key === 'ArrowDown') { e.preventDefault(); comboMark(comboAct + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); comboMark(comboAct - 1); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      var typed = e.target.value.trim(), o = combos[c.dataset.combo], exact = comboShown.filter(function (it) { return String(it.value).toUpperCase() === typed.toUpperCase(); })[0];
+      if (comboAct >= 0) comboPick(comboShown[comboAct]); else if (exact) comboPick(exact); else if (o && o.free && typed) comboPick(null, typed); else if (comboShown.length === 1) comboPick(comboShown[0]);
+    } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); comboClose(true); }
+  });
+  document.addEventListener('focusout', function (e) {
+    var c = e.target.closest && e.target.closest('.combo'); if (!c) return;
+    setTimeout(function () {
+      if (comboKey !== c.dataset.combo || (document.activeElement && document.activeElement.closest && document.activeElement.closest('.combo') === c)) return;
+      var typed = e.target.value.trim(), o = combos[c.dataset.combo], exact = comboShown.filter(function (it) { return String(it.value).toUpperCase() === typed.toUpperCase(); })[0];
+      if (o && typed !== (o.value || '') && exact) comboPick(exact); else if (o && o.free && typed && typed !== (o.value || '')) comboPick(null, typed); else comboClose(true);
+    }, 120);
+  });
+  comboList.addEventListener('mousedown', function (e) { var el = e.target.closest('.ci'); e.preventDefault(); if (el) comboPick(comboShown[+el.dataset.ci]); });
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('.combo .ctog'); if (b) { var inp = b.parentNode.querySelector('input'); if (comboKey === b.parentNode.dataset.combo) comboClose(true); else { inp.focus(); comboOpen(b.parentNode.dataset.combo, ''); } } });
+  document.addEventListener('scroll', function (e) { if (comboKey != null && !comboList.contains(e.target)) comboClose(true); }, true);
+  window.addEventListener('resize', function () { comboClose(true); });
   function lastSource(pole, descr, field) { var l = liveLog().filter(function (x) { return x.pole === pole && x.construction === descr && (x.field === field || x.field === 'Construction'); }).slice(-1)[0]; return l ? l.source : 'imported'; }
   // Attachment layout for a code: a fully dimensioned DCSH drawing, else one of the imported projects, else a layout built into
   // the private copy from Ishan's saved projects (window.PNW_BUILTIN.layouts).
@@ -856,41 +1201,108 @@
       '<div class="btnrow"><button class="btn small primary" id="poleAdd" data-from="' + esc(id) + '">Add pole</button></div><p class="hint">The new pole goes on the ground line at that distance (positive is towards the next pole), with the ground level read from the profile.</p></details></div>';
     return h;
   }
+  // Strain sections and attachment heights at one pole (inspector Conductors tab).
   function sectionsOnPole(id) {
     var names = []; project.segPoles.forEach(function (s) { if (s.id === id && names.indexOf(s.strsection) < 0) names.push(s.strsection); });
-    var h = '<div class="con"><div class="con-h"><b>Conductors</b></div>';
-    h += names.length ? names.map(function (n) { var sg = project.segments.filter(function (x) { return x.StrainSect === n; })[0] || {}, at = project.segPoles.filter(function (x) { return x.strsection === n && x.id === id; })[0]; return '<p class="meta"><b>' + esc(n) + '</b> · ' + esc(sg.Conductor) + ' at ' + esc(sg.Tension) + ' ' + esc(sg.TensionUnits) + ' · ' + esc(sg.numconds) + ' wires on ' + esc(at ? at.constr : '') + '</p>'; }).join('') : '<p class="hint">No conductors attached to this pole.</p>';
-    ['HV', 'LV'].forEach(function (l) { gisConductorsAt(id, l).forEach(function (t) { h += '<p class="meta"><span class="tag src">GIS</span> ' + l + ': ' + esc(gisText(t)) + '</p>'; }); });
-    return h + '<div class="btnrow"><button class="btn small" data-gotab="sections">Strain sections…</button></div></div>';
+    var h = '<div class="con-title">Strain sections at ' + esc(id) + '</div>';
+    h += names.length ? names.map(function (n) {
+      var sg = project.segments.filter(function (x) { return x.StrainSect === n; })[0] || {}, at = project.segPoles.filter(function (x) { return x.strsection === n && x.id === id; })[0], mem = project.segPoles.filter(function (x) { return x.strsection === n; });
+      var c = conductorFor(sg.Conductor);
+      return '<div class="con' + (S.selSection === n ? ' sel' : '') + '"><div class="con-h"><b>' + esc(n) + '</b><small>' + esc(mem[0] ? mem[0].id : '') + ' → ' + esc(mem.length ? mem[mem.length - 1].id : '') + ' · ' + mem.length + ' poles</small></div>' +
+        '<p class="meta"><b>' + esc(sg.Conductor) + '</b>' + (c && c.name ? ' (' + esc(c.name) + ')' : '') + ' at ' + esc(sg.Tension) + ' ' + esc(sg.TensionUnits) + ' · ' + esc(sg.numconds) + ' wires on ' + esc(at ? at.constr : '') + '</p>' +
+        '<div class="btnrow"><button class="btn small" data-secshow="' + esc(n) + '"' + (S.selSection === n ? ' disabled' : '') + '>' + (S.selSection === n ? 'Highlighted in 3D' : 'Highlight in 3D') + '</button><button class="btn small" data-gotab="sections">Edit in the schedule</button></div></div>';
+    }).join('') : '<p class="hint">No conductors attached to ' + esc(id) + ' yet. String them in the Conductor schedule.</p>';
+    var gis = [];
+    ['HV', 'LV'].forEach(function (l) { gisConductorsAt(id, l).forEach(function (t) { gis.push('<li class="info"><span class="tag src">GIS</span> ' + l + ': ' + esc(gisText(t)) + '</li>'); }); });
+    if (gis.length) h += '<ul class="msgs">' + gis.join('') + '</ul>';
+    var pts = ((dm && dm.points) || []).filter(function (q) { return q.pole === id; });
+    h += '<div class="con-title" style="margin-top:12px">Attachment heights</div>';
+    if (!pts.length) h += '<p class="hint">No attachment points on ' + esc(id) + '.</p>';
+    else {
+      var carry = {}; project.segPoles.forEach(function (s) { if (s.id === id) (carry[s.constr] = carry[s.constr] || []).push(s.strsection); });
+      h += '<table class="att"><tr><th>Construction</th><th>#</th><th class="num">x</th><th class="num">y</th><th class="num">King bolt</th><th class="num">Height AG</th><th>Carries</th></tr>' + pts.slice().sort(function (a, b) { return b.heightAG - a.heightAG; }).map(function (q) {
+        return '<tr><td>' + esc(q.construction) + '</td><td>' + q.order + '</td><td class="num">' + fmt(q.provenance.x) + '</td><td class="num">' + fmt(q.provenance.y) + '</td><td class="num">' + fmt(q.provenance.kingbolt) + '</td><td class="num"><b>' + fmt(q.heightAG, 3) + '</b></td><td>' + esc((carry[q.construction] || []).join(', ')) + '</td></tr>';
+      }).join('') + '</table><p class="hint">Height above ground = king bolt + attachment y (PNW manual §7.9.3). All poles are listed in the Heights table.</p>';
+    }
+    return h;
   }
   function designPanel(id) {
-    if (!project) return '<div class="con-wrap"><p class="hint">Drop a saved PNW project (.pnwx) to edit its design, or start a new design from this ground profile.</p>' + (built && built.rows.length > 1 ? '<div class="btnrow"><button class="btn small primary" id="designStart">Start a design from this ground profile</button></div>' : '') + '</div>';
+    if (!project) return startDesignHint();
     var row = project.poles.filter(function (r) { return r.ID === id; })[0];
     if (!row) return '<p class="hint">' + esc(id) + ' is not in the linked PNW project ' + esc(linked.name) + '.</p>';
     var hag = PNW.num(row.HeightAG), cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
     var pt = (dm && dm.allPoles.filter(function (p) { return p.id === id; })[0]) || {};
-    var h = '<div class="con-wrap"><div class="con-title">Design <span class="pill info">' + esc(linked.name) + '</span></div>' + poleBlock(id, row, pt) + '<div class="con-title" style="margin-top:10px">Constructions</div>';
+    var h = '<div class="con-title">Design <span class="pill info">' + esc(linked.name) + '</span></div>' + poleBlock(id, row, pt) + '<div class="con-title" style="margin-top:10px">Constructions (' + cons.length + ')</div>';
+    if (!cons.length) h += '<p class="hint">No constructions on ' + esc(id) + ' yet. Add one below.</p>';
     cons.forEach(function (c, i) {
       var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), above = i > 0 ? cons[i - 1].kingbolt : null, def = M.defaultKingbolt(lib, c.code, hag, above);
       var carries = project.segPoles.filter(function (s) { return s.id === id && s.constr === c.descr; }).map(function (s) { return s.strsection; });
       var src = lastSource(id, c.descr, 'King bolt height'), d = M.dcshFor(dcshReg(), c.code)[0], cmp = d ? M.compareDcsh(d, c, i === 0 ? hag : null) : null;
-      h += '<div class="con" data-u="' + esc(c.unique) + '"><div class="con-h"><b>' + esc(c.descr || '(blank construction)') + '</b>' + (lc ? '<small>' + esc(lc.description) + '</small>' : '') + '<span class="pill ' + st.cls + '">' + esc(st.text) + '</span></div>' +
-        '<div class="row2"><div class="field"><label>Code</label><select data-ccode="' + esc(c.unique) + '">' + codeOptions(c.code) + '</select></div>' +
-        '<div class="field"><label>King bolt above ground (m) <span class="tag ' + (src === 'manual' ? 'edit' : src === 'imported' ? 'src' : 'der') + '">' + esc(src) + '</span></label><input data-ckb="' + esc(c.unique) + '" value="' + fmt(c.kingbolt) + '" inputmode="decimal"></div></div>';
-      if (def && c.kingbolt != null && Math.abs(def.value - c.kingbolt) > 0.0005) h += '<p class="hint">' + esc(def.source) + ': <b>' + def.value + ' m</b> (' + def.below + ' m). <button class="btn small" data-cdef="' + esc(c.unique) + '" data-v="' + def.value + '" data-ref="' + esc(def.source) + '">Use default</button></p>';
-      if (cmp && cmp.notes.length) h += '<p class="hint warn">' + esc(cmp.notes.join(' ')) + '</p>';
       var u = esc(c.unique);
-      h += c.attachments.length ? '<table class="att"><tr><th>#</th><th>x</th><th>y</th><th>Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal"></td><td>' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '">×</button>') + '</td></tr>'; }).join('') + '</table>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
-      if (!carries.length) h += '<div class="btnrow"><button class="btn small" data-aadd="' + u + '">Add attachment point</button></div>';
-      h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + '</span>' : '<button class="btn small" data-cdel="' + esc(c.unique) + '">Remove</button>') + '</div></div>';
+      h += '<div class="con" data-u="' + u + '"><div class="con-h"><b>' + esc(c.descr || '(blank construction)') + '</b><span class="pill mute">' + CLASS_LABEL[circuitClass(c.code)] + '</span>' + (lc ? '<small>' + esc(lc.description) + '</small>' : c.code ? '<span class="pill warn" title="This code is not in the PNW library tables">not in library</span>' : '') + '<span class="pill ' + st.cls + '">' + esc(st.text) + '</span></div>' +
+        '<div class="row2"><div class="field"><label>Code</label>' + combo('ccode|' + c.unique, { value: c.code, placeholder: 'Search code…', aria: 'Construction code of ' + (c.descr || 'construction'), free: true, groups: function () { return constructionGroups(id); }, onPick: function (v) { changeCode(id, c.unique, v, 'manual', ''); if (!M.libraryConstruction(lib, v) && !knownLayout(v)) setStatus(v + ' is not in the PNW library or your projects: no defaults or offsets are known, so it needs engineering review.', 'bad'); } }) + '</div>' +
+        '<div class="field"><label title="Height of the king bolt above ground, in metres">King bolt above ground (m) <span class="tag ' + (src === 'manual' ? 'edit' : src === 'imported' ? 'src' : 'der') + '">' + esc(src) + '</span></label><input data-ckb="' + u + '" value="' + fmt(c.kingbolt) + '" inputmode="decimal"' + (c.kingbolt != null && hag != null && c.kingbolt > hag ? ' class="invalid" title="Above the pole tip (' + hag + ' m above ground)"' : '') + '></div></div>';
+      if (c.kingbolt != null && hag != null && c.kingbolt > hag) h += '<p class="hint bad">The king bolt is ' + fmt(Math.round((c.kingbolt - hag) * 1000) / 1000) + ' m above the pole tip (' + hag + ' m above ground).</p>';
+      if (def && c.kingbolt != null && Math.abs(def.value - c.kingbolt) > 0.0005) h += '<p class="hint">' + esc(def.source) + ': <b>' + def.value + ' m</b> (' + def.below + ' m). <button class="btn small" data-cdef="' + u + '" data-v="' + def.value + '" data-ref="' + esc(def.source) + '">Use default</button></p>';
+      if (cmp && cmp.notes.length) h += '<p class="hint warn">' + esc(cmp.notes.join(' ')) + '</p>';
+      h += c.attachments.length ? '<table class="att"><tr><th>#</th><th>x (m)</th><th>y (m)</th><th class="num">Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' x"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' y"></td><td class="num">' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '" title="Remove this attachment point">×</button>') + '</td></tr>'; }).join('') + '</table>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
+      h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + ', so points and the construction cannot be removed here.</span>' : '<button class="btn small" data-aadd="' + u + '">Add attachment point</button><button class="btn small danger" data-cdel="' + u + '">Remove construction</button>') + '</div></div>';
     });
-    h += sectionsOnPole(id);
-    h += aiPanel(id, cons);
-    var lowest = cons.length ? cons[cons.length - 1].kingbolt : null;
-    h += '<div class="con add"><div class="row2"><div class="field"><label>Add construction</label><select id="conAddCode"><option value="">Choose a code…</option>' + codeOptions('') + '</select></div><div class="field"><label>King bolt (m)</label><input id="conAddKb" inputmode="decimal" placeholder="library default"></div></div>' +
-      '<div class="btnrow"><button class="btn small primary" id="conAdd" data-pole="' + esc(id) + '" data-lowest="' + (lowest == null ? '' : lowest) + '" data-hag="' + hag + '">Add to ' + esc(id) + '</button></div><p class="hint">The king bolt starts at the PNW library default. Attachment offsets are copied from a DCSH drawing or one of your projects when one exists for the code; otherwise the construction is added without attachment points and flagged for engineering review. Attach it to conductors in the Strain sections tab.</p></div></div>';
+    h += '<div class="con add" id="conAddBox">' + conAddHtml(id) + '</div>';
     return h;
   }
+  // Add-construction form: searchable code, filters, preview of what will be copied and checks before adding.
+  var conDraft = { pole: null, code: '', kb: '', kbUser: false };
+  function conContext(id) {
+    var row = project.poles.filter(function (r) { return r.ID === id; })[0], cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
+    return { row: row, hag: row ? PNW.num(row.HeightAG) : null, cons: cons, lowest: cons.length ? cons[cons.length - 1].kingbolt : null };
+  }
+  function conChecks(id, d) {
+    var x = conContext(id), out = { msgs: [], ok: false, def: null, lay: null, lc: null, dc: null };
+    if (!d.code) { out.msgs.push({ level: 'info', text: 'Choose a construction code. Codes on the neighbouring poles are listed first.' }); return out; }
+    out.lc = M.libraryConstruction(lib, d.code); out.lay = knownLayout(d.code); out.dc = M.dcshFor(dcshReg(), d.code)[0] || null;
+    out.def = M.defaultKingbolt(lib, d.code, x.hag, x.lowest);
+    if (!out.lc) out.msgs.push({ level: 'warning', text: esc(d.code) + ' is not in the PNW library tables, so there is no default height or voltage. Check the code.' });
+    if (!out.lay) out.msgs.push({ level: 'warning', text: 'No attachment offsets are known for ' + esc(d.code) + ' (no dimensioned DCSH drawing and not in your projects). It will be added without attachment points and needs engineering review.' });
+    var kb = PNW.num(d.kb);
+    if (d.kb === '' || d.kb == null) out.msgs.push({ level: 'error', text: 'Type the king bolt height' + (out.def ? '' : ' (there is no library default for ' + esc(d.code) + ')') + '.' });
+    else if (!(kb > 0) || kb > 60) out.msgs.push({ level: 'error', text: '"' + esc(d.kb) + '" is not a valid king bolt height in metres.' });
+    else {
+      if (x.hag != null && kb > x.hag) out.msgs.push({ level: 'error', text: 'The king bolt is above the pole tip (' + x.hag + ' m above ground).' });
+      x.cons.forEach(function (c) { if (c.kingbolt != null && Math.abs(c.kingbolt - kb) < 0.1) out.msgs.push({ level: 'warning', text: 'Within 0.1 m of ' + esc(c.descr || c.code) + ' at ' + c.kingbolt + ' m.' }); });
+    }
+    var same = x.cons.filter(function (c) { return circuitClass(c.code) === circuitClass(d.code); });
+    if (same.length) out.msgs.push({ level: 'info', text: esc(id) + ' already has ' + esc(same.map(function (c) { return c.descr || c.code; }).join(', ')) + ' on the ' + CLASS_LABEL[circuitClass(d.code)] + ' circuit.' });
+    out.ok = !out.msgs.some(function (m) { return m.level === 'error'; });
+    return out;
+  }
+  function conPreview(id) {
+    var d = conDraft, ck = conChecks(id, d), h = '';
+    if (d.code) {
+      h += '<div class="preview"><dl><dt>Library</dt><dd>' + (ck.lc ? esc(ck.lc.description) + (ck.lc.voltageLL != null ? ' · ' + ck.lc.voltageLL + ' kV' : '') : '<span class="muted">not in the library</span>') + '</dd>' +
+        '<dt>King bolt</dt><dd>' + (ck.def ? 'default ' + ck.def.value + ' m (' + esc(ck.def.source) + ')' : '<span class="muted">no library default</span>') + '</dd>' +
+        '<dt>Attachments</dt><dd>' + (ck.lay ? esc(ck.lay.attachments.map(function (a) { return '(' + a.x + ', ' + a.y + ')'; }).join(' ')) + ' from ' + esc(ck.lay.source) : '<span class="muted">none known</span>') + '</dd>' +
+        '<dt>DCSH</dt><dd>' + (ck.dc ? esc(ck.dc.drawing + ' rev ' + ck.dc.revision + ' · ' + (M.DCSH_STATUS[ck.dc.status] || ck.dc.status)) : '<span class="muted">not linked</span>') + '</dd></dl></div>';
+    }
+    h += '<ul class="msgs">' + ck.msgs.map(function (m) { return '<li class="' + m.level + '">' + m.text + '</li>'; }).join('') + '</ul>';
+    return { html: h, ok: ck.ok };
+  }
+  function conAddHtml(id) {
+    if (conDraft.pole !== id) conDraft = { pole: id, code: '', kb: '', kbUser: false };
+    var pv = conPreview(id);
+    return '<div class="con-title">Add a construction to ' + esc(id) + '</div>' + conFilterChips() +
+      '<div class="row2"><div class="field"><label>Construction code</label>' + combo('conAdd', { value: conDraft.code, placeholder: 'Search code or description…', aria: 'Construction code to add', free: true, groups: function () { return constructionGroups(id, conFilter); }, onPick: function (v) {
+        conDraft.code = v;
+        if (!conDraft.kbUser) { var x = conContext(id), df = M.defaultKingbolt(lib, v, x.hag, x.lowest); conDraft.kb = df ? String(df.value) : ''; }
+        refreshConAdd();
+      } }) + '</div>' +
+      '<div class="field"><label for="conAddKb">King bolt above ground (m)</label><input id="conAddKb" inputmode="decimal" value="' + esc(conDraft.kb) + '" placeholder="library default"></div></div>' +
+      '<div id="conAddPrev">' + pv.html + '</div>' +
+      '<div class="btnrow"><button class="btn small primary" id="conAdd" data-pole="' + esc(id) + '"' + (pv.ok ? '' : ' disabled') + '>Add to ' + esc(id) + '</button>' + '<button class="btn small" id="conKbDefault" title="Go back to the library default height"' + (conDraft.kbUser ? '' : ' hidden') + '>Use default height</button>' + '</div>' +
+      '<p class="hint">The king bolt starts at the PNW library default (below the tip, or below the construction above). Offsets are copied from a dimensioned DCSH drawing or one of your projects; nothing is made up. Attach the construction to conductors in the Conductor schedule.</p>';
+  }
+  function refreshConAdd() { var box = $('conAddBox'); if (box && S.selected) box.innerHTML = conAddHtml(S.selected); }
+  function refreshConPreview() { var id = S.selected, el = $('conAddPrev'); if (!el || !id) return; var pv = conPreview(id); el.innerHTML = pv.html; if ($('conAdd')) $('conAdd').disabled = !pv.ok; if ($('conKbDefault')) $('conKbDefault').hidden = !conDraft.kbUser; }
   $('selected').addEventListener('change', function (e) {
     var t = e.target, id = S.selected;
     if (t.id === 'poleAddType') { var pt = lib && lib.poles.filter(function (x) { return x.code === t.value; })[0]; if (pt) { $('poleAddLen').value = pt.length; $('poleAddSunk').value = pt.sinking != null ? pt.sinking : ''; } return; }
@@ -905,13 +1317,19 @@
       return;
     }
     if (t.dataset.pfield != null) {
-      var v = PNW.num(t.value);
-      if (!(v >= 0) || v > 60) { setStatus('"' + t.value + '" is not a valid value in metres.', 'bad'); renderSelected(); return; }
+      var v = PNW.num(t.value), isLen = t.dataset.pfield === 'length', cur = project.poles.filter(function (x) { return x.ID === id; })[0];
+      if (!(v >= 0) || v > 60 || (isLen && !(v > 0))) { setStatus('"' + t.value + '" is not a valid value in metres.', 'bad'); renderSelected(); return; }
+      var oldL = PNW.num(cur.Length), oldS = PNW.num(cur.Sunk);
+      if (isLen ? v <= oldS : v >= oldL) { setStatus('The setting depth has to be less than the pole length (' + (isLen ? v + ' m long, ' + oldS + ' m deep' : oldL + ' m long, ' + v + ' m deep') + ').', 'bad'); renderSelected(); return; }
       commit(function (p) {
-        var r = p.poles.filter(function (x) { return x.ID === id; })[0], f = {}, field = t.dataset.pfield === 'length' ? 'Length' : 'Sunk', from = r[field];
-        f[t.dataset.pfield] = v; var res = M.updatePole(p, id, f);
+        var r = p.poles.filter(function (x) { return x.ID === id; })[0], f = {}, field = isLen ? 'Length' : 'Sunk', from = r[field];
+        f[t.dataset.pfield] = v;
+        // A setting depth that followed the 10% + 0.6 m rule keeps following it when the length changes; a typed depth is kept.
+        var follow = isLen && oldL > 0 && oldS != null && Math.abs(defaultSunk(oldL) - oldS) < 0.005;
+        if (follow) f.sunk = defaultSunk(v);
+        var res = M.updatePole(p, id, f);
         if (S.design.poleTypes) delete S.design.poleTypes[id];
-        return [logEntry(id, '', field === 'Length' ? 'Pole length' : 'Setting depth', from, String(v), 'manual', 'Height above ground ' + res.heightAG + ' m' + (res.shift ? '; constructions moved ' + res.shift + ' m with the tip' : ''))];
+        return [logEntry(id, '', isLen ? 'Pole length' : 'Setting depth', from, String(v), 'manual', (follow ? 'setting depth ' + oldS + ' -> ' + f.sunk + ' m (10% of length + 0.6 m); ' : '') + 'Height above ground ' + res.heightAG + ' m' + (res.shift ? '; constructions moved ' + res.shift + ' m with the tip' : ''))];
       });
       return;
     }
@@ -922,14 +1340,13 @@
       return;
     }
     if (t.dataset.pnew != null) { commit(function (p) { M.updatePole(p, id, { isNew: t.checked }); return [logEntry(id, '', 'New pole', t.checked ? 'False' : 'True', t.checked ? 'True' : 'False', 'manual')]; }); return; }
-    if (t.id === 'conAddCode') { var lo = PNW.num($('conAdd').dataset.lowest), d = M.defaultKingbolt(lib, t.value, PNW.num($('conAdd').dataset.hag), lo); $('conAddKb').value = d ? d.value : ''; $('conAddKb').title = d ? d.source : 'No library default: type the king bolt height'; return; }
     if (t.dataset.ckb != null) {
       var v = PNW.num(t.value);
       if (!(v > 0) || v > 60) { setStatus('"' + t.value + '" is not a valid king bolt height in metres.', 'bad'); renderSelected(); return; }
       commit(function (p) { var r = p.constructions.filter(function (x) { return x.unique === t.dataset.ckb; })[0], from = r.attht; M.updateConstruction(p, r.unique, { kingbolt: v }); return [logEntry(id, r.descr, 'King bolt height', from, String(v), 'manual')]; });
     }
-    if (t.dataset.ccode != null) changeCode(id, t.dataset.ccode, t.value, 'manual', '');
   });
+  $('selected').addEventListener('input', function (e) { if (e.target.id === 'conAddKb') { conDraft.kb = e.target.value.trim(); conDraft.kbUser = true; refreshConPreview(); } });
   // Attachment offsets typed by the designer: always logged as manual and left for engineering review.
   function editAttachments(id, unique, change) {
     commit(function (p) {
@@ -956,7 +1373,10 @@
     if (b.id === 'designStart') { startDesign(); return; }
     if (b.dataset.aadd != null) { editAttachments(id, b.dataset.aadd, function (list) { var n = list.reduce(function (m, a) { return Math.max(m, a.order); }, 0) + 1; list.push({ x: 0, y: 0, order: n }); return ['Attachment ' + n, '', 'added at 0, 0']; }); return; }
     if (b.dataset.arm != null) { var ak = b.dataset.arm.split('|'); editAttachments(id, ak[0], function (list) { var a = list.splice(+ak[1], 1)[0]; return ['Attachment ' + a.order, a.x + ', ' + a.y, 'removed']; }); return; }
-    if (b.dataset.gotab) { setTab(b.dataset.gotab); return; }
+    if (b.dataset.gotab) { openTab(b.dataset.gotab); return; }
+    if (b.dataset.chip) { var cp = b.dataset.chip.split(':'); conFilter[cp[0]] = cp[1]; refreshConAdd(); return; }
+    if (b.id === 'conKbDefault') { var cx = conContext(id), df = M.defaultKingbolt(lib, conDraft.code, cx.hag, cx.lowest); conDraft.kb = df ? String(df.value) : ''; conDraft.kbUser = false; refreshConAdd(); return; }
+    if (b.dataset.secshow) { select(id, { segment: b.dataset.secshow }); return; }
     if (b.dataset.pdel != null) { commit(function (p) { M.removePole(p, b.dataset.pdel); return [logEntry(b.dataset.pdel, '', 'Pole', b.dataset.pdel, 'removed', 'manual')]; }); return; }
     if (b.id === 'poleAdd') {
       var nid = $('poleAddId').value.trim(), dist = PNW.num($('poleAddDist').value), L = PNW.num($('poleAddLen').value), sk = $('poleAddSunk').value.trim() === '' ? defaultSunk(L) : PNW.num($('poleAddSunk').value), ty = $('poleAddType').value;
@@ -972,13 +1392,13 @@
     if (b.dataset.cdef != null) commit(function (p) { var r = p.constructions.filter(function (x) { return x.unique === b.dataset.cdef; })[0], from = r.attht; M.updateConstruction(p, r.unique, { kingbolt: Number(b.dataset.v) }); return [logEntry(id, r.descr, 'King bolt height', from, b.dataset.v, 'calculated', b.dataset.ref)]; });
     if (b.dataset.cdel != null) commit(function (p) { var r = p.constructions.filter(function (x) { return x.unique === b.dataset.cdel; })[0]; M.removeConstruction(p, r.unique); return [logEntry(id, r.descr, 'Construction', r.descr, 'removed', 'manual')]; });
     if (b.id === 'conAdd') {
-      var code = $('conAddCode').value, kb = PNW.num($('conAddKb').value);
-      if (!code) { setStatus('Choose a construction code to add.', 'bad'); return; }
-      if (!(kb > 0)) { setStatus('Type the king bolt height for ' + code + ' (there is no library default).', 'bad'); return; }
-      var lay = knownLayout(code), lc = M.libraryConstruction(lib, code);
+      var code = conDraft.code, kb = PNW.num(conDraft.kb), ck = conChecks(id, conDraft);
+      if (!ck.ok) { setStatus(ck.msgs.filter(function (m) { return m.level === 'error'; }).map(function (m) { return m.text; }).join(' ') || 'Choose a construction code to add.', 'bad'); refreshConPreview(); return; }
+      var lay = knownLayout(code), lc = M.libraryConstruction(lib, code), defKb = ck.def && Math.abs(ck.def.value - kb) < 0.0005;
+      conDraft = { pole: id, code: '', kb: '', kbUser: false };
       commit(function (p) {
         var row = M.addConstruction(p, b.dataset.pole, { code: code, kingbolt: kb, voltage: lc && lc.voltageLL != null ? lc.voltageLL : 0, attachments: lay ? lay.attachments : [], isNew: true });
-        return [logEntry(id, row.descr, 'Construction', '', 'added at ' + kb + ' m', 'manual', (lay ? 'Offsets from ' + lay.source : 'No attachment offsets known') + (lc ? '; PNW library ' + lc.code : ''))];
+        return [logEntry(id, row.descr, 'Construction', '', 'added at ' + kb + ' m', 'manual', (lay ? 'Offsets from ' + lay.source : 'No attachment offsets known') + (lc ? '; PNW library ' + lc.code : '') + (defKb ? '; king bolt from ' + ck.def.source : '; king bolt typed'))];
       });
     }
   });
@@ -1009,7 +1429,7 @@
       if (!x.matches.length) h += '<p class="hint">No code from your PNW library fits what the AI could see.</p>';
       if (x.cautions.length) h += '<p class="hint warn">' + esc(x.cautions.join(' ')) + '</p>';
     }
-    return h + '<p class="hint">The photo is resized in your browser and sent once to EVE\'s AI service (Google Gemini, through Supabase). It is not stored. Suggestions change nothing until you approve one, and each approval goes into the change log as an AI suggestion.</p></div>';
+    return h + '<p class="hint">The photo is resized in your browser and sent once to ' + (IN_CLAUDE ? 'Claude on your account' : 'EVE\'s AI service (Google Gemini, through Supabase)') + '. It is not stored. Suggestions change nothing until you approve one, and each approval goes into the change log as an AI suggestion.</p></div>';
   }
   function aiCandidates() {
     var list = {}; (lib ? lib.constructions : []).forEach(function (c) { list[c.code] = { code: c.code, description: c.description }; });
@@ -1024,7 +1444,33 @@
       return { data: c.toDataURL('image/jpeg', 0.85).split(',')[1], thumb: t.toDataURL('image/jpeg', 0.7) };
     });
   }
+  var sampleP = IN_CLAUDE && window.claude && window.claude.use ? window.claude.use('sample') : null;
+  function aiPrompt(id, existing) {
+    return 'You help an Australian power distribution designer. Look at the attached photo of pole ' + id + '. Identify the overhead line hardware you can see and rank which of these Poles n Wires construction codes describe each circuit level (HV, LV, running earth).\n' +
+      'Rules: only use codes from the list; if nothing fits a level, return no match for it. Describe only visible hardware (crossarms, insulator type: pin, post, disc/strain, reel; conductors per level; terminations; angle or straight; stays; pole top plant). Confidence 0 to 1, below 0.5 when the photo does not show the hardware clearly. Do not estimate dimensions, heights or pole strength.\n' +
+      'Constructions currently on the pole in the PNW project: ' + (existing.join(', ') || 'none') + '.\n' +
+      'Candidate codes (code | description | DCSH | phases):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || ''); }).join('\n') +
+      '\nReturn JSON only: {"photo_quality":string,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"cautions":[string]}';
+  }
+  function runAiClaude(id, file) {
+    var r = aiResults[id] = { photo: file.name, loading: true }; renderSelected();
+    var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
+    Promise.all([sampleP || Promise.resolve(null), shrink(file)]).then(function (x) {
+      var sample = x[0], img = x[1]; r.thumb = img.thumb; renderSelected();
+      if (!sample) throw new Error('Asking Claude is not available in this view of the page.');
+      var bytes = atob(img.data), arr = new Uint8Array(bytes.length); for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return sample.json(aiPrompt(id, existing), { images: [new Blob([arr], { type: 'image/jpeg' })], modelTier: 'default' });
+    }).then(function (j) {
+      var valid = {}; aiCandidates().forEach(function (c) { valid[String(c.code).toUpperCase()] = c.code; });
+      var conf = function (v) { return Math.max(0, Math.min(1, Number(v) || 0)); }, all = Array.isArray(j.matches) ? j.matches : [];
+      var matches = all.filter(function (m) { return valid[String(m.code || '').toUpperCase()]; }).map(function (m) { return { level: String(m.level || ''), code: valid[String(m.code).toUpperCase()], rank: Number(m.rank) || 99, confidence: conf(m.confidence), reasons: (m.reasons || []).map(String).slice(0, 5) }; });
+      r.resp = { model: 'Claude', photo_quality: String(j.photo_quality || ''), components: (j.components || []).map(function (c) { return { name: String(c.name || ''), level: String(c.level || ''), count: Number(c.count) || null, confidence: conf(c.confidence) }; }),
+        matches: matches, cautions: (j.cautions || []).map(String).concat(all.length > matches.length ? [(all.length - matches.length) + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []) };
+    }).catch(function (e) { r.error = e && e.code === 'not_granted' ? 'Claude was not allowed to look at the photo. Allow it when asked to use this.' : e && e.code === 'rate_limited' ? 'Too many requests at once. Wait a moment and try again.' : (e && e.message) || String(e); })
+      .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
+  }
   function runAi(id, file) {
+    if (IN_CLAUDE) return runAiClaude(id, file);
     var r = aiResults[id] = { photo: file.name, loading: true }; renderSelected();
     shrink(file).then(function (img) {
       r.thumb = img.thumb; renderSelected();
@@ -1077,8 +1523,10 @@
       setTimeout(function () { if (!window.PNW3D) $('v3host').innerHTML = '<p class="v3msg">The 3D viewer could not load (three.js from cdn.jsdelivr.net). Check the internet connection and reload.</p>'; }, 10000);
       return;
     }
-    window.PNW3D.mount($('v3host'), function (id) { select(id); });
-    mounted3d = true; update3d(); window.PNW3D.select(S.selected);
+    window.PNW3D.mount($('v3host'), function (id, info) { select(id, id ? info : { segment: '' }); });
+    mounted3d = true; update3d(); window.PNW3D.select(S.selected); window.PNW3D.selectSection(S.selSection);
+    if ($('stage').clientWidth < 820) $('v3legend').open = false;
+    var fade = function () { $('v3help').classList.add('fade'); }; setTimeout(fade, 12000); $('v3host').addEventListener('pointerdown', fade, { once: true });
   }
   function data3d() {
     if (dm && dm.poles.length) return { poles: dm.poles, axes: dm.axes, constructions: dm.constructions, points: dm.points, wires: dm.wires, showLabels: S.labels, keepView: true };
@@ -1136,7 +1584,11 @@
   }
   $('profileView').addEventListener('click', function (e) { var t = e.target.closest('[data-pick]'); if (t) select(t.dataset.pick); });
   Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) { b.onclick = function () { setView(b.dataset.view); }; });
-  $('v3fit').onclick = function () { if (window.PNW3D && mounted3d) window.PNW3D.fit(); };
+  function cam(fn) { if (!window.PNW3D || !mounted3d) { setStatus('Open the 3D view first.'); return false; } return fn(window.PNW3D); }
+  $('v3fit').onclick = function () { cam(function (v) { v.fit(); }); };
+  $('v3reset').onclick = function () { cam(function (v) { v.reset(); }); };
+  $('v3focus').onclick = function () { if (!S.selected) { setStatus('Select a pole first, then Focus selected frames it.'); return; } cam(function (v) { if (!v.focus(S.selected)) setStatus(S.selected + ' is not drawn in 3D (no coordinates or ground level).', 'bad'); }); };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-cam]'), function (b) { b.onclick = function () { cam(function (v) { v.view(b.dataset.cam); }); }; });
   $('sagMode').onchange = function () { S.sagMode = this.value; buildDesignModel(); save(); renderViews(); };
   $('sagTemp').onchange = function () { S.sagTemp = Number(this.value); buildDesignModel(); save(); renderViews(); };
   [5, 10, 15, 20, 25, 30, 35, 40, 45].forEach(function (t) { $('sagTemp').insertAdjacentHTML('beforeend', '<option value="' + t + '">' + t + ' °C final</option>'); });
@@ -1153,7 +1605,7 @@
       var j = JSON.parse(t, function (k, v) { return k === 'date' && typeof v === 'string' ? new Date(v) : v; });
       if (!j || j.app !== 'eve-poles-wires' || !j.state || !Array.isArray(j.state.files)) throw new Error('not a Poles & Wires project file');
       S = Object.assign(blank(), j.state); S.settings = Object.assign({}, DEFAULT_SETTINGS, j.state.settings); S.design = Object.assign(blankDesign(), j.state.design);
-      buffers = {}; undoStack = []; redoStack = []; lastSnap = null; recompute(); fit(); setView(S.view, true);
+      buffers = {}; undoStack = []; redoStack = []; lastSnap = null; aiResults = {}; syncInputs(); recompute(); fit(); setView(S.view, true);
       setStatus('Opened ' + file.name + '. ' + summaryText(), 'good');
     }).catch(function (e) { setStatus(file.name + ' could not be opened: ' + e.message, 'bad'); });
   }
@@ -1174,7 +1626,7 @@
   ['dragenter', 'dragover'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) { e.preventDefault(); drop.classList.add('over'); } }); });
   ['dragleave', 'drop'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (ev === 'drop' || !e.relatedTarget) drop.classList.remove('over'); }); });
   document.addEventListener('drop', function (e) { if (!e.dataTransfer || !e.dataTransfer.files.length) return; e.preventDefault(); $('secFiles').open = true; addFiles(e.dataTransfer.files); });
-  $('pickBtn').onclick = $('tbUpload').onclick = $('tbImport').onclick = function () { replaceIdx = null; $('fileInput').click(); };
+  $('pickBtn').onclick = $('tbUpload').onclick = function () { replaceIdx = null; $('fileInput').click(); };
   $('fileInput').onchange = function () {
     var fl = this.files;
     if (replaceIdx != null && fl.length === 1 && S.files[replaceIdx]) {
@@ -1182,14 +1634,29 @@
     }
     replaceIdx = null; addFiles(fl); this.value = '';
   };
-  $('tbFit').onclick = fit;
-  $('tbSelect').onclick = function () { setStatus('Select mode: click any pole on the map to inspect it.'); };
-  $('tbLayers').onclick = function () { $('secLayers').open = true; $('secLayers').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
-  $('tbLabels').onclick = function () { S.labels = !S.labels; this.classList.toggle('on', S.labels); this.setAttribute('aria-pressed', S.labels); renderMap(); save(); };
-  $('tbIssues').onclick = function () { setTab('issues'); $('secValidation').open = true; $('tableWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+  // Fit project works in whichever view is open: the map extent, or the 3D camera on the whole line.
+  $('tbFit').onclick = function () { if ((S.view === '3d' || S.view === 'split') && window.PNW3D && mounted3d) window.PNW3D.fit(); else if (S.view === 'plan') fit(); else renderProfileView(); };
+  $('tbLayers').onclick = function (e) {
+    var pop = $('layersPop'), open = pop.hidden; pop.hidden = !open; this.setAttribute('aria-expanded', open);
+    if (open) { var r = this.getBoundingClientRect(), t = this.closest('.toolbar').getBoundingClientRect(); pop.style.left = Math.max(0, Math.min(r.left - t.left, t.width - 320)) + 'px'; pop.style.top = (r.bottom - t.top + 6) + 'px'; if (S.view !== 'plan') setStatus('Layers apply to the plan view.'); }
+    e.stopPropagation();
+  };
+  document.addEventListener('click', function (e) { var pop = $('layersPop'); if (!pop.hidden && !pop.contains(e.target)) { pop.hidden = true; $('tbLayers').setAttribute('aria-expanded', 'false'); } });
+  $('tbLabels').onclick = function () { S.labels = !S.labels; this.classList.toggle('on', S.labels); this.setAttribute('aria-pressed', S.labels); renderMap(); renderViews(); save(); };
+  $('tbIssues').onclick = function () { openTab('issues'); if (!U.left) { U.left = true; applyLayout(); } $('secValidation').open = true; };
   $('tbGenerate').onclick = generate;
   $('tbExport').onclick = function () { recompute(); openReview(); };
-  $('tbSide').onclick = function () { $('workspace').classList.toggle('collapsed'); setTimeout(function () { map.invalidateSize(); }, 50); };
+  $('tbSide').onclick = function () { U.left = !U.left; applyLayout(); };
+  $('tbInspector').onclick = function () { U.right = !U.right; applyLayout(); };
+  $('tbDock').onclick = function () { U.dock = !(U.dock && !U.dockMin); U.dockMin = false; applyLayout(); };
+  $('dockMin').onclick = function () { U.dockMin = !U.dockMin; applyLayout(); };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function (b) { b.onclick = function () { if (b.dataset.close === 'left') U.left = false; else U.right = false; applyLayout(); }; });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (!$('layersPop').hidden) { $('layersPop').hidden = true; return; }
+    if (!$('review').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (S.selected || S.selSection) select(null);
+  });
   // Asks again on the button itself: browser confirm() dialogs are blocked when the page runs inside Claude.
   var resetArmed = null;
   $('tbReset').onclick = function () {
@@ -1203,8 +1670,8 @@
     }
     clearTimeout(resetArmed); resetArmed = null; lbl.textContent = 'New project'; $('tbReset').classList.remove('danger');
     try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
-    S = blank(); buffers = {}; flags = {}; aiResults = {}; secForm = { tension: 7, units: '%CBL' }; undoStack = []; redoStack = []; lastSnap = null;
-    recompute(); setStatus('New project. Saved data removed from this browser.', 'good');
+    S = blank(); buffers = {}; flags = {}; aiResults = {}; secForm = { tension: '', units: '%CBL' }; conDraft = { pole: null, code: '', kb: '', kbUser: false }; S.selSection = null; undoStack = []; redoStack = []; lastSnap = null;
+    syncInputs(); recompute(); setView('plan', true); setStatus('New project. Saved data removed from this browser.', 'good');
   };
   [['lySurvey', lySurvey], ['lyGis', lyGis], ['lyAlign', lyAlign], ['lySpanLbl', lySpan], ['lyExtent', lyExtent]].forEach(function (x) {
     $(x[0]).onchange = function () { if (this.checked) x[1].addTo(map); else map.removeLayer(x[1]); };
@@ -1216,8 +1683,7 @@
   /* ---------- start ---------- */
   load();
   setView(S.view, true);
-  $('zone').value = S.zone; $('createdBy').value = S.settings.createdBy; $('optionSet').value = S.settings.optionSet; $('clr1').value = S.settings.clr1; $('clr2').value = S.settings.clr2;
-  $('tbLabels').classList.toggle('on', S.labels);
+  syncInputs(); applyLayout(); setTab(U.tab || 'poles');
   recompute();
   if (S.files.length) { fit(); setStatus('Restored your saved project. ' + summaryText()); }
   setTimeout(function () { map.invalidateSize(); }, 200);

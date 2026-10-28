@@ -590,6 +590,28 @@
     return { tables: tables, issues: issues };
   }
   // Ruling span of a strain section: sqrt(sum L^3 / sum L).
+  // DCSH Part 10 stringing tables written for a library conductor: the same stranding and material in the title, or the
+  // conductor's code name (MARS, LIBRA...). Returns [{table, pct}] with the %CBL the table is drawn for.
+  // Earthwire tables and superseded (legacy) tables are left out.
+  function stranding(s) { var m = String(s || '').match(/\d+(?:\.\d+)?(?:\/\d*\.?\d+)+/); return m ? m[0].split('/').map(Number).join('/') : null; }
+  function tablesForConductor(tables, c) {
+    if (!c) return [];
+    var st = stranding(c.name), mat = String(c.material || '').toUpperCase(), word = (String(c.name2 || '').split(/[\s-]/)[0] || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return (tables || []).filter(function (t) { return !t.legacy && !/earthwire/i.test(t.title); }).map(function (t) {
+      var T = t.title.toUpperCase().replace(/\b(\d) (\d) ?%/g, '$1$2%'), sm = false, m, re = /\d+(?:\.\d+)?(?:\/\d*\.?\d+)+/g;
+      while ((m = re.exec(T))) if (st && m[0].split('/').map(Number).join('/') === st) sm = true;
+      var wm = word.length > 2 && new RegExp('\\b' + word + '\\b').test(T);
+      if (!sm && !wm) return null;
+      var mats = T.match(/(?<![A-Z])(AAAC|AAC|ACSR|HDBC)(?![A-Z])/g) || [];
+      if (!wm && mats.length && mats.indexOf(mat === 'COPPER' ? 'HDBC' : mat) < 0) return null;
+      var all = [], pr = /(\d+(?:\.\d+)?)\s*%\s*(AAAC|AAC)?/g;
+      while ((m = pr.exec(T))) all.push({ v: Number(m[1]), m: m[2] });
+      var pct;
+      if (all.some(function (x) { return x.m; })) { var f = all.filter(function (x) { return x.m === mat; })[0]; if (!f) return null; pct = f.v; }
+      else pct = all.length ? all[all.length - 1].v : null;
+      return pct == null ? null : { table: t, pct: pct };
+    }).filter(Boolean);
+  }
   function rulingSpan(spans) {
     var a = 0, b = 0; spans.forEach(function (l) { a += l * l * l; b += l; });
     return b > 0 ? Math.sqrt(a / b) : null;
@@ -651,7 +673,7 @@
     wires: wires, illustrativeSag: illustrativeSag,
     parseLibrary: parseLibrary, libraryConstruction: libraryConstruction, defaultKingbolt: defaultKingbolt, matchPoleType: matchPoleType,
     groundAt: groundAt, designModel: designModel,
-    parseStringingTables: parseStringingTables, rulingSpan: rulingSpan, tableSag: tableSag,
+    parseStringingTables: parseStringingTables, rulingSpan: rulingSpan, tablesForConductor: tablesForConductor, tableSag: tableSag,
     DCSH_STATUS: DCSH_STATUS, parseDcshRegister: parseDcshRegister, dcshFor: dcshFor, compareDcsh: compareDcsh
   };
 });

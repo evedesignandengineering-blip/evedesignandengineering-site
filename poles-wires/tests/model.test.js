@@ -190,6 +190,23 @@ test('DCSH Part 10 stringing tables: sag read from the table and scaled from the
   assert.ok(Math.abs(M.rulingSpan([30, 40]) - Math.sqrt((27000 + 64000) / 70)) < 1e-12);
 });
 
+test('Part 10 tables matched to library conductors for tension suggestions', { skip: fs.existsSync(path.join(DCSH, 'DCSH Part 10 Tensioning.txt')) && fs.existsSync(LIB) ? false : 'Part 10 text or library not found' }, () => {
+  const { tables } = M.parseStringingTables(fs.readFileSync(path.join(DCSH, 'DCSH Part 10 Tensioning.txt'), 'utf8'));
+  const lib = M.parseLibrary(fs.readFileSync(LIB, 'utf8'));
+  const got = (code) => M.tablesForConductor(tables, lib.conductors.find((c) => c.code === code)).map((x) => x.pct + '% p' + x.table.page).join(', ');
+  // by code name (MARS) and by stranding + material, including the shared "10% AAC AND 7% AAAC" tables
+  assert.equal(got('MA'), '10% p16, 18% p34');
+  assert.equal(got('LEO'), '10% p14, 18% p32');
+  assert.equal(got('MO'), '10% p18, 18% p36');
+  assert.equal(got('IOD'), '7% p18, 18% p43');
+  // a 7/4.75 AAC conductor never picks up the 7/4.75 AAAC (IODINE) table, and earthwire tables are left out
+  assert.ok(!/p43/.test(got('MO')));
+  assert.ok(M.tablesForConductor(tables, lib.conductors.find((c) => c.code === 'CHL')).every((x) => !/earthwire/i.test(x.table.title)));
+  // nothing is suggested when no table was written for the conductor
+  assert.equal(got('7/14Cu'), '');
+  assert.deepEqual(M.tablesForConductor(tables, null), []);
+});
+
 test('design editing: add a pole, string a strain section, change and remove them', { skip: have ? false : 'fixtures not found' }, () => {
   const src = read(FILES[0]), p = M.readPnwx(src);
   // MES in Ishan's project is the ruling span of the section
