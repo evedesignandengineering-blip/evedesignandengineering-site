@@ -1190,11 +1190,21 @@
   $('tbGenerate').onclick = generate;
   $('tbExport').onclick = function () { recompute(); openReview(); };
   $('tbSide').onclick = function () { $('workspace').classList.toggle('collapsed'); setTimeout(function () { map.invalidateSize(); }, 50); };
+  // Asks again on the button itself: browser confirm() dialogs are blocked when the page runs inside Claude.
+  var resetArmed = null;
   $('tbReset').onclick = function () {
-    if (!S.files.length && !prof().poleIds.length) return;
-    if (!confirm('Start a new project? This removes the imported data and profiles saved in this browser.')) return;
+    var lbl = $('tbReset').querySelector('.lbl');
+    if (!S.files.length && !prof().poleIds.length && !S.design.xml) { setStatus('Nothing to clear: this is already a new project.'); return; }
+    if (!resetArmed) {
+      lbl.textContent = 'Click again to clear'; $('tbReset').classList.add('danger');
+      setStatus('Click "New project" again within 5 seconds to remove the imported files, profiles and design from this browser. Save first if you want to keep them.', 'bad');
+      resetArmed = setTimeout(function () { resetArmed = null; lbl.textContent = 'New project'; $('tbReset').classList.remove('danger'); }, 5000);
+      return;
+    }
+    clearTimeout(resetArmed); resetArmed = null; lbl.textContent = 'New project'; $('tbReset').classList.remove('danger');
     try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
-    S = blank(); buffers = {}; flags = {}; undoStack = []; redoStack = []; recompute(); setStatus('New project. Saved data removed from this browser.', 'good');
+    S = blank(); buffers = {}; flags = {}; aiResults = {}; secForm = { tension: 7, units: '%CBL' }; undoStack = []; redoStack = []; lastSnap = null;
+    recompute(); setStatus('New project. Saved data removed from this browser.', 'good');
   };
   [['lySurvey', lySurvey], ['lyGis', lyGis], ['lyAlign', lyAlign], ['lySpanLbl', lySpan], ['lyExtent', lyExtent]].forEach(function (x) {
     $(x[0]).onchange = function () { if (this.checked) x[1].addTo(map); else map.removeLayer(x[1]); };
