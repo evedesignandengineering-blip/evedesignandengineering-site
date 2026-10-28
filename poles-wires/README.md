@@ -63,10 +63,28 @@ Pole photo suggestions call the `pnw-pole-photo-ai` Supabase function (Gemini, `
 resized to 1600 px in the browser, sent once and not stored; only codes from the user's library are returned,
 and nothing changes until the designer approves a suggestion.
 
+### Tipload
+
+The Tipload button calculates every design pole the way the PNW 7 manual describes it (§3.4.4–3.4.7, §6, §26).
+Wind comes from every direction in steps. Conductor tension is found by change of state from the stringing tension at
+the ruling span. Conductor, pole, plant and stay loads are added as moment vectors and the worst direction is reported.
+Tipload is the ground moment divided by (tip height − load point below tip). Results follow the PNW tipload report:
+resultant, direction, wind direction, ØR, % loaded, stay loads, vertical load, B&C check and kingbolt loadings. A polar
+diagram and a load-against-wind-direction chart are drawn.
+
+Circuits come from the design's wires at the pole, including intersecting lines at a common pole (PNW's Merge). Stays
+and plant come from the pole's Constructions tab, or from the tipload PNW saved for that pole. A dropped PNW tipload
+project (`<tipload_project>`) is calculated as saved, so it can be compared with PNW's own report. Load combinations
+are entered in the window or pasted from the Options page of a PNW tipload report. The site holds no utility values.
+`tests/tipload.test.js` checks the engine against a real PNW report; that report stays outside this repo.
+
+Not modelled: ice loading, span reduction factors other than 1, rectangular poles, foundations and direction
+multipliers other than 1.
+
 ## Known limitations
 
 - The `.pnwx` export has not yet been reopened in PNW. Only the edited fields change, but PNW's own checks are not reproduced.
-- Strength, tipload and clearance calculations stay in PNW. The clearance line in the profile is the project's Clearance 1, for reference only.
+- Pole strength, sag-tension tables and clearance calculations stay in PNW. The clearance line in the profile is the project's Clearance 1, for reference only.
 - Attachment offsets exist only for codes found in the user's projects or the DCSH register. LV3, LV5 and HV5 match DCSH L03, L05 and H04-1. HV1, HV1_AS and HV45 drawings dimension the king bolt and phase spacing but not insulator heights, so heights stay unverified. HV9 has no matching Part 4 drawing. A register entry can give `y: null` for a height the drawing does not dimension; only x is then checked.
 - New constructions are not attached to a strain section; that is still done in PNW.
 - DCSH Part 10 tables whose text extraction is scrambled (HDBC tables, some rural tables) are skipped and listed.

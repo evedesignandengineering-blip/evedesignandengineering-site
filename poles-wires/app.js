@@ -11,7 +11,7 @@
   var S = blank(), buffers = {}, merged = { poles: {}, issues: [] }, built = null, allIssues = [], flags = {};
   var M = window.PNWModel, lib = null, project = null, linked = null, dm = null, undoStack = [], redoStack = [];
   var sortCol = 'order', sortDesc = false, tab = 'poles';
-  function blank() { return { zone: 50, settings: Object.assign({}, DEFAULT_SETTINGS), files: [], profiles: [newProfile('Profile 1')], active: 0, selected: null, labels: true, generated: false, view: 'plan', sag: false, design: blankDesign() }; }
+  function blank() { return { zone: 50, settings: Object.assign({}, DEFAULT_SETTINGS), files: [], profiles: [newProfile('Profile 1')], active: 0, selected: null, labels: true, generated: false, view: 'plan', sag: false, design: blankDesign(), tipload: null }; }
   function blankDesign() { return { link: null, xml: null, register: {}, log: [] }; }
   function newProfile(name) { return { name: name, poleIds: [], lengths: {}, comments: {}, segments: [] }; }
   function prof() { return S.profiles[S.active]; }
@@ -449,15 +449,16 @@
     x.stays.forEach(function (st, i) {
       h += '<div class="xrow"><b>Stay ' + (i + 1) + '</b><label>Wire <select data-xf="stays|' + i + '|wire">' + wires.concat(wires.indexOf(st.wire) < 0 && st.wire ? [st.wire] : []).map(function (w) { return '<option' + (w === st.wire ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></label>' +
         '<label>Height AG (m) <input data-xf="stays|' + i + '|attHt" value="' + fmt(st.attHt) + '" inputmode="decimal"></label><label title="Bearing from the pole to the anchor, degrees from grid north">Bearing (°) <input data-xf="stays|' + i + '|dir" value="' + fmt(st.dir) + '" inputmode="decimal"></label>' +
-        '<label title="Angle between the stay and the pole">Angle (°) <input data-xf="stays|' + i + '|angle" value="' + fmt(st.angle) + '" inputmode="decimal"></label><button class="btn small" data-xdel="stays|' + i + '" aria-label="Remove stay ' + (i + 1) + '">×</button>' +
+        '<label title="Angle between the stay wire and the ground (PNW stay angle)">Angle to ground (°) <input data-xf="stays|' + i + '|angle" value="' + fmt(st.angle) + '" inputmode="decimal"></label><label title="Include this stay in the tipload"><input type="checkbox" data-xf="stays|' + i + '|include"' + (st.include !== false ? ' checked' : '') + '> In tipload</label><button class="btn small" data-xdel="stays|' + i + '" aria-label="Remove stay ' + (i + 1) + '">×</button>' +
         (st.ref ? '<small class="muted">' + esc(st.ref) + '</small>' : '') + '</div>';
     });
     x.plant.forEach(function (pl, i) {
-      var arr = txArr().filter(function (a) { return a.id === pl.drawing; })[0];
+      var arr = txArr().filter(function (a) { return a.id === pl.drawing; })[0], db = plantData(pl.code);
       h += '<div class="xrow">' + (arr ? dcshThumb(arr.id) : '') + '<b>Transformer</b><label>Code <input data-xf="plant|' + i + '|code" value="' + esc(pl.code || '') + '" list="plantCodes"></label>' +
         '<label>Arrangement <select data-xf="plant|' + i + '|drawing">' + txArr().map(function (a) { return '<option value="' + a.id + '"' + (a.id === pl.drawing ? ' selected' : '') + '>' + esc(a.title) + '</option>'; }).join('') + '</select></label>' +
-        '<label>Hanger height AG (m) <input data-xf="plant|' + i + '|attHt" value="' + fmt(pl.attHt) + '" inputmode="decimal"></label><label title="Bearing from the pole to the transformer, degrees from grid north">Bearing (°) <input data-xf="plant|' + i + '|dir" value="' + fmt(pl.dir) + '" inputmode="decimal"></label><button class="btn small" data-xdel="plant|' + i + '" aria-label="Remove transformer">×</button>' +
-        (pl.ref ? '<small class="muted">' + esc(pl.ref) + '</small>' : '') + '</div>';
+        '<label>Hanger height AG (m) <input data-xf="plant|' + i + '|attHt" value="' + fmt(pl.attHt) + '" inputmode="decimal"></label><label title="Bearing from the pole to the transformer, degrees from grid north">Bearing (°) <input data-xf="plant|' + i + '|dir" value="' + fmt(pl.dir) + '" inputmode="decimal"></label>' +
+        '<label title="Plant weight from the PNW plant database">Weight (kg) <input data-xf="plant|' + i + '|weight" value="' + fmt(pl.weight) + '" placeholder="' + esc(db ? db.weight : '') + '" inputmode="decimal"></label><label title="Centre of mass distance from the side of the pole (PNW 7 plant offset)">Offset from pole (m) <input data-xf="plant|' + i + '|offset" value="' + fmt(pl.offset) + '" placeholder="' + esc(db ? db.offset : '') + '" inputmode="decimal"></label><label title="Area facing the wind">Wind area (m²) <input data-xf="plant|' + i + '|area" value="' + fmt(pl.area) + '" placeholder="' + esc(db ? db.area : '') + '" inputmode="decimal"></label><label><input type="checkbox" data-xf="plant|' + i + '|include"' + (pl.include !== false ? ' checked' : '') + '> In tipload</label><button class="btn small" data-xdel="plant|' + i + '" aria-label="Remove transformer">×</button>' +
+        (pl.ref ? '<small class="muted">' + esc(pl.ref) + '</small>' : '') + (db && (pl.weight == null || pl.weight === '') ? '<small class="muted">Tipload uses ' + db.weight + ' kg, ' + db.offset + ' m, ' + db.area + ' m²: ' + esc(db.source) + '</small>' : !db && (pl.weight == null || pl.weight === '') ? '<small class="muted">Enter weight, offset and wind area from the PNW plant database to include it in the tipload.</small>' : '') + '</div>';
     });
     if (!x.stays.length && !x.plant.length) h += '<p class="meta">No stays or plant on ' + esc(id) + '.</p>';
     h += '<datalist id="plantCodes"><option value="X T 0127-3Ph"></datalist><div class="btnrow"><button class="btn small" data-xadd="stay"' + (cons.length ? '' : ' disabled title="Add a construction first: the stay goes 300 mm below its king bolt"') + '>Add stay</button><button class="btn small" data-xadd="plant"' + (hag != null ? '' : ' disabled') + '>Add transformer</button></div></div>';
@@ -486,7 +487,10 @@
   $('selected').addEventListener('change', function (e) {
     var f = e.target.dataset && e.target.dataset.xf; if (!f) return;
     var k = f.split('|'), it = extras(S.selected)[k[0]][+k[1]], v = e.target.value, before = it[k[2]];
-    if (k[2] === 'attHt' || k[2] === 'dir' || k[2] === 'angle') {
+    if (k[2] === 'include') v = e.target.checked;
+    else if (k[2] === 'weight' || k[2] === 'offset' || k[2] === 'area') {
+      if (v.trim() === '') v = null; else { v = Number(v); if (!isFinite(v) || v < 0 || (k[2] === 'offset' && v > 5) || (k[2] === 'area' && v > 20)) { setStatus('Not a valid ' + (k[2] === 'weight' ? 'weight (kg)' : k[2] === 'offset' ? 'offset (m from the pole side)' : 'wind area (m²)') + '.', 'bad'); renderSelected(); return; } }
+    } else if (k[2] === 'attHt' || k[2] === 'dir' || k[2] === 'angle') {
       v = Number(v); var hag = PNW.num((project.poles.filter(function (r) { return r.ID === S.selected; })[0] || {}).HeightAG);
       if (!isFinite(v) || (k[2] === 'attHt' && (v <= 0 || (hag != null && v > hag))) || (k[2] === 'angle' && (v <= 0 || v >= 90))) { setStatus('Not a valid ' + (k[2] === 'attHt' ? 'height (above ground, below the tip)' : k[2] === 'angle' ? 'stay angle (0–90°)' : 'bearing') + '.', 'bad'); renderSelected(); return; }
       if (k[2] === 'dir') v = ((v % 360) + 360) % 360;
@@ -497,7 +501,7 @@
     recompute();
   });
   function polePane(id, p, r, inProf, ex) {
-    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button>' + (streetViewUrl(id) ? '<a class="btn small" data-instab="photo" href="' + streetViewUrl(id) + '" target="_blank" rel="noopener" title="Opens Street View at this pole; snip it and paste it (Ctrl+V) into the AI photo tab">📷 Street View snip → AI</a>' : '') + '</div><table class="props">';
+    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button>' + (streetViewUrl(id) ? '<a class="btn small" data-instab="photo" href="' + streetViewUrl(id) + '" target="_blank" rel="noopener" title="Opens Street View at this pole; snip it and paste it (Ctrl+V) into the AI photo tab">📷 Street View snip → AI</a>' : '') + '</div>' + tipSummaryHtml(id) + '<table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
     if (p.survey) { var sk = p.survey.kind || 'LiDAR'; sec('Survey'); row('Easting', fmt(p.survey.easting), tagS(sk)); row('Northing', fmt(p.survey.northing), tagS(sk)); row('Elevation', fmt(p.survey.elevation), tagS(sk)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Bays', p.survey.bays); row('Bay angles', p.survey.bayAngles.join(', ')); row('Equipment no', p.survey.equipNo); row('Surveyed', p.survey.surveyed); row('Source', p.survey.src.file + ' row ' + p.survey.src.row); }
@@ -1382,7 +1386,7 @@
       h += c.attachments.length ? '<p class="meta">Height above ground: <b>' + (c.kingbolt != null ? c.attachments.map(function (a) { return fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; }).join(' / ') + ' m' : '–') + '</b> · ' + c.attachments.length + ' conductor' + (c.attachments.length === 1 ? '' : 's') + '</p><details class="offs"><summary>Edit attachment offsets</summary><table class="att"><tr><th>#</th><th>x (m)</th><th>y (m)</th><th class="num">Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' x"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' y"></td><td class="num">' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '" title="Remove this attachment point">×</button>') + '</td></tr>'; }).join('') + '</table></details>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
       h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + ', so points and the construction cannot be removed here.</span>' : '<button class="btn small" data-aadd="' + u + '">Add attachment point</button><button class="btn small danger" data-cdel="' + u + '">Remove construction</button>') + '</div></div>';
     });
-    h += extrasHtml(id, row);
+    h += extrasHtml(id, row) + tipSummaryHtml(id);
     h += '<div class="con add" id="conAddBox">' + conAddHtml(id) + '</div>';
     return h;
   }
@@ -1875,6 +1879,268 @@
   };
   document.addEventListener('click', function (e) { var pop = $('layersPop'); if (!pop.hidden && !pop.contains(e.target)) { pop.hidden = true; $('tbLayers').setAttribute('aria-expanded', 'false'); } });
   $('tbLabels').onclick = function () { S.labels = !S.labels; this.classList.toggle('on', S.labels); this.setAttribute('aria-pressed', S.labels); renderMap(); renderViews(); save(); };
+  /* ---------- tipload (PNW method, pnw-tipload.js): circuits from the design, stays and plant from the pole's extras ---------- */
+  var TIP = window.PNWTip, BUILTIN_TIP = (window.PNW_BUILTIN || {}).tipload || null, tipSel = null, tipOptsOpen = null;
+  var TIP_COL = ['#c2410c', '#2f6ea4', '#0f766e', '#7c3aed', '#a16207', '#be185d', '#475569'];
+  function tipSet() {
+    if (!S.tipload) S.tipload = BUILTIN_TIP ? { cases: JSON.parse(JSON.stringify(BUILTIN_TIP.cases)), options: Object.assign({}, TIP.DEFAULT_OPTIONS, BUILTIN_TIP.options), source: BUILTIN_TIP.name } : { cases: [], options: Object.assign({}, TIP.DEFAULT_OPTIONS), source: '' };
+    S.tipload.options = Object.assign({}, TIP.DEFAULT_OPTIONS, S.tipload.options);
+    return S.tipload;
+  }
+  // Plant weight, centre-of-mass offset and wind area by code: the user's entries first, then the private built-in set.
+  function plantData(code) {
+    if (!code) return null;
+    var k = String(code).trim(), own = S.tipload && S.tipload.plant && S.tipload.plant[k], db = BUILTIN_TIP && BUILTIN_TIP.plant;
+    if (own && own.weight != null && own.offset != null && own.area != null) return Object.assign({ source: 'your plant data' }, own);
+    return db ? db[k] || null : null;
+  }
+  function plantCodes() {
+    var out = [];
+    Object.keys(S.design.extras || {}).forEach(function (id) { (S.design.extras[id].plant || []).forEach(function (p) { if (p.code && out.indexOf(p.code.trim()) < 0) out.push(p.code.trim()); }); });
+    tipFiles().forEach(function (f) { try { var a = M.readPnwx(f.text).attrs; ['plant1', 'plant2'].forEach(function (k) { var c = (a[k] || '').trim(); if (c && out.indexOf(c) < 0) out.push(c); }); } catch (e) { /* not readable */ } });
+    Object.keys((S.tipload && S.tipload.plant) || {}).forEach(function (c) { if (out.indexOf(c) < 0) out.push(c); });
+    return out;
+  }
+  function tipConductor(p, code) {
+    var u = String(code || '').toUpperCase(), r = ((p && p.conductors) || []).filter(function (c) { return String(c.Code).toUpperCase() === u; })[0];
+    if (r) return { code: r.Code, mass: PNW.num(r.Mass_kg_m), diam: PNW.num(r.NomDia_mm), E: PNW.num(r.ModElast_Gpa), csa: PNW.num(r.CSA_mm2), alpha: PNW.num(r.ExpCoeff__C), cbl: PNW.num(r.CBL_kN), src: 'project' };
+    var c = lib && lib.conductors.filter(function (x) { return String(x.code).toUpperCase() === u; })[0];
+    return c ? { code: c.code, mass: c.mass, diam: c.diameter, E: c.modElast, csa: c.csa, alpha: PNW.num(c.expCoeff), cbl: c.cbl, src: 'PNW library' } : null;
+  }
+  // Wires touching pole `id` in one project's design model; `alias` maps that project's pole ids to the design's ids.
+  function tipCircuitsFrom(p, d, id, alias, line) {
+    var out = {}, segs = {};
+    (p.segments || []).forEach(function (s) { segs[s.StrainSect] = s; });
+    d.wires.forEach(function (w) {
+      var a = alias(w.from.pole), b = alias(w.to.pole), me, other;
+      if (a === id) { me = w.from; other = w.to; } else if (b === id) { me = w.to; other = w.from; } else return;
+      var seg = segs[w.segment] || {}, cond = tipConductor(p, w.conductor || seg.Conductor), t = PNW.num(seg.Tension);
+      var kN = seg.TensionUnits === '%CBL' ? (cond && cond.cbl > 0 && t > 0 ? t / 100 * cond.cbl : null) : seg.TensionUnits === 'kN' ? t : null;
+      var span = Math.hypot(other.easting - me.easting, other.northing - me.northing), dir = bearing(me, other), mes = PNW.num(seg.MES);
+      var key = w.segment + '|' + me.heightAG + '|' + dir + '|' + other.pole;
+      if (out[key]) { out[key].n++; return; }
+      out[key] = { line: line, segment: w.segment, code: cond ? cond.code : w.conductor, cond: cond, n: 1, dir: dir, attHt: me.heightAG, span: Math.round(span * 100) / 100,
+        mes: mes > 0 ? mes : Math.round(span * 100) / 100, vdiff: Math.round((other.elevation - me.elevation) * 100) / 100, tension: kN, tensionText: seg.Tension + ' ' + (seg.TensionUnits || ''), to: alias(other.pole), construction: me.construction };
+    });
+    return Object.keys(out).map(function (k) { return out[k]; });
+  }
+  // Dropped PNW tipload projects are calculated as they are, to compare with PNW's own results.
+  function tipFiles() { return filesOf('pnwx').filter(function (f) { return f.kind === 'tipload'; }); }
+  function tipFileInput(name) {
+    var f = tipFiles().filter(function (x) { return x.name === name; })[0]; if (!f) return null;
+    var t; try { t = M.readPnwx(f.text); } catch (e) { return null; }
+    var inp = TIP.fromTipProject(t, function (code) { return tipConductor(null, code); }, plantData, function (w) { var x = ((lib && lib.stays) || []).filter(function (s) { return s.code === w; })[0]; return x ? x.strength : null; });
+    inp.circuits.forEach(function (c) { c.to = ''; c.line = ''; });
+    if (inp.circuits.some(function (c) { return !c.cond; })) inp.notes.push('Some conductors are not in the PNW library tables, so they have no properties.');
+    inp.plant.forEach(function (p) { var db = plantData(p.code); if (db && p.include) inp.notes.push(p.code + ': ' + db.source); });
+    inp.file = name;
+    return inp;
+  }
+  function tipInput(id) {
+    if (/^tip:/.test(id)) return tipFileInput(id.slice(4));
+    var q = dm && dm.allPoles.filter(function (p) { return p.id === id; })[0];
+    if (!q) return null;
+    var t = poleTypeFor(id, q.length), notes = [];
+    var cct = tipCircuitsFrom(project, dm, id, function (x) { return x; }, '');
+    xLines.forEach(function (x) { if (Object.keys(x.common).some(function (k) { return x.common[k].id === id; })) cct = cct.concat(tipCircuitsFrom(x.project, x.dm, id, function (pid) { return x.common[pid] ? x.common[pid].id : pid; }, x.title)); });
+    var ex = (S.design.extras || {})[id] || { stays: [], plant: [] }, stays = (lib && lib.stays) || [];
+    var pole = { id: id, height: q.height, length: q.length, type: t ? t.code : null, diamAvg: t && t.diamAvg > 0 ? t.diamAvg : null, diamTip: t ? t.diamTip : null, diamGL: t ? t.diamGL : null,
+      weight: t ? t.weight : null, strength: t ? t.ultimate : null, strengthVert: t ? t.vertical : null, flex: 0 };
+    if (!t) notes.push('No PNW library pole type for ' + id + ': no wind on the pole, no self weight and no % loaded. Pick the pole type in the Pole tab.');
+    var plant = ex.plant.map(function (pl) {
+      var db = plantData(pl.code), w = pl.weight != null && pl.weight !== '' ? Number(pl.weight) : db ? db.weight : null;
+      var r = { code: pl.code, attHt: Number(pl.attHt), dir: Number(pl.dir), weight: w, offset: pl.offset != null && pl.offset !== '' ? Number(pl.offset) : db ? db.offset : null, area: pl.area != null && pl.area !== '' ? Number(pl.area) : db ? db.area : null, include: pl.include !== false };
+      if (r.include && (r.weight == null || r.offset == null || r.area == null)) { notes.push('Transformer ' + (pl.code || '') + ' has no weight, offset or wind area, so it is left out. Enter them in the Pole tab (PNW plant database values).'); r.include = false; }
+      else if (db && (pl.weight == null || pl.weight === '')) notes.push((pl.code || '') + ': ' + db.source);
+      return r;
+    });
+    return { pole: pole, circuits: cct, notes: notes, plant: plant,
+      stays: ex.stays.map(function (s) { var w = stays.filter(function (x) { return (x.code || x.Code) === s.wire; })[0]; return { wire: s.wire, attHt: Number(s.attHt), dir: Number(s.dir), angle: Number(s.angle) || 45, include: s.include !== false, strength: w ? w.strength : null }; }) };
+  }
+  function tipCalc(id) { var inp = tipInput(id); if (!inp) return null; var st = tipSet(), r = TIP.calc(inp, st.cases, st.options); r.input = inp; return r; }
+  function tipPoles() { return (dm ? dm.allPoles.filter(function (p) { return p.height > 0; }).map(function (p) { return p.id; }) : []).concat(tipFiles().map(function (f) { return 'tip:' + f.name; })); }
+  function tipName(id) { return /^tip:/.test(id) ? 'PNW tipload ' + id.slice(4).replace(/\.pnwx$/i, '') : id; }
+  var f2 = function (v, dp) { return v == null || !isFinite(v) ? '–' : Number(v).toFixed(dp == null ? 2 : dp); };
+  function tipBadge(r) { return r.pass == null ? '<span class="pill mute">no strength</span>' : r.pass ? '<span class="pill ok">PASS</span>' : '<span class="pill bad">FAIL</span>'; }
+
+  function tipPolar(r) {
+    var S0 = 300, c = S0 / 2, R = c - 30, inp = r.input, res = r.results, max = Math.max.apply(null, res.map(function (x) { return x.load; }).concat([0.001]));
+    var step = niceStep(max, 3), top = Math.ceil(max / step) * step, k = R / top;
+    var P = function (b, rad) { return [c + Math.sin(b * Math.PI / 180) * rad, c - Math.cos(b * Math.PI / 180) * rad]; };
+    var g = '';
+    for (var v = step; v <= top + 1e-9; v += step) { var lp0 = P(160, v * k); g += '<circle cx="' + c + '" cy="' + c + '" r="' + (v * k) + '" fill="none" stroke="#e6ebf0"/><text x="' + (lp0[0] + 3) + '" y="' + (lp0[1] + 10) + '" class="ax">' + +v.toFixed(2) + ' kN</text>'; }
+    ['N', 'E', 'S', 'W'].forEach(function (t, i) { var p = P(i * 90, R + 14); g += '<text x="' + p[0] + '" y="' + (p[1] + 4) + '" text-anchor="middle" class="ax b">' + t + '</text>'; });
+    inp.circuits.forEach(function (cc) { var p = P(cc.dir, R + 2); g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#94a3b8" stroke-width="1.5"/>'; var lp = P(cc.dir, R - 18); g += '<text x="' + lp[0] + '" y="' + lp[1] + '" text-anchor="middle" class="ax">' + esc(cc.code) + '×' + cc.n + '</text>'; });
+    inp.stays.forEach(function (s) { var p = P(s.dir, R); g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#8b6b4a" stroke-width="1.5" stroke-dasharray="2 3"' + (s.include ? '' : ' opacity=".45"') + '/><text x="' + P(s.dir, R - 6)[0] + '" y="' + P(s.dir, R - 6)[1] + '" text-anchor="middle" class="ax">stay' + (s.include ? '' : ' (off)') + '</text>'; });
+    inp.plant.forEach(function (pl) { if (!isFinite(pl.dir)) return; var p = P(pl.dir, 22); g += '<rect x="' + (p[0] - 6) + '" y="' + (p[1] - 6) + '" width="12" height="12" rx="2" fill="#fff" stroke="#475569" stroke-width="1.5"><title>' + esc(pl.code) + '</title></rect>'; });
+    res.forEach(function (x, i) {
+      var col = TIP_COL[i % TIP_COL.length], p = P(x.dir, x.load * k);
+      if (x.wind && x.windFrom != null) { var w0 = P(x.windFrom, R); g += '<line x1="' + w0[0] + '" y1="' + w0[1] + '" x2="' + c + '" y2="' + c + '" stroke="' + col + '" stroke-width="1.2" stroke-dasharray="5 4"/>'; }
+      g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="' + col + '" stroke-width="2.5" marker-end="url(#tipArr' + i + ')"/>';
+    });
+    var defs = res.map(function (x, i) { return '<marker id="tipArr' + i + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="' + TIP_COL[i % TIP_COL.length] + '"/></marker>'; }).join('');
+    return '<svg class="tip-polar" viewBox="0 0 ' + S0 + ' ' + S0 + '" role="img" aria-label="Polar diagram: circuits, stays and the resultant tipload of each load case"><defs>' + defs + '</defs>' + g + '<circle cx="' + c + '" cy="' + c + '" r="4" fill="#5b4636"/></svg>';
+  }
+  function tipCurve(r) {
+    var res = r.results.filter(function (x) { return x.wind; });
+    if (!res.length) return '';
+    var W = 520, H = 220, m = { l: 44, r: 12, t: 12, b: 30 }, max = Math.max.apply(null, res.map(function (x) { return Math.max.apply(null, x.curve.map(function (c) { return Math.max(c.load, c.unstayed); })); }));
+    var step = niceStep(max || 1, 4), top = Math.ceil((max || 1) / step) * step;
+    var X = function (v) { return m.l + v / 360 * (W - m.l - m.r); }, Y = function (v) { return H - m.b - v / top * (H - m.t - m.b); }, g = '';
+    for (var v = 0; v <= top + 1e-9; v += step) g += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#e6ebf0"/><text x="' + (m.l - 5) + '" y="' + (Y(v) + 3) + '" text-anchor="end" class="ax">' + +v.toFixed(2) + '</text>';
+    for (var a = 0; a <= 360; a += 45) g += '<text x="' + X(a) + '" y="' + (H - m.b + 14) + '" text-anchor="middle" class="ax">' + a + '°</text>';
+    g += '<text x="' + ((W + m.l) / 2) + '" y="' + (H - 3) + '" text-anchor="middle" class="ax">Wind from (°)</text>';
+    res.forEach(function (x) {
+      var i = r.results.indexOf(x), col = TIP_COL[i % TIP_COL.length], pts = x.curve.concat([{ from: 360, load: x.curve[0].load, unstayed: x.curve[0].unstayed }]);
+      if (r.input.stays.some(function (s) { return s.include; })) g += '<path d="' + pts.map(function (c, j) { return (j ? 'L' : 'M') + X(c.from).toFixed(1) + ' ' + Y(c.unstayed).toFixed(1); }).join('') + '" fill="none" stroke="' + col + '" stroke-width="1.5" stroke-dasharray="4 3" opacity=".7"/>';
+      g += '<path d="' + pts.map(function (c, j) { return (j ? 'L' : 'M') + X(c.from).toFixed(1) + ' ' + Y(c.load).toFixed(1); }).join('') + '" fill="none" stroke="' + col + '" stroke-width="2"/>';
+      g += '<circle cx="' + X(x.windFrom) + '" cy="' + Y(x.load) + '" r="4" fill="' + col + '" stroke="#fff" stroke-width="2"/>';
+    });
+    window.__tipCurve = { res: res, all: r.results, X0: m.l, X1: W - m.r, W: W };
+    return '<div class="tip-curve" id="tipCurve"><svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Tipload against wind direction">' + g + '<line id="tipX" y1="' + m.t + '" y2="' + (H - m.b) + '" stroke="#64748b" stroke-width="1" visibility="hidden"/></svg><div class="tt" id="tipTt" hidden></div></div>';
+  }
+  function tipLegend(r) { return '<div class="chart-legend">' + r.results.map(function (x, i) { return '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + TIP_COL[i % TIP_COL.length] + '" stroke-width="2.5"/></svg>' + esc(x.name) + '</span>'; }).join('') + (r.input.stays.some(function (s) { return s.include; }) ? '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4 3"/></svg>Unstayed</span>' : '') + '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#64748b" stroke-width="1.2" stroke-dasharray="5 4"/></svg>Wind from (polar)</span></div>'; }
+
+  function tipCasesHtml() {
+    var st = tipSet(), o = st.options, inp = function (i, k, v, w) { return '<input data-lc="' + i + '|' + k + '" value="' + esc(v) + '" inputmode="decimal" style="width:' + (w || 56) + 'px" aria-label="' + esc(k) + '">'; };
+    var h = '<details class="tip-opts"' + ((tipOptsOpen != null ? tipOptsOpen : !st.cases.length) ? ' open' : '') + '><summary>Load combinations and options' + (st.source ? ' · ' + esc(st.source) : '') + '</summary>';
+    h += '<div class="tablewrap"><table class="grid"><thead><tr><th>Use</th><th>Name</th><th class="num">Temp °C</th><th class="num">Wind on pole Pa</th><th class="num">Wind on conductors Pa</th><th class="num">Wind on plant Pa</th><th class="num">Ft</th><th class="num">Wn</th><th class="num">Gs</th><th class="num">Gc</th><th class="num">Strength factor Ø</th><th></th></tr></thead><tbody>' +
+      st.cases.map(function (c, i) { return '<tr><td><input type="checkbox" data-lc="' + i + '|include"' + (c.include !== false ? ' checked' : '') + ' aria-label="Use ' + esc(c.name) + '"></td><td><input data-lc="' + i + '|name" value="' + esc(c.name) + '" style="width:120px" aria-label="Name"></td><td>' + inp(i, 'temp', c.temp) + '</td><td>' + inp(i, 'windPole', c.windPole) + '</td><td>' + inp(i, 'windCond', c.windCond) + '</td><td>' + inp(i, 'windPlant', c.windPlant) + '</td><td>' + inp(i, 'Ft', c.Ft, 46) + '</td><td>' + inp(i, 'Wn', c.Wn, 46) + '</td><td>' + inp(i, 'Gs', c.Gs, 46) + '</td><td>' + inp(i, 'Gc', c.Gc, 46) + '</td><td>' + inp(i, 'phi', c.phi, 46) + '</td><td><button class="btn small" data-lcdel="' + i + '" aria-label="Remove ' + esc(c.name) + '">×</button></td></tr>'; }).join('') +
+      '</tbody></table></div><div class="btnrow"><button class="btn small" id="lcAdd">Add load combination</button></div>';
+    h += '<div class="tip-optrow"><label>Wind direction step (°) <input data-to="step" value="' + o.step + '" inputmode="decimal" style="width:50px"></label><label title="Tipload is the moment divided by (tip height − this distance)">Load point below tip (m) <input data-to="loadBelowTip" value="' + o.loadBelowTip + '" inputmode="decimal" style="width:50px"></label>' +
+      '<label>Wind on pole applied <select data-to="poleWindAt"><option value="half"' + (o.poleWindAt === 'half' ? ' selected' : '') + '>half way up</option><option value="centroid"' + (o.poleWindAt === 'centroid' ? ' selected' : '') + '>at the centroid</option></select></label>' +
+      '<label>Wind on conductor <select data-to="condWindage"><option value="cos2"' + (o.condWindage === 'cos2' ? ' selected' : '') + '>cos² of incidence</option><option value="independent"' + (o.condWindage === 'independent' ? ' selected' : '') + '>independent of incidence</option></select></label>' +
+      '<label>Wind for tension calc <select data-to="tensionWindage"><option value="cos2"' + (o.tensionWindage === 'cos2' ? ' selected' : '') + '>cos² of incidence</option><option value="independent"' + (o.tensionWindage === 'independent' ? ' selected' : '') + '>independent of incidence</option></select></label>' +
+      '<label>Pole top allowance <input data-to="poleTop" value="' + o.poleTop + '" inputmode="decimal" style="width:50px"></label><label>Stringing temperature (°C) <input data-to="stdTemp" value="' + o.stdTemp + '" inputmode="decimal" style="width:50px"></label></div>';
+    var codes = plantCodes();
+    if (codes.length) h += '<h3 class="sub">Plant data</h3><table class="grid"><thead><tr><th>Plant code</th><th class="num">Weight (kg)</th><th class="num" title="Centre of mass from the side of the pole (PNW 7)">Offset from pole (m)</th><th class="num">Wind area (m²)</th><th>Source</th></tr></thead><tbody>' + codes.map(function (c) {
+      var own = (st.plant || {})[c] || {}, d = plantData(c), v = function (k) { return own[k] != null ? own[k] : ''; }, ph = function (k) { return d && d[k] != null ? d[k] : ''; };
+      return '<tr><td>' + esc(c) + '</td>' + ['weight', 'offset', 'area'].map(function (k) { return '<td class="num"><input data-pd="' + esc(c) + '|' + k + '" value="' + esc(v(k)) + '" placeholder="' + esc(ph(k)) + '" inputmode="decimal" style="width:70px" aria-label="' + esc(c + ' ' + k) + '"></td>'; }).join('') + '<td><small class="muted">' + esc(d ? d.source : 'missing: the plant is left out of the tipload') + '</small></td></tr>';
+    }).join('') + '</tbody></table>';
+    h += '<p class="hint">' + (BUILTIN_TIP ? esc(BUILTIN_TIP.optionsSource) : 'Enter the load combinations from your PNW Options, or paste them from a PNW tipload report below. Only what you enter is used.') + '</p>';
+    h += '<div class="tip-paste"><textarea id="lcPaste" rows="3" placeholder="Paste the Options page text of a PNW tipload report (open the PDF, select all, copy) to read its load combinations"></textarea><button class="btn small" id="lcRead">Read load combinations</button></div></details>';
+    return h;
+  }
+  function tipPoleHtml(id) {
+    var r = tipCalc(id); if (!r) return '<p class="hint">Pick a pole.</p>';
+    var inp = r.input, P = inp.pole, res = r.results, h = '';
+    h += '<div class="tip-head"><h3 class="sub">' + esc(tipName(id)) + '</h3><span class="meta">' + esc(P.type || 'no pole type') + ' · ' + f2(P.height) + ' m above ground' + (P.diamAvg ? ' · average diameter ' + P.diamAvg + ' mm' : '') + (P.strength ? ' · strength ' + P.strength + '/' + (P.strengthVert || '–') + ' kN' : '') + '</span>' + (inp.file ? '<span class="pill info">calculated from the PNW file as saved</span>' : '<button class="btn small" data-tipgo="' + esc(id) + '">Show pole</button>') + '</div>';
+    if (!res.length) h += '<p class="status bad">No load combinations ticked.</p>';
+    else {
+      var row = function (k, fn) { return '<tr><th>' + k + '</th>' + res.map(function (x) { return '<td class="num">' + fn(x) + '</td>'; }).join('') + '</tr>'; };
+      h += '<div class="tip-grid"><div><table class="grid tip-res"><thead><tr><th>Load name</th>' + res.map(function (x, i) { return '<th class="num"><span class="sw" style="background:' + TIP_COL[i % TIP_COL.length] + '"></span>' + esc(x.name) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        row('Result', function (x) { return tipBadge(x) + (x.bc != null ? ' <small class="muted">(combined B&amp;C)</small>' : ''); }) +
+        row('Resultant load (kN)', function (x) { return '<b>' + f2(x.load) + '</b>'; }) + row('Direction (°)', function (x) { return f2(x.dir, 0); }) + row('Wind direction (°)', function (x) { return x.wind ? f2(x.windFrom, 0) : 'N/A'; }) +
+        row('Moment (kN·m)', function (x) { return f2(x.moment); }) + row('Pole capacity ØR (kN)', function (x) { return f2(x.capacity, 1); }) + row('% Loaded (hor)', function (x) { return f2(x.pctHor, 0); }) +
+        row('Stay loads (kN)', function (x) { return x.stays.length ? x.stays.map(function (s) { return f2(s.load) + (s.pct != null ? ' (' + f2(s.pct, 0) + '%)' : ''); }).join(' / ') : ''; }) +
+        row('Vertical load (kN)', function (x) { return f2(x.vertical); }) + row('% Loaded (vert)', function (x) { return f2(x.pctVert, 0); }) + row('B&amp;C check', function (x) { return f2(x.bc); }) + row('Max unstayed load (kN)', function (x) { return f2(x.unstayed); }) +
+        '</tbody></table>';
+      h += '<h3 class="sub">Kingbolt loadings</h3><table class="grid"><thead><tr><th class="num">Attach. Ht (m)</th><th class="num">Load (kN)</th><th class="num">Direction (°)</th><th>Load case</th></tr></thead><tbody>' +
+        res.filter(function (x) { return x.wind; }).slice(0, 1).concat(res.filter(function (x) { return x.wind; }).length ? [] : res.slice(0, 1)).map(function (x) { return x.kingbolt.map(function (k) { return '<tr><td class="num">' + f2(k.attHt) + '</td><td class="num">' + f2(k.load) + '</td><td class="num">' + f2(k.dir, 0) + '</td><td>' + esc(x.name) + '</td></tr>'; }).join(''); }).join('') + '</tbody></table></div>' +
+        '<div class="tip-figs">' + tipLegend(r) + tipPolar(r) + tipCurve(r) + '</div></div>';
+    }
+    h += '<h3 class="sub">Circuits</h3>' + (inp.circuits.length ? '<div class="tablewrap"><table class="grid"><thead><tr><th>Section</th><th class="num">Direction (°)</th><th>Conductor</th><th class="num">Number</th><th class="num">Attach Ht (m)</th><th class="num">Span (m)</th><th class="num">RS/MES (m)</th><th class="num">Vertical diff (m)</th><th>Tension</th><th class="num">kN</th><th>To</th></tr></thead><tbody>' +
+      inp.circuits.map(function (c) { return '<tr><td>' + esc((c.line ? c.line + ' · ' : '') + c.segment) + '</td><td class="num">' + f2(c.dir, 1) + '</td><td>' + esc(c.code) + (c.cond ? '' : ' <span class="tag bad">no data</span>') + '</td><td class="num">' + c.n + '</td><td class="num">' + f2(c.attHt) + '</td><td class="num">' + f2(c.span) + '</td><td class="num">' + f2(c.mes) + '</td><td class="num">' + f2(c.vdiff) + '</td><td>' + esc(c.tensionText) + '</td><td class="num">' + f2(c.tension) + '</td><td>' + esc(c.to) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="hint">No conductors attached to this pole.</p>');
+    h += '<h3 class="sub">Stays and plant</h3>' + (inp.stays.length || inp.plant.length ? '<table class="grid"><tbody>' + inp.stays.map(function (s, i) { return '<tr><th>Stay ' + (i + 1) + (s.include ? '' : ' (not included)') + '</th><td>' + esc(s.wire) + ' at ' + f2(s.attHt) + ' m, bearing ' + f2(s.dir, 1) + '°, ' + f2(s.angle, 0) + '° to ground' + (s.strength ? ', strength ' + s.strength + ' kN' : '') + '</td></tr>'; }).join('') + inp.plant.map(function (p) { return '<tr><th>Plant' + (p.include ? '' : ' (not included)') + '</th><td>' + esc(p.code) + ' at ' + f2(p.attHt) + ' m, bearing ' + f2(p.dir, 0) + '°' + (p.weight != null ? ', ' + p.weight + ' kg, centre of mass ' + f2(p.offset) + ' m from the pole, wind area ' + f2(p.area) + ' m²' : '') + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="hint">None.' + (inp.file ? '' : ' Add stays and transformers in the Constructions tab of the inspector.') + '</p>');
+    var saved = project && project.tiploads && project.tiploads[id] && project.tiploads[id].attrs;
+    if (saved) h += '<p class="hint">PNW has tipload data saved for ' + esc(id) + ' in this project (stay ' + esc(saved.stay1_wire || 'none') + (saved.stay1_checked === 'True' ? '' : ', not included') + '; plant ' + esc((saved.plant1 || '').trim() || 'none') + (saved.plant1 && saved.plant1.trim() ? ' at ' + esc(saved.plant_attht) + ' m' : '') + '). <button class="btn small" data-tipuse="' + esc(id) + '">Use its stay and plant</button></p>';
+    var notes = inp.notes.concat(r.issues);
+    if (notes.length) h += '<ul class="issues-list">' + notes.map(function (n) { return '<li class="warning">' + esc(n) + '</li>'; }).join('') + '</ul>';
+    h += '<p class="hint">Method as in the PNW 7 manual: wind from every ' + r.options.step + '°, conductor tension by change of state from the stringing tension at the ruling span, loads added as vectors and the worst direction reported. Tipload = ground moment ÷ (tip height − ' + r.options.loadBelowTip + ' m). Ice is not modelled. ' + (BUILTIN_TIP ? 'Checked against your S1242155 PNW report: 6.58 kN @ 66° (wind from 300°), 2.53 kN @ 45°, kingbolt 4.73 kN.' : 'Checked against a PNW 7.18 tipload report to the precision it prints.') + '</p>';
+    return h;
+  }
+  function tipTableHtml(ids) {
+    var st = tipSet(), cs = st.cases.filter(function (c) { return c.include !== false; });
+    return '<div class="tablewrap tip-all"><table class="grid"><thead><tr><th>Pole</th><th>Type</th>' + cs.map(function (c, i) { return '<th class="num"><span class="sw" style="background:' + TIP_COL[i % TIP_COL.length] + '"></span>' + esc(c.name) + '</th>'; }).join('') + '<th>Result</th></tr></thead><tbody>' +
+      ids.map(function (id) {
+        var r = tipCalc(id); if (!r) return '';
+        var fail = r.results.some(function (x) { return x.pass === false; }), none = r.results.every(function (x) { return x.pass == null; });
+        return '<tr data-tippick="' + esc(id) + '" class="' + (id === tipSel ? 'sel' : '') + '"><td><b>' + esc(tipName(id)) + '</b></td><td>' + esc(r.input.pole.type || '–') + '</td>' + r.results.map(function (x) { return '<td class="num">' + f2(x.load) + ' kN @ ' + f2(x.dir, 0) + '°' + (x.pctHor != null ? ' · ' + f2(x.pctHor, 0) + '%' : '') + '</td>'; }).join('') + '<td>' + (none ? '<span class="pill mute">no strength</span>' : fail ? '<span class="pill bad">FAIL</span>' : '<span class="pill ok">PASS</span>') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function openTip(id) {
+    var ids = tipPoles();
+    if (!ids.length) { setStatus('Tipload needs a design or a PNW tipload project: link a PNW project (drop a .pnwx), start a design from the ground profile, or drop a PNW tipload .pnwx.', 'bad'); return; }
+    tipSel = id && ids.indexOf(id) >= 0 ? id : tipSel && ids.indexOf(tipSel) >= 0 ? tipSel : S.selected && ids.indexOf(S.selected) >= 0 ? S.selected : ids[0];
+    renderTip(); $('tipDlg').hidden = false; $('closeTip').focus();
+  }
+  function renderTip() {
+    var ids = tipPoles(), st = tipSet();
+    $('tipBody').innerHTML = tipCasesHtml() + (st.cases.length ? tipTableHtml(ids) + '<div class="tip-pole">' + tipPoleHtml(tipSel) + '</div>' : '') +
+      '<div class="btnrow"><button class="btn small" id="tipCsv"' + (st.cases.length ? '' : ' disabled') + '>Download tiploads (.csv)</button></div>';
+    bindTipCurve();
+  }
+  function bindTipCurve() {
+    var box = $('tipCurve'); if (!box) return;
+    box.addEventListener('mousemove', function (e) {
+      var d = window.__tipCurve, svg = box.querySelector('svg'), b = svg.getBoundingClientRect(), x = (e.clientX - b.left) / b.width * d.W;
+      if (x < d.X0 || x > d.X1) { $('tipTt').hidden = true; $('tipX').setAttribute('visibility', 'hidden'); return; }
+      var a = (x - d.X0) / (d.X1 - d.X0) * 360, i = Math.round(a / (d.res[0].curve[1] ? d.res[0].curve[1].from - d.res[0].curve[0].from : 360)) % d.res[0].curve.length, from = d.res[0].curve[i].from;
+      $('tipX').setAttribute('x1', d.X0 + from / 360 * (d.X1 - d.X0)); $('tipX').setAttribute('x2', d.X0 + from / 360 * (d.X1 - d.X0)); $('tipX').setAttribute('visibility', 'visible');
+      var tt = $('tipTt'); tt.innerHTML = '<b>Wind from ' + from + '°</b>' + d.res.map(function (r) { var c = r.curve[i]; return '<br><span class="sw" style="background:' + TIP_COL[d.all.indexOf(r) % TIP_COL.length] + '"></span>' + esc(r.name) + ': ' + f2(c.load) + ' kN' + (Math.abs(c.unstayed - c.load) > 0.005 ? ' (unstayed ' + f2(c.unstayed) + ')' : ''); }).join('');
+      var bb = box.getBoundingClientRect(); tt.hidden = false; tt.style.left = Math.min(e.clientX - bb.left + 12, bb.width - 200) + 'px'; tt.style.top = (e.clientY - bb.top + 12) + 'px';
+    });
+    box.addEventListener('mouseleave', function () { $('tipTt').hidden = true; $('tipX').setAttribute('visibility', 'hidden'); });
+  }
+  function tipCsv() {
+    var st = tipSet(), cs = st.cases.filter(function (c) { return c.include !== false; }), rows = [['Pole', 'Pole type', 'Load case', 'Resultant load kN', 'Direction deg', 'Wind from deg', 'Moment kNm', 'Capacity kN', '% loaded hor', 'Vertical kN', '% loaded vert', 'B&C', 'Result']];
+    tipPoles().forEach(function (id) { var r = tipCalc(id); if (!r) return; r.results.forEach(function (x) { rows.push([tipName(id), r.input.pole.type || '', x.name, f2(x.load), f2(x.dir, 0), x.wind ? f2(x.windFrom, 0) : 'N/A', f2(x.moment), f2(x.capacity, 1), f2(x.pctHor, 0), f2(x.vertical), f2(x.pctVert, 0), f2(x.bc), x.pass == null ? '' : x.pass ? 'PASS' : 'FAIL']); }); });
+    var csv = rows.map(function (r) { return r.map(function (v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
+    download(new Blob([csv], { type: 'text/csv' }), 'Tiploads - ' + (linked ? linked.name.replace(/\.pnwx$/i, '') : baseName()) + '.csv'); setStatus('Downloaded the tipload table.', 'good');
+  }
+  $('tipBody').addEventListener('click', function (e) {
+    var t = e.target, pick = t.closest('[data-tippick]'), go = t.closest('[data-tipgo]'), del = t.closest('[data-lcdel]'), use = t.closest('[data-tipuse]');
+    if (pick) { tipSel = pick.dataset.tippick; renderTip(); var tp = $('tipBody').querySelector('.tip-pole'); if (tp) tp.scrollIntoView({ block: 'nearest' }); return; }
+    if (go) { $('tipDlg').hidden = true; select(go.dataset.tipgo); zoomTo(go.dataset.tipgo); return; }
+    if (del) { tipSet().cases.splice(+del.dataset.lcdel, 1); save(); renderTip(); return; }
+    if (t.id === 'lcAdd') { tipSet().cases.push({ name: 'Load ' + (tipSet().cases.length + 1), ice: 'None', temp: 15, windPole: 0, windCond: 0, windPlant: 0, Ft: 1, Wn: 1, Gs: 1, Gc: 1, strengthClass: 'Ultimate limit', phi: 1, include: true }); save(); renderTip(); return; }
+    if (t.id === 'lcRead') {
+      var got = TIP.parseReportOptions($('lcPaste').value);
+      if (!got.length) { setStatus('No load combinations found in the pasted text. Copy the Options page of a PNW tipload report.', 'bad'); return; }
+      var st = tipSet(); st.cases = got; st.source = 'pasted from a PNW tipload report'; save(); renderTip(); setStatus('Read ' + got.length + ' load combination' + (got.length > 1 ? 's' : '') + ': ' + got.map(function (c) { return c.name; }).join(', ') + '.', 'good'); return;
+    }
+    if (t.id === 'tipCsv') { tipCsv(); return; }
+    if (use) {
+      var a = project.tiploads[use.dataset.tipuse].attrs, x = extras(use.dataset.tipuse);
+      x.stays = [1, 2].filter(function (n) { return a['stay' + n + '_wire'] && Number(a['stay' + n + '_att_ht']) > 0; }).map(function (n) { return { wire: a['stay' + n + '_wire'], attHt: Number(a['stay' + n + '_att_ht']), dir: Number(a['stay' + n + '_dir']), angle: Number(a['stay' + n + '_angle']) || 45, include: a['stay' + n + '_checked'] === 'True', ref: 'From the tipload saved in PNW' }; });
+      x.plant = [['plant1', 'plant_attht', 'plant_dir', 'plant_checked'], ['plant2', 'plant_attht2', 'plant_dir2', 'plant_checked2']].filter(function (k) { return a[k[0]] && a[k[0]].trim(); }).map(function (k) { return { code: a[k[0]].trim(), drawing: (txArr()[0] || {}).id, attHt: Number(a[k[1]]), dir: Number(a[k[2]]), include: a[k[3]] === 'True', ref: 'From the tipload saved in PNW' }; });
+      S.design.log = liveLog().concat([logEntry(use.dataset.tipuse, 'Stays and plant', 'From PNW tipload', '', x.stays.length + ' stay(s), ' + x.plant.length + ' plant item(s)', 'manual', 'PNW tipload saved in ' + linked.name)]);
+      recompute(); renderTip();
+    }
+  });
+  $('tipBody').addEventListener('change', function (e) {
+    var t = e.target, st = tipSet();
+    if (t.dataset.lc) {
+      var k = t.dataset.lc.split('|'), c = st.cases[+k[0]];
+      if (k[1] === 'include') c.include = t.checked;
+      else if (k[1] === 'name') { if (!t.value.trim()) { renderTip(); return; } c.name = t.value.trim(); }
+      else { var v = Number(t.value); if (t.value === '' || !isFinite(v) || (k[1] !== 'temp' && v < 0)) { setStatus('"' + t.value + '" is not a valid ' + k[1] + '.', 'bad'); renderTip(); return; } c[k[1]] = v; }
+      st.source = st.source && /edited/.test(st.source) ? st.source : (st.source ? st.source + ', edited' : 'edited'); save(); renderTip(); return;
+    }
+    if (t.dataset.pd) {
+      var q = t.dataset.pd.split('|'), pd = st.plant || (st.plant = {}), row = pd[q[0]] || (pd[q[0]] = {}), x = t.value.trim() === '' ? null : Number(t.value);
+      if (x != null && (!isFinite(x) || x < 0)) { setStatus('"' + t.value + '" is not a valid ' + q[1] + '.', 'bad'); renderTip(); return; }
+      row[q[1]] = x; save(); renderTip(); return;
+    }
+    if (t.dataset.to) {
+      var o = st.options, key = t.dataset.to;
+      if (t.tagName === 'SELECT') o[key] = t.value;
+      else { var n = Number(t.value); if (!isFinite(n) || (key === 'step' && !(n > 0 && n <= 90)) || (key !== 'stdTemp' && n < 0)) { setStatus('"' + t.value + '" is not valid here.', 'bad'); renderTip(); return; } o[key] = n; }
+      save(); renderTip();
+    }
+  });
+  $('tipBody').addEventListener('toggle', function (e) { if (e.target.classList && e.target.classList.contains('tip-opts')) tipOptsOpen = e.target.open; }, true);
+  $('closeTip').onclick = function () { $('tipDlg').hidden = true; };
+  $('tipDlg').addEventListener('keydown', function (e) { if (e.key === 'Escape') $('tipDlg').hidden = true; });
+  $('tbTip').onclick = function () { recompute(); openTip(S.selected); };
+  // One line per load case for the inspector's Pole tab.
+  function tipSummaryHtml(id) {
+    if (!project || !dm || !tipSet().cases.length || tipPoles().indexOf(id) < 0) return '';
+    var r = tipCalc(id); if (!r || !r.results.length) return '';
+    return '<div class="con tip-sum"><div class="con-title">Tipload</div>' + r.results.map(function (x, i) { return '<div><span class="sw" style="background:' + TIP_COL[i % TIP_COL.length] + '"></span>' + esc(x.name) + ': <b>' + f2(x.load) + ' kN</b> @ ' + f2(x.dir, 0) + '°' + (x.pctHor != null ? ' · ' + f2(x.pctHor, 0) + '%' : '') + ' ' + tipBadge(x) + '</div>'; }).join('') + '<div class="btnrow"><button class="btn small" data-tipopen="' + esc(id) + '">Open tipload</button></div></div>';
+  }
+  $('selected').addEventListener('click', function (e) { var b = e.target.closest('[data-tipopen]'); if (b) openTip(b.dataset.tipopen); });
+
   // AI photo match: open the inspector on the selected pole (else the first design pole) at the AI photo tab.
   $('tbAi').onclick = function () {
     var id = S.selected && merged.poles[S.selected] ? S.selected : project && project.poles.length ? project.poles[0].ID : prof().poleIds[0];
@@ -1893,7 +2159,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
     if (!$('layersPop').hidden) { $('layersPop').hidden = true; return; }
-    if (!$('review').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (!$('review').hidden || !$('tipDlg').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
     if (S.selected || S.selSection) select(null);
   });
   // Asks again on the button itself: browser confirm() dialogs are blocked when the page runs inside Claude.
