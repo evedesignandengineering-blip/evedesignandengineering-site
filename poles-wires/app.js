@@ -82,7 +82,9 @@
   }
 
   /* ---------- map ---------- */
-  var map = L.map('map', { zoomControl: true, maxZoom: 21 }).setView([-31.95, 115.86], 11);
+  // Default wheel zoom is a whole level (2×) per notch; quarter levels make one notch about 1.4×.
+  var map = L.map('map', { zoomControl: true, maxZoom: 21, zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 200, wheelDebounceTime: 60 }).setView([-31.95, 115.86], 11);
+  L.control.scale({ position: 'bottomright', metric: true, imperial: false, maxWidth: 140 }).addTo(map);
   var bases = {
     street: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap contributors' }),
     esri: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 21, maxNativeZoom: 19, attribution: 'Tiles &copy; Esri' }),
@@ -365,7 +367,7 @@
   }
   function tagS(t) { return '<span class="tag src">' + t + '</span>'; }
   function fact(k, v, cls, title) { return '<div class="fact ' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : esc(v)) + '</b></div>'; }
-  var INS_TABS = [['pole', 'Pole'], ['design', 'Constructions'], ['conductors', 'Conductors'], ['photo', 'Photo'], ['checks', 'Checks']];
+  var INS_TABS = [['pole', 'Pole'], ['design', 'Constructions'], ['conductors', 'Conductors'], ['photo', '✨ AI photo'], ['checks', 'Checks']];
   function renderSelected() {
     var id = S.selected, p = id && merged.poles[id];
     $('insTitle').textContent = p ? 'Pole ' + id : 'Project summary';
@@ -389,14 +391,14 @@
     if (tab === 'pole') h += polePane(id, p, r, inProf, ex);
     else if (tab === 'design') h += designPanel(id);
     else if (tab === 'conductors') h += project ? (prow ? sectionsOnPole(id) : '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>') : startDesignHint();
-    else if (tab === 'photo') h += project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : startDesignHint();
+    else if (tab === 'photo') h += project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : '<p class="hint"><b>AI photo match</b> looks at a photo of the pole and ranks the PNW library constructions (with their DCSH drawings) that fit. ' + (project ? esc(id) + ' is not in the linked PNW project; pick a pole that is.' : 'It works on a design, so link a PNW project first.') + '</p>' + (project ? '' : startDesignHint());
     else h += iss.length ? '<ul class="msgs">' + iss.map(function (i) { return '<li class="' + i.level + '">' + esc(i.message) + '</li>'; }).join('') + '</ul>' : '<ul class="msgs"><li class="ok">No issues recorded for ' + esc(id) + '.</li></ul>';
     $('selected').innerHTML = h + '</div>';
     if ($('selAdd')) $('selAdd').onclick = function () { var ids = prof().poleIds; ids.push(id); prof().poleIds = PNW.autoOrder(merged.poles, ids); S.generated = false; recompute(); setStatus(id + ' added and the profile re-ordered along the line. Use ↑ ↓ to adjust.', 'good'); };
     if ($('selRemove')) $('selRemove').onclick = function () { prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; }); S.generated = false; recompute(); };
   }
   function polePane(id, p, r, inProf, ex) {
-    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '</div><table class="props">';
+    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button></div><table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
     if (p.survey) { var sk = p.survey.kind || 'LiDAR'; sec('Survey'); row('Easting', fmt(p.survey.easting), tagS(sk)); row('Northing', fmt(p.survey.northing), tagS(sk)); row('Elevation', fmt(p.survey.elevation), tagS(sk)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Bays', p.survey.bays); row('Bay angles', p.survey.bayAngles.join(', ')); row('Equipment no', p.survey.equipNo); row('Surveyed', p.survey.surveyed); row('Source', p.survey.src.file + ' row ' + p.survey.src.row); }
@@ -1406,7 +1408,7 @@
   /* pole photo: AI identifies hardware and ranks PNW codes; nothing changes until the designer approves */
   var AI_URL = 'https://hszkloepnewfkzdegfhl.supabase.co/functions/v1/pnw-pole-photo-ai', AI_KEY = 'sb_publishable_Avjn-CGtbEdeLaxSWCwQDw_36mgImSu', aiResults = {};
   function aiPanel(id, cons) {
-    var r = aiResults[id] || {}, h = '<div class="con ai"><div class="con-title">Pole photo · AI suggestion</div>';
+    var r = aiResults[id] || {}, h = '<div class="con ai"><div class="con-title">✨ Analyse pole photo with AI</div><p class="hint">Upload a photo of ' + esc(id) + '. AI identifies the crossarms, insulators and attachments and ranks the PNW library constructions that fit, with their DCSH drawing.</p>';
     h += '<label class="btn small"><input type="file" id="aiPhoto" accept="image/jpeg,image/png,image/webp" hidden>' + (r.photo ? 'Another photo…' : 'Choose a photo…') + '</label>';
     if (r.thumb) h += '<img class="ai-thumb" src="' + r.thumb + '" alt="Photo of ' + esc(id) + '">';
     if (r.loading) h += '<p class="status">Looking at ' + esc(r.photo) + '…</p>';
@@ -1643,6 +1645,13 @@
   };
   document.addEventListener('click', function (e) { var pop = $('layersPop'); if (!pop.hidden && !pop.contains(e.target)) { pop.hidden = true; $('tbLayers').setAttribute('aria-expanded', 'false'); } });
   $('tbLabels').onclick = function () { S.labels = !S.labels; this.classList.toggle('on', S.labels); this.setAttribute('aria-pressed', S.labels); renderMap(); renderViews(); save(); };
+  // AI photo match: open the inspector on the selected pole (else the first design pole) at the AI photo tab.
+  $('tbAi').onclick = function () {
+    var id = S.selected && merged.poles[S.selected] ? S.selected : project && project.poles.length ? project.poles[0].ID : prof().poleIds[0];
+    U.insTab = 'photo'; if (!U.right) { U.right = true; applyLayout(); } saveUi();
+    if (id) select(id); else renderSelected();
+    if (!project) setStatus('AI photo match needs a design: link a PNW project or start a design from the ground profile.', 'bad');
+  };
   $('tbIssues').onclick = function () { openTab('issues'); if (!U.left) { U.left = true; applyLayout(); } $('secValidation').open = true; };
   $('tbGenerate').onclick = generate;
   $('tbExport').onclick = function () { recompute(); openReview(); };

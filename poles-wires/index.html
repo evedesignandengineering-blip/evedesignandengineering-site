@@ -15,10 +15,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261029"></script>
-<script src="pnw-model.js?v=20261029"></script>
+<script src="pnw-core.js?v=20261030"></script>
+<script src="pnw-model.js?v=20261030"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<script type="module" src="view3d.js?v=20261029"></script>
+<script type="module" src="view3d.js?v=20261030"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#09284b;--ink:#172638;--muted:#64748b;--line:#dbe4ed;--bg:#f2f6fa;--blue:#2f6ea4;--teal:#0f766e;--white:#fff;--bad:#b42318;--warn:#b54708;--ok:#1f7a45;--ground:#2f6ea4;--pole:#c2410c;--sel:#f59e0b;--focus:#2563eb;color-scheme:light}
@@ -146,13 +146,17 @@ button,input,select{font:inherit}button{cursor:pointer}
 .v3compass{position:absolute;right:10px;top:10px;z-index:5;display:grid;justify-items:center;gap:1px;pointer-events:none}
 .v3compass .v3viewname{font:700 10px "DM Sans";color:#43566d;background:#ffffffd9;border-radius:4px;padding:0 4px}
 .v3compass .v3viewname:empty{display:none}
-.v3help{position:absolute;right:10px;bottom:10px;z-index:5;font-size:10.5px;color:#43566d;background:#ffffffe6;border:1px solid #d9e3ed;border-radius:8px;padding:5px 8px;max-width:260px;transition:opacity .4s}.v3help.fade{opacity:0;pointer-events:none}
+.v3help{position:absolute;left:10px;top:30px;z-index:5;font-size:10.5px;color:#43566d;background:#ffffffe6;border:1px solid #d9e3ed;border-radius:8px;padding:5px 8px;max-width:260px;transition:opacity .4s}.v3help.fade{opacity:0;pointer-events:none}
 .v-3d #view3d{display:block}.v-profile #profileView{display:block}
 .v-split #view3d{display:block;bottom:40%}.v-split #profileView{display:block;top:60%;border-top:1px solid var(--line)}
 .v-3d #map,.v-profile #map,.v-split #map{visibility:hidden}
 .v-3d .map-over,.v-profile .map-over,.v-split .map-over,.v-3d .legend:not(.v3legend),.v-profile .legend,.v-split .legend:not(.v3legend),.v-3d .empty-map,.v-profile .empty-map,.v-split .empty-map{display:none}
 .v3legend{bottom:10px;display:block;max-width:min(560px,calc(100% - 290px));min-width:150px;padding:4px 9px}.v3legend summary{cursor:pointer;font-weight:700;color:#43566d;list-style:none}.v3legend summary::-webkit-details-marker{display:none}.v3legend summary:before{content:"\25B8  "}.v3legend[open] summary:before{content:"\25BE  "}.v3legend .lg{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:3px}.legend .sw{display:inline-block;width:16px;height:3px;border-radius:2px}
 .v-split .v3legend{display:none}
+.v3scale{position:absolute;right:10px;bottom:10px;z-index:5;pointer-events:none;display:grid;justify-items:end;gap:2px;background:#ffffffe0;border:1px solid #d9e3ed;border-radius:6px;padding:4px 8px 3px}
+.v3scale .bar{height:6px;border:2px solid #1f2d3d;border-top:0;min-width:10px}
+.v3scale .txt{font:600 10.5px "DM Sans",system-ui,sans-serif;color:#1f2d3d;white-space:nowrap}
+.leaflet-control-scale-line{font:600 11px "DM Sans",system-ui,sans-serif;border-color:#1f2d3d;background:#ffffffe0}
 .v3msg{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:var(--muted);font-size:12px;text-align:center;padding:20px}
 #profileView{background:#fff;padding:26px 8px 4px;overflow:hidden}.v-split #profileView{padding-top:6px}
 #profileView svg{display:block}#profileView .ax{font-size:10px;fill:#64748b}#profileView .pl{font:700 10px "DM Sans";fill:#172638}#profileView .pl.sel{fill:#b45309}
@@ -179,7 +183,7 @@ table.grid tr.group td{background:#f3f7fb;font-weight:800;color:#102b46}
 table.grid.reg td{vertical-align:top}table.grid td.wrap{white-space:normal;min-width:220px;max-width:360px}table.grid select{font-size:11px;padding:2px 4px;border:1px solid #d6e0eb;border-radius:6px;max-width:230px}
 table.grid input{font-size:11px;padding:2px 4px;border:1px solid #d6e0eb;border-radius:6px}
 /* inspector */
-.instabs{display:flex;gap:2px;padding:4px 6px 0;border-bottom:1px solid var(--line);background:#fbfdff;overflow-x:auto;scrollbar-width:thin;position:sticky;top:0;z-index:3}
+.instabs{display:flex;flex-wrap:wrap;gap:2px;padding:4px 6px 0;border-bottom:1px solid var(--line);background:#fbfdff;overflow-x:auto;scrollbar-width:thin;position:sticky;top:0;z-index:3}
 .instabs button{border:1px solid transparent;border-bottom:0;background:none;padding:5px 7px;font-weight:700;font-size:11px;color:#5b6f86;border-radius:7px 7px 0 0;white-space:nowrap;display:inline-flex;gap:5px;align-items:center}
 .instabs button.on{background:#fff;border-color:var(--line);color:var(--navy);margin-bottom:-1px}
 .instabs .pill{font-size:9.5px;padding:0 5px}
@@ -271,6 +275,7 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
     <button class="btn" id="tbFit" title="Fit the whole project in the current view (map, 3D or profile)"><span class="ic">⤢</span><span class="lbl">Fit project</span></button>
     <button class="btn" id="tbLayers" title="Map layers" aria-haspopup="true" aria-expanded="false"><span class="ic">☰</span><span class="lbl opt">Layers</span></button>
     <button class="btn on" id="tbLabels" title="Show or hide pole labels" aria-pressed="true"><span class="ic">🏷</span><span class="lbl opt">Labels</span></button>
+    <button class="btn" id="tbAi" title="Analyse a pole photo with AI: rank the PNW constructions and DCSH drawings that fit"><span class="ic">✨</span><span class="lbl">AI photo match</span></button>
     <button class="btn" id="tbIssues" title="Show data-quality issues"><span class="ic">⚠</span><span class="lbl">Issues</span> <span class="pill mute" id="issueCount">0</span></button>
   </div>
   <span class="sep"></span>
@@ -360,7 +365,7 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
       <div id="map"></div>
       <div id="view3d"><div id="v3host" aria-label="3D view. Drag to orbit, right-drag or shift-drag to pan, wheel to zoom towards the cursor."></div><p class="v3msg" id="v3empty" hidden>No poles with coordinates and ground levels yet.</p>
         <details class="legend v3legend" id="v3legend" open><summary>Legend</summary><div class="lg"><span><b class="sw" style="background:#c2410c"></b>HV conductor</span><span><b class="sw" style="background:#2f6ea4"></b>LV conductor</span><span><b class="sw" style="background:#64748b"></b>Running earth</span><span><b class="sw" style="background:#0f766e"></b>Voltage not set</span><span><b class="sw" style="background:#f59e0b"></b>Selected section</span><span><b class="sw" style="background:#5b4636;opacity:.5"></b>Embedment (below ground)</span><span class="muted" title="PNW attachment x offsets are drawn to the right of the line, looking along increasing chainage">Crossarm +x to the right along chainage</span></div></details>
-        <div class="v3help" id="v3help">Drag to orbit · right-drag to pan · wheel zooms to the cursor · click a pole or wire to select it · double-click to focus</div>
+        <div class="v3help" id="v3help">Drag to orbit · right-drag to pan · wheel zooms about 10% per notch toward the cursor (scale bar bottom right) · click a pole or wire to select it · double-click to focus</div>
       </div>
       <div id="profileView"></div>
       <p class="sagnote nonplan" id="sagNote"></p>
@@ -407,6 +412,6 @@ h3.sub{font:800 13px Manrope;color:#102b46;margin:0 0 6px}
 
 <footer><a class="footer-brand" href="../#home"><strong>EVE</strong><i></i><span>Design &amp;<br>Engineering</span></a><p>© 2026 EVE Design &amp; Engineering. All rights reserved.</p><nav aria-label="Footer navigation"><a href="../#home">Home</a><a href="../portfolio.html">Portfolio</a><a href="../tools.html">Tools</a><a href="../#contact">Contact</a></nav></footer>
 </div>
-<script src="app.js?v=20261029"></script>
+<script src="app.js?v=20261030"></script>
 </body>
 </html>

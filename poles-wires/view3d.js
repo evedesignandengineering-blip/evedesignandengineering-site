@@ -20,7 +20,7 @@ const WIRE_PX = 2.5, WIRE_SEL_PX = 5;
 let host, renderer, labels, scene, camera, controls, group, compass, onSelect = () => {};
 let poleMeshes = {}, poleParts = {}, wireLines = [], fitObjects = [], lineMats = [];
 let selected = null, selectedSection = null, origin = null, lastData = null, poleKey = '', viewName = 'iso';
-let dirty = true, pendingFit = null, tween = null, renders = 0, sceneRadius = 50;
+let scaleEl = null, dirty = true, pendingFit = null, tween = null, renders = 0, sceneRadius = 50;
 
 function kind(w) {
   if (/^RE/i.test(w.code || '')) return 'earth';
@@ -58,6 +58,13 @@ function mount(el, cb) {
   compass = document.createElement('div'); compass.className = 'v3compass'; compass.title = 'North arrow and current view';
   compass.innerHTML = '<svg viewBox="-20 -20 40 40" width="44" height="44" aria-hidden="true"><circle r="18" fill="rgba(255,255,255,.85)" stroke="#9aa9b8"/><g class="needle"><path d="M0 -15 L5 0 L0 -3 L-5 0Z" fill="#b42318"/><path d="M0 15 L5 0 L0 3 L-5 0Z" fill="#64748b"/><text y="-6" x="0" font-size="7" text-anchor="middle" fill="#fff" font-weight="700">N</text></g></svg><span class="v3viewname"></span>';
   host.appendChild(compass);
+  scaleEl = document.createElement('div'); scaleEl.className = 'v3scale'; scaleEl.title = 'Scale at the orbit point and camera distance';
+  scaleEl.innerHTML = '<div class="bar"></div><span class="txt"></span>';
+  host.appendChild(scaleEl);
+  // Wheel zoom: OrbitControls divides the wheel delta by (devicePixelRatio | 0), which is 0 below 100% browser zoom
+  // (Infinity: the camera jumps straight to min / max distance) and takes trackpad / line deltas unscaled. Handle the
+  // wheel here instead: about 10% per mouse notch, capped per event, pivoting on the model point under the cursor.
+  host.addEventListener('wheel', onWheel, { capture: true, passive: false });
 
   const ray = new THREE.Raycaster(), m = new THREE.Vector2();
   ray.params.Line2 = { threshold: 6 };
@@ -114,7 +121,40 @@ function loop() {
   renderer.render(scene, camera); labels.render(scene, camera); renders++;
   updateCompass();
 }
+function onWheel(e) {
+  e.preventDefault(); e.stopPropagation();
+  if (!camera || !controls) return;
+  tween = null;
+  const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+  const notches = Math.max(-1.5, Math.min(1.5, px / 100));
+  if (!notches) return;
+  const k = Math.pow(1.1, notches); // > 1 zooms out
+  const r = renderer.domElement.getBoundingClientRect(), m = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  const ray = new THREE.Raycaster(); ray.setFromCamera(m, camera);
+  const hit = ray.intersectObjects(Object.values(poleMeshes).flat(), false)[0];
+  let pivot = hit && hit.point;
+  if (!pivot) { // the point under the cursor at the depth of the orbit target
+    const n = camera.getWorldDirection(new THREE.Vector3()), plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, controls.target);
+    pivot = ray.ray.intersectPlane(plane, new THREE.Vector3()) || controls.target.clone();
+  }
+  const d = camera.position.distanceTo(controls.target), nd = Math.max(controls.minDistance, Math.min(controls.maxDistance, d * k)), f = nd / d;
+  if (Math.abs(f - 1) < 1e-6) return;
+  camera.position.sub(pivot).multiplyScalar(f).add(pivot);
+  controls.target.sub(pivot).multiplyScalar(f).add(pivot);
+  viewName = 'custom'; invalidate();
+}
+function niceLen(m) { const p = Math.pow(10, Math.floor(Math.log10(m))), x = m / p; return (x >= 5 ? 5 : x >= 2 ? 2 : 1) * p; }
+function fmtLen(v) { return v >= 1000 ? (v / 1000) + ' km' : v >= 1 ? v + ' m' : Math.round(v * 1000) + ' mm'; }
+function updateScale() {
+  if (!scaleEl || !host.clientHeight) return;
+  const d = camera.position.distanceTo(controls.target), mpp = 2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / host.clientHeight;
+  const len = niceLen(mpp * 110), w = len / mpp;
+  scaleEl.querySelector('.bar').style.width = w.toFixed(0) + 'px';
+  scaleEl.querySelector('.txt').textContent = fmtLen(len) + ' at the orbit point · camera ' + (d >= 100 ? Math.round(d) : d.toFixed(1)) + ' m away';
+  scaleEl.dataset.len = len; scaleEl.dataset.px = w.toFixed(1);
+}
 function updateCompass() {
+  updateScale();
   if (!compass) return;
   // Screen direction of north (-z): project a point north of the target and read the angle on screen.
   const c = controls.target.clone(), a = c.clone().project(camera), b = c.clone().add(new THREE.Vector3(0, 0, -1)).project(camera);
@@ -343,7 +383,7 @@ function state() {
     view: viewName, near: camera.near, far: camera.far, renders: renders, distance: camera.position.distanceTo(controls.target),
     target: controls.target.toArray(), position: camera.position.toArray(), selectedSection: selectedSection,
     screen: ndc && { minX: Math.min(...ndc.map((v) => v.x)), maxX: Math.max(...ndc.map((v) => v.x)), minY: Math.min(...ndc.map((v) => v.y)), maxY: Math.max(...ndc.map((v) => v.y)) },
-    wires: wireLines.length, poles: Object.keys(poleMeshes).length, tweening: !!tween,
+    wires: wireLines.length, poles: Object.keys(poleMeshes).length, tweening: !!tween, scale: scaleEl && { len: +scaleEl.dataset.len, px: +scaleEl.dataset.px, text: scaleEl.querySelector('.txt').textContent },
     // screen position (CSS px in the host) of the middle of the first wire, so tests can click it
     wireAt: wireLines.length ? (() => { const l = wireLines[0], v = l.userData.pts[12].clone().project(camera); return { segment: l.userData.segment, x: (v.x + 1) / 2 * host.clientWidth, y: (1 - v.y) / 2 * host.clientHeight }; })() : null
   };
