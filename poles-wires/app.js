@@ -426,8 +426,78 @@
     if (cons.length) h += '<table class="att"><tr><th>Construction</th><th class="num">Height AG (m)</th></tr>' + cons.map(function (c) { return '<tr><td>' + esc(c.descr || c.code) + '</td><td class="num">' + (c.kingbolt != null ? c.attachments.map(function (a) { return fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; }).join(' / ') || fmt(c.kingbolt) : '–') + '</td></tr>'; }).join('') + '</table>';
     return h + '<div class="btnrow"><button class="btn small primary" data-xuse="' + esc(xp.line.name) + '">Edit this line as the design</button></div></div>';
   }
+  /* stays and pole-mounted plant: kept with the design (PNW stores them in the tipload project, not the profile) */
+  // Transformer arrangements (hanger height below the tip) come from the DCSH register's "plant" list, read from the drawings.
+  function txArr() { var r = dcshReg(); return r && r.plant ? r.plant.filter(function (p) { return p.kind === 'transformer'; }).map(function (p) { return { id: p.id, title: p.title || p.id, below: p.hangerBelowTip, ref: p.ref || 'DCSH ' + p.id }; }) : []; }
+  function extras(id) { var x = S.design.extras || (S.design.extras = {}); return x[id] || (x[id] = { stays: [], plant: [] }); }
+  function bearing(a, b) { var d = Math.atan2(b.easting - a.easting, b.northing - a.northing) * 180 / Math.PI; return Math.round(((d % 360) + 360) % 360 * 10) / 10; }
+  // Neighbours along the design line, to point a stay away from the conductor pull and a transformer toward the line.
+  function lineDirs(id) {
+    var ps = dm ? dm.allPoles.filter(function (p) { return isFinite(p.easting) && isFinite(p.northing); }) : [], i = ps.findIndex(function (p) { return p.id === id; });
+    if (i < 0) return null;
+    var me = ps[i], nb = [ps[i - 1], ps[i + 1]].filter(Boolean);
+    xLines.forEach(function (x) { var k = x.dm.allPoles.findIndex(function (p) { return (x.common[p.id] && x.common[p.id].id === id) || p.id === id; }); if (k >= 0) [x.dm.allPoles[k - 1], x.dm.allPoles[k + 1]].forEach(function (q) { if (q && isFinite(q.easting)) nb.push(q); }); });
+    if (!nb.length) return null;
+    var sx = 0, sy = 0; nb.forEach(function (q) { var L = Math.hypot(q.easting - me.easting, q.northing - me.northing) || 1; sx += (q.easting - me.easting) / L; sy += (q.northing - me.northing) / L; });
+    var pull = Math.hypot(sx, sy) > 0.05 ? bearing(me, { easting: me.easting - sx, northing: me.northing - sy }) : null;
+    return { stay: pull, toLine: bearing(me, nb[0]) };
+  }
+  function extrasHtml(id, row) {
+    var x = extras(id), hag = PNW.num(row.HeightAG), cons = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; });
+    var wires = lib && lib.stays && lib.stays.length ? lib.stays.map(function (w) { return w.code || w.Code; }) : [];
+    var h = '<div class="con"><div class="con-title">Stays and plant</div>';
+    x.stays.forEach(function (st, i) {
+      h += '<div class="xrow"><b>Stay ' + (i + 1) + '</b><label>Wire <select data-xf="stays|' + i + '|wire">' + wires.concat(wires.indexOf(st.wire) < 0 && st.wire ? [st.wire] : []).map(function (w) { return '<option' + (w === st.wire ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></label>' +
+        '<label>Height AG (m) <input data-xf="stays|' + i + '|attHt" value="' + fmt(st.attHt) + '" inputmode="decimal"></label><label title="Bearing from the pole to the anchor, degrees from grid north">Bearing (°) <input data-xf="stays|' + i + '|dir" value="' + fmt(st.dir) + '" inputmode="decimal"></label>' +
+        '<label title="Angle between the stay and the pole">Angle (°) <input data-xf="stays|' + i + '|angle" value="' + fmt(st.angle) + '" inputmode="decimal"></label><button class="btn small" data-xdel="stays|' + i + '" aria-label="Remove stay ' + (i + 1) + '">×</button>' +
+        (st.ref ? '<small class="muted">' + esc(st.ref) + '</small>' : '') + '</div>';
+    });
+    x.plant.forEach(function (pl, i) {
+      var arr = txArr().filter(function (a) { return a.id === pl.drawing; })[0];
+      h += '<div class="xrow">' + (arr ? dcshThumb(arr.id) : '') + '<b>Transformer</b><label>Code <input data-xf="plant|' + i + '|code" value="' + esc(pl.code || '') + '" list="plantCodes"></label>' +
+        '<label>Arrangement <select data-xf="plant|' + i + '|drawing">' + txArr().map(function (a) { return '<option value="' + a.id + '"' + (a.id === pl.drawing ? ' selected' : '') + '>' + esc(a.title) + '</option>'; }).join('') + '</select></label>' +
+        '<label>Hanger height AG (m) <input data-xf="plant|' + i + '|attHt" value="' + fmt(pl.attHt) + '" inputmode="decimal"></label><label title="Bearing from the pole to the transformer, degrees from grid north">Bearing (°) <input data-xf="plant|' + i + '|dir" value="' + fmt(pl.dir) + '" inputmode="decimal"></label><button class="btn small" data-xdel="plant|' + i + '" aria-label="Remove transformer">×</button>' +
+        (pl.ref ? '<small class="muted">' + esc(pl.ref) + '</small>' : '') + '</div>';
+    });
+    if (!x.stays.length && !x.plant.length) h += '<p class="meta">No stays or plant on ' + esc(id) + '.</p>';
+    h += '<datalist id="plantCodes"><option value="X T 0127-3Ph"></datalist><div class="btnrow"><button class="btn small" data-xadd="stay"' + (cons.length ? '' : ' disabled title="Add a construction first: the stay goes 300 mm below its king bolt"') + '>Add stay</button><button class="btn small" data-xadd="plant"' + (hag != null ? '' : ' disabled') + '>Add transformer</button></div></div>';
+    return h;
+  }
+  function addExtra(id, kind) {
+    var row = project.poles.filter(function (r) { return r.ID === id; })[0], hag = PNW.num(row.HeightAG), dirs = lineDirs(id) || {}, x = extras(id), entry, what;
+    if (kind === 'stay') {
+      var top = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; })[0];
+      entry = { wire: lib && lib.stays && lib.stays.length ? (lib.stays[0].code || lib.stays[0].Code) : '', attHt: Math.round((top.kingbolt - 0.3) * 1000) / 1000, dir: dirs.stay != null ? dirs.stay : 0, angle: 45,
+        ref: 'Height: 300 mm below the ' + (top.descr || top.code) + ' king bolt (DCSH H01-1 / L03; your S1242155 tipload uses the same). Bearing: away from the conductors. Angle 45° as in your S1242155 tipload.' };
+      x.stays.push(entry); what = 'Stay';
+    } else {
+      var tx = txArr(), term = dm && (dm.byPole[id] || []).some(function (c) { return /termination/i.test(c.code + ' ' + (M.libraryConstruction(lib, c.code) || {}).description); }), a = tx.filter(function (t) { return term ? /termination/i.test(t.title) : !/termination/i.test(t.title); })[0] || tx[0];
+      entry = { code: 'X T 0127-3Ph', drawing: a.id, attHt: Math.round((hag - a.below) * 1000) / 1000, dir: dirs.toLine != null ? dirs.toLine : 0, ref: a.ref + '. Code from your S1242155 tipload; check the size.' };
+      x.plant.push(entry); what = 'Transformer';
+    }
+    S.design.log = liveLog().concat([logEntry(id, what, what, '', kind === 'stay' ? entry.wire + ' at ' + entry.attHt + ' m, ' + entry.dir + '°' : entry.code + ' (' + entry.drawing + ') at ' + entry.attHt + ' m', 'calculated', entry.ref)]);
+    recompute();
+  }
+  $('selected').addEventListener('click', function (e) {
+    var a = e.target.closest('[data-xadd]'), d = e.target.closest('[data-xdel]'), id = S.selected;
+    if (a) { addExtra(id, a.dataset.xadd); return; }
+    if (d) { var k = d.dataset.xdel.split('|'), x = extras(id), it = x[k[0]].splice(+k[1], 1)[0]; S.design.log = liveLog().concat([logEntry(id, k[0] === 'stays' ? 'Stay' : 'Transformer', 'Removed', JSON.stringify(it), '', 'manual', '')]); recompute(); }
+  });
+  $('selected').addEventListener('change', function (e) {
+    var f = e.target.dataset && e.target.dataset.xf; if (!f) return;
+    var k = f.split('|'), it = extras(S.selected)[k[0]][+k[1]], v = e.target.value, before = it[k[2]];
+    if (k[2] === 'attHt' || k[2] === 'dir' || k[2] === 'angle') {
+      v = Number(v); var hag = PNW.num((project.poles.filter(function (r) { return r.ID === S.selected; })[0] || {}).HeightAG);
+      if (!isFinite(v) || (k[2] === 'attHt' && (v <= 0 || (hag != null && v > hag))) || (k[2] === 'angle' && (v <= 0 || v >= 90))) { setStatus('Not a valid ' + (k[2] === 'attHt' ? 'height (above ground, below the tip)' : k[2] === 'angle' ? 'stay angle (0–90°)' : 'bearing') + '.', 'bad'); renderSelected(); return; }
+      if (k[2] === 'dir') v = ((v % 360) + 360) % 360;
+    }
+    if (k[2] === 'drawing') { var arr = txArr().filter(function (a) { return a.id === v; })[0], hg = PNW.num((project.poles.filter(function (r) { return r.ID === S.selected; })[0] || {}).HeightAG); if (arr && hg != null) { it.attHt = Math.round((hg - arr.below) * 1000) / 1000; it.ref = arr.ref; } }
+    it[k[2]] = v;
+    S.design.log = liveLog().concat([logEntry(S.selected, k[0] === 'stays' ? 'Stay' : 'Transformer', k[2], before, v, 'manual', '')]);
+    recompute();
+  });
   function polePane(id, p, r, inProf, ex) {
-    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button></div><table class="props">';
+    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button>' + (streetViewUrl(id) ? '<a class="btn small" data-instab="photo" href="' + streetViewUrl(id) + '" target="_blank" rel="noopener" title="Opens Street View at this pole; snip it and paste it (Ctrl+V) into the AI photo tab">📷 Street View snip → AI</a>' : '') + '</div><table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
     if (p.survey) { var sk = p.survey.kind || 'LiDAR'; sec('Survey'); row('Easting', fmt(p.survey.easting), tagS(sk)); row('Northing', fmt(p.survey.northing), tagS(sk)); row('Elevation', fmt(p.survey.elevation), tagS(sk)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Bays', p.survey.bays); row('Bay angles', p.survey.bayAngles.join(', ')); row('Equipment no', p.survey.equipNo); row('Surveyed', p.survey.surveyed); row('Source', p.survey.src.file + ' row ' + p.survey.src.row); }
@@ -1312,6 +1382,7 @@
       h += c.attachments.length ? '<p class="meta">Height above ground: <b>' + (c.kingbolt != null ? c.attachments.map(function (a) { return fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; }).join(' / ') + ' m' : '–') + '</b> · ' + c.attachments.length + ' conductor' + (c.attachments.length === 1 ? '' : 's') + '</p><details class="offs"><summary>Edit attachment offsets</summary><table class="att"><tr><th>#</th><th>x (m)</th><th>y (m)</th><th class="num">Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' x"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' y"></td><td class="num">' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '" title="Remove this attachment point">×</button>') + '</td></tr>'; }).join('') + '</table></details>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
       h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + ', so points and the construction cannot be removed here.</span>' : '<button class="btn small" data-aadd="' + u + '">Add attachment point</button><button class="btn small danger" data-cdel="' + u + '">Remove construction</button>') + '</div></div>';
     });
+    h += extrasHtml(id, row);
     h += '<div class="con add" id="conAddBox">' + conAddHtml(id) + '</div>';
     return h;
   }
@@ -1517,8 +1588,11 @@
     });
   }
   function aiPanel(id, cons) {
-    var r = aiResults[id] || {}, h = '<div class="con ai"><div class="con-title" title="The photo is resized in your browser and sent once to ' + (IN_CLAUDE ? 'Claude on your account' : 'EVE\'s AI service') + '; it is not stored. Nothing changes until you approve a suggestion, and approvals are logged as AI suggestions.">✨ Analyse pole photo with AI</div>';
-    h += '<label class="btn small"><input type="file" id="aiPhoto" accept="image/jpeg,image/png,image/webp" hidden>' + (r.photo ? 'Another photo…' : 'Choose a photo…') + '</label>';
+    var r = aiResults[id] || {}, h = '<div class="con ai' + (r.min ? ' min' : '') + '"><div class="ai-tools">' + (r.resp || r.error ? '<button class="btn small" data-aimin title="' + (r.min ? 'Show the AI results' : 'Minimise') + '">' + (r.min ? '▸' : '▾') + '</button><button class="btn small" data-aiclose title="Close and clear the AI results">✕</button>' : '') + '</div><div class="con-title" title="The photo is resized in your browser and sent once to ' + (IN_CLAUDE ? 'Claude on your account' : 'EVE\'s AI service') + '; it is not stored. Nothing changes until you approve a suggestion, and approvals are logged as AI suggestions.">✨ Analyse pole photo with AI</div>';
+    if (r.min) return h + '<p class="meta">' + (r.groups ? r.groups.map(function (g) { return CLASS_LABEL[g.cls] + ': ' + (r.approved && r.approved[g.cls] ? r.approved[g.cls] + ' approved' : g.items[0] ? g.items[0].code : '–'); }).join(' · ') : '') + '</p></div>';
+    var sv = streetViewUrl(id);
+    h += '<div class="btnrow"><label class="btn small"><input type="file" id="aiPhoto" accept="image/jpeg,image/png,image/webp" hidden>' + (r.photo ? 'Another photo…' : 'Choose a photo…') + '</label>' + (sv ? '<a class="btn small" href="' + sv + '" target="_blank" rel="noopener" title="Opens Google Street View at this pole in a new tab. Snip the pole (Windows: Win+Shift+S) and paste it here with Ctrl+V.">Street View ↗</a>' : '') + '</div>' +
+      '<div class="ai-paste" tabindex="0" title="Paste a snip with Ctrl+V, or drop an image here">Paste a Street View snip here (Ctrl+V) or drop an image</div>';
     if (r.thumb) h += '<img class="ai-thumb" src="' + r.thumb + '" alt="Photo of ' + esc(id) + '">';
     if (r.loading) h += '<p class="status">Looking at ' + esc(r.photo) + '…</p>';
     if (r.error) h += '<p class="hint warn">' + esc(r.error) + '</p>';
@@ -1546,6 +1620,25 @@
     }
     return h + '</div>';
   }
+  function streetViewUrl(id) {
+    var p = merged.poles[id], ll = p && (poleLatLng(p) || (p.gis && p.gis.lat != null ? L.latLng(p.gis.lat, p.gis.lng) : null));
+    if (!ll) { var q = dm && dm.allPoles.filter(function (x) { return x.id === id; })[0]; ll = q ? toLatLng(q.easting, q.northing) : null; }
+    return ll ? 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + ll.lat.toFixed(6) + ',' + ll.lng.toFixed(6) : null;
+  }
+  // A snip pasted (Ctrl+V) or dropped while the AI photo tab is open is analysed like a chosen photo.
+  function aiImageFrom(items) { for (var i = 0; i < (items ? items.length : 0); i++) { var it = items[i], f = it.getAsFile ? (it.kind === 'file' ? it.getAsFile() : null) : it; if (f && /^image\//.test(f.type)) return f; } return null; }
+  document.addEventListener('paste', function (e) {
+    if (U.insTab !== 'photo' || !S.selected || !project || !$('aiPhoto')) return;
+    var f = aiImageFrom(e.clipboardData && e.clipboardData.items); if (!f) return;
+    e.preventDefault(); runAi(S.selected, new File([f], 'Street View snip ' + S.selected + '.png', { type: f.type }));
+  });
+  $('selected').addEventListener('dragover', function (e) { if (e.target.closest('.ai-paste')) { e.preventDefault(); e.stopPropagation(); } });
+  $('selected').addEventListener('drop', function (e) { var z = e.target.closest('.ai-paste'); if (!z) return; e.preventDefault(); e.stopPropagation(); var f = aiImageFrom(e.dataTransfer && e.dataTransfer.files); if (f) runAi(S.selected, f); });
+  $('selected').addEventListener('click', function (e) {
+    var m = e.target.closest('[data-aimin]'), c = e.target.closest('[data-aiclose]'), r = aiResults[S.selected];
+    if (m && r) { r.min = !r.min; renderSelected(); }
+    if (c) { delete aiResults[S.selected]; renderSelected(); }
+  });
   function aiCandidates() {
     var list = {}; (lib ? lib.constructions : []).forEach(function (c) { list[c.code] = { code: c.code, description: c.description }; });
     registerRows().forEach(function (r) { if (!r.code) return; var c = list[r.code] || (list[r.code] = { code: r.code, description: '' }); c.phases = r.phases || null; if (r.dcsh) c.dcsh = r.dcsh.drawing + ' ' + r.dcsh.title; });
@@ -1650,7 +1743,9 @@
   function data3d() {
     if (dm && dm.poles.length) {
       var ribbon = function (ps, ax) { return ps.map(function (p, i) { return { easting: p.easting, northing: p.northing, ground: p.ground, right: ax[i] ? ax[i].right : [1, 0] }; }); };
-      var d = { poles: dm.poles.slice(), axes: dm.axes.slice(), constructions: dm.constructions.slice(), points: dm.points.slice(), wires: dm.wires.slice(), ribbons: [ribbon(dm.poles, dm.axes)], showLabels: S.labels, keepView: true };
+      var ex = S.design.extras || {}, stays = [], plant = [];
+      Object.keys(ex).forEach(function (id) { (ex[id].stays || []).forEach(function (st) { stays.push(Object.assign({ pole: id }, st)); }); (ex[id].plant || []).forEach(function (pl) { plant.push(Object.assign({ pole: id }, pl)); }); });
+      var d = { poles: dm.poles.slice(), axes: dm.axes.slice(), constructions: dm.constructions.slice(), points: dm.points.slice(), wires: dm.wires.slice(), ribbons: [ribbon(dm.poles, dm.axes)], stays: stays, plant: plant, showLabels: S.labels, keepView: true };
       xLines.forEach(function (x) {
         var axisOf = {}, shift = {};
         x.dm.poles.forEach(function (p, i) {
@@ -1659,7 +1754,7 @@
           if (m) shift[p.id] = { id: m.id, e: m.easting - p.easting, n: m.northing - p.northing, z: (m.ground != null ? m.ground : p.ground) - p.ground };
           else { d.poles.push(Object.assign({}, p, { line: x.title })); d.axes.push(x.dm.axes[i]); }
         });
-        var mv = function (q) { var t = shift[q.pole]; return t ? Object.assign({}, q, { pole: t.id, easting: q.easting + t.e, northing: q.northing + t.n, elevation: q.elevation + t.z }) : q; };
+        var mv = function (q) { var t = shift[q.pole]; return t ? Object.assign({}, q, { pole: t.id, easting: q.easting + t.e, northing: q.northing + t.n, elevation: q.elevation + t.z, right: axisOf[q.pole] }) : Object.assign({}, q, { right: axisOf[q.pole] }); };
         x.dm.constructions.forEach(function (c) { d.constructions.push(Object.assign({}, c, { pole: shift[c.pole] ? shift[c.pole].id : c.pole, axis: axisOf[c.pole] })); });
         x.dm.points.forEach(function (q) { d.points.push(mv(q)); });
         x.dm.wires.forEach(function (w) { d.wires.push(Object.assign({}, w, { segment: x.title + ' · ' + w.segment, from: mv(w.from), to: mv(w.to) })); });

@@ -640,7 +640,9 @@
       if (!DCSH_STATUS[e.status]) issues.push((e.id || 'Entry ' + (i + 1)) + ': unknown status "' + e.status + '".');
       if (e.attachments && !e.attachments.every(function (a) { return isFinite(a.x) && (a.y == null || isFinite(a.y)); })) issues.push(e.id + ': attachment offsets must be numbers (y may be null when the drawing does not dimension it).');
     });
-    return { source: j.source || '', entries: j.entries, issues: issues };
+    if (j.plant && !Array.isArray(j.plant)) issues.push('"plant" must be a list of pole-mounted plant arrangements.');
+    (Array.isArray(j.plant) ? j.plant : []).forEach(function (p, i) { if (!p.id || !(p.hangerBelowTip > 0)) issues.push('Plant ' + (p.id || i + 1) + ': needs an id and hangerBelowTip (m below the pole tip).'); });
+    return { source: j.source || '', entries: j.entries, plant: (Array.isArray(j.plant) ? j.plant : []).filter(function (p) { return p.id && p.hangerBelowTip > 0; }), issues: issues };
   }
   function dcshFor(reg, code) {
     if (!reg || !code) return [];

@@ -168,7 +168,7 @@ function updateCompass() {
 
 function clear() {
   group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); if (o.element) o.element.remove(); });
-  group.clear(); poleMeshes = {}; poleParts = {}; wireLines = []; fitObjects = []; lineMats = [];
+  group.clear(); halo = null; poleMeshes = {}; poleParts = {}; wireLines = []; fitObjects = []; lineMats = [];
 }
 function label(text, pos, cls) {
   const d = document.createElement('div'); d.className = cls || 'l3d'; d.textContent = text;
@@ -235,10 +235,54 @@ function update(data) {
       bar.position.copy(a).add(b).multiplyScalar(0.5); bar.rotation.y = Math.atan2(-(b.z - a.z), b.x - a.x); part(bar, c.pole);
     }
   });
+  // Insulators, from the attachment's offset to its construction (PNW: height = king bolt + y):
+  //  y > 0  pin / post insulator standing on the crossarm (or on the pole top for a centre phase), conductor on top;
+  //  y < 0  suspension string hanging from the crossarm;  y = 0  strain string along the line at crossarm level.
+  const insMat = new THREE.MeshStandardMaterial({ color: 0xd9dde3, roughness: 0.35 }), axisOfPt = (q) => q.right || axisOf[q.pole] || [1, 0];
+  const insulator = (from, to, pole) => {
+    const len = from.distanceTo(to); if (len < 0.02) return;
+    const g = new THREE.Group(), n = Math.max(2, Math.round(len / 0.07));
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 8), insMat); g.add(core);
+    for (let k = 0; k < n; k++) { const shed = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.018, 14), insMat); shed.position.y = -len / 2 + (k + 0.5) * len / n; g.add(shed); }
+    g.position.copy(from).add(to).multiplyScalar(0.5);
+    g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+    part(g, pole);
+  };
   (data.points || []).forEach((q) => {
-    const v = P(q.easting, q.northing, q.elevation);
-    const ins = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.18, 10), new THREE.MeshStandardMaterial({ color: 0xd4d4d8 }));
-    ins.position.copy(v).add(new THREE.Vector3(0, -0.09, 0)); part(ins, q.pole);
+    const v = P(q.easting, q.northing, q.elevation), pv = q.provenance || {}, y = pv.y || 0, x = pv.x || 0, p = byPole[q.pole];
+    if (y > 0.02) {
+      // centre phase on the pole top / side bracket: a short post from below the point; arm phases: from the crossarm up
+      const base = Math.abs(x) < 0.05 ? v.clone().add(new THREE.Vector3(0, -Math.min(y, 0.3), 0)) : v.clone().add(new THREE.Vector3(0, -y + 0.05, 0));
+      insulator(base, v, q.pole);
+    } else if (y < -0.02) insulator(v.clone().add(new THREE.Vector3(0, -y, 0)), v, q.pole);
+    else {
+      const r = axisOfPt(q), along = new THREE.Vector3(r[1], 0, r[0]).normalize().multiplyScalar(0.2); // line direction, perpendicular to the crossarm
+      insulator(v.clone().sub(along), v.clone().add(along), q.pole);
+    }
+    if (!p) return;
+  });
+
+  // Stays (PNW tipload fields: attachment height, bearing to the anchor, angle from the pole) and pole-mounted plant.
+  (data.stays || []).forEach((st) => {
+    const p = byPole[st.pole]; if (!p || !(st.attHt > 0)) return;
+    const lead = st.attHt * Math.tan(THREE.MathUtils.degToRad(st.angle || 45)), b = THREE.MathUtils.degToRad(st.dir || 0);
+    const top = P(p.easting, p.northing, p.ground + st.attHt), foot = P(p.easting + Math.sin(b) * lead, p.northing + Math.cos(b) * lead, p.ground);
+    const g = new LineGeometry(); g.setPositions([top.x, top.y, top.z, foot.x, foot.y, foot.z]);
+    const mt = new LineMaterial({ color: 0x334155, linewidth: 2, worldUnits: false }); mt.resolution.set(host.clientWidth || 1, host.clientHeight || 1); lineMats.push(mt);
+    const ln = new Line2(g, mt); ln.computeLineDistances(); ln.userData = { pole: st.pole, pts: [top, foot] }; part(ln, st.pole);
+    const anchor = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.08, 16), new THREE.MeshStandardMaterial({ color: 0x475569 })); anchor.position.copy(foot); part(anchor, st.pole);
+    if (data.showLabels !== false) label('stay ' + (st.wire || ''), top.clone().lerp(foot, 0.5), 'l3d stay');
+  });
+  (data.plant || []).forEach((pl) => {
+    const p = byPole[pl.pole]; if (!p || !(pl.attHt > 0)) return;
+    // Illustrative tank (size is not from the standard); its hanger is at the attachment height, on the bearing given.
+    const b = THREE.MathUtils.degToRad(pl.dir || 0), off = 0.62, w = 0.8, d = 0.6, h = 1.0;
+    const c = P(p.easting + Math.sin(b) * off, p.northing + Math.cos(b) * off, p.ground + pl.attHt - h / 2);
+    const tank = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: 0x8a96a3, roughness: 0.5, metalness: 0.3 }));
+    tank.position.copy(c); tank.rotation.y = -b; tank.userData.pole = pl.pole; part(tank, pl.pole);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, off), new THREE.MeshStandardMaterial({ color: COLORS.arm }));
+    arm.position.copy(P(p.easting + Math.sin(b) * off / 2, p.northing + Math.cos(b) * off / 2, p.ground + pl.attHt)); arm.rotation.y = -b; part(arm, pl.pole);
+    if (data.showLabels !== false) label(pl.code || 'Transformer', c.clone().add(new THREE.Vector3(0, h / 2 + 0.3, 0)), 'l3d plant');
   });
 
   // Conductors: one line per phase, between matching attachment points, with sag only when it was calculated.
@@ -369,9 +413,24 @@ function focus(id) {
   box.expandByVector(new THREE.Vector3(Math.max(0, 4 - s.x) / 2, 0.5, Math.max(0, 4 - s.z) / 2));
   return frame(corners(box), viewDir(), true);
 }
+// Selected pole: orange glow (emissive pole, a soft halo around it and a ring on the ground).
+let halo = null;
 function setSelected(id) {
   selected = id;
-  Object.entries(poleMeshes).forEach(([pid, parts]) => parts.forEach((m, i) => { if (m.material.emissive) m.material.emissive.setHex(pid === id && i === 0 ? 0x7a4a00 : 0x000000); }));
+  Object.entries(poleMeshes).forEach(([pid, parts]) => parts.forEach((m, i) => { if (m.material.emissive) { m.material.emissive.setHex(pid === id && i === 0 ? 0xff8a00 : 0x000000); m.material.emissiveIntensity = pid === id ? 0.35 : 1; } }));
+  if (halo) { group.remove(halo); halo.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); halo = null; }
+  const m = id && poleMeshes[id] && poleMeshes[id][0];
+  if (m) {
+    const hgt = m.geometry.parameters.height, r = m.geometry.parameters.radiusBottom;
+    halo = new THREE.Group();
+    [[r + 0.06, 0.16], [r + 0.14, 0.07]].forEach(([rr, op]) => {
+      const sh = new THREE.Mesh(new THREE.CylinderGeometry(rr, rr, hgt + 0.3, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide }));
+      halo.add(sh);
+    });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r + 0.35, r + 0.6, 40), new THREE.MeshBasicMaterial({ color: 0xff8a00, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = -hgt / 2 + 0.03; halo.add(ring);
+    halo.position.copy(m.position); halo.renderOrder = 2; group.add(halo);
+  }
   invalidate();
 }
 function selectSection(name) {
@@ -391,7 +450,7 @@ function state() {
     view: viewName, near: camera.near, far: camera.far, renders: renders, distance: camera.position.distanceTo(controls.target),
     target: controls.target.toArray(), position: camera.position.toArray(), selectedSection: selectedSection,
     screen: ndc && { minX: Math.min(...ndc.map((v) => v.x)), maxX: Math.max(...ndc.map((v) => v.x)), minY: Math.min(...ndc.map((v) => v.y)), maxY: Math.max(...ndc.map((v) => v.y)) },
-    wires: wireLines.length, poles: Object.keys(poleMeshes).length, tweening: !!tween, scale: scaleEl && { len: +scaleEl.dataset.len, px: +scaleEl.dataset.px, text: scaleEl.querySelector('.txt').textContent },
+    wires: wireLines.length, poles: Object.keys(poleMeshes).length, glow: !!halo, stays: (lastData && lastData.stays || []).length, plant: (lastData && lastData.plant || []).length, tweening: !!tween, scale: scaleEl && { len: +scaleEl.dataset.len, px: +scaleEl.dataset.px, text: scaleEl.querySelector('.txt').textContent },
     // screen position (CSS px in the host) of the middle of the first wire, so tests can click it
     wireAt: wireLines.length ? (() => { const l = wireLines[0], v = l.userData.pts[12].clone().project(camera); return { segment: l.userData.segment, x: (v.x + 1) / 2 * host.clientWidth, y: (1 - v.y) / 2 * host.clientHeight }; })() : null
   };

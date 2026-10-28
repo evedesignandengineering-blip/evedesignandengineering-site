@@ -16,6 +16,12 @@ exports.open = async function (w, h, init) {
   const pg = await ctx.newPage(), logs = [];
   pg.on('pageerror', (e) => logs.push('PAGEERROR ' + e.message)); pg.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ' ' + m.text()); });
   await pg.goto(exports.URL); await pg.waitForTimeout(500);
+  // The website build has no built-in reference data: PNW_E2E_EXTRA (comma-separated paths) imports it first.
+  if (process.env.PNW_E2E_EXTRA) {
+    await pg.setInputFiles('#fileInput', process.env.PNW_E2E_EXTRA.split(',').map((f) => f.trim()).filter(Boolean));
+    await pg.waitForFunction(() => /Imported/.test(document.getElementById('status').textContent), null, { timeout: 30000 });
+    await pg.evaluate(() => { document.getElementById('status').textContent = ''; });
+  }
   return { b, ctx, pg, logs };
 };
 // Console noise that is not from the page: software-GL stalls in headless Chromium and blocked web fonts.
