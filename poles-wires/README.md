@@ -81,6 +81,25 @@ are entered in the window or pasted from the Options page of a PNW tipload repor
 Not modelled: ice loading, span reduction factors other than 1, rectangular poles, foundations and direction
 multipliers other than 1.
 
+### Conductor tool, profile and 3D layers
+
+The Conductor button strings a strain section by clicking poles in the plan, 3D or profile view. On the map a click
+snaps to the nearest project pole within 14 screen pixels (orange ring); without a snap nothing is connected. In 3D and
+the profile the attachment points of the construction each pole will use are marked. The panel holds the conductor,
+tension and units. Tension is filled from the user's stringing table whose span range holds the ruling span ("auto by
+span"), else the only standard value ("default"). Picking or typing another value makes it "manual", and a manual
+tension is never overwritten. The auto flag is saved with the design.
+
+The profile has its own horizontal scale and a slider. The wheel moves along the line; Ctrl + wheel zooms horizontally.
+
+The 3D view can show Esri World Imagery or OpenStreetMap tiles under the model, flat or draped on ground levels
+interpolated from the surveyed poles (no terrain model is loaded). Attribution is shown. Both tile services have usage
+policies for heavy or commercial use, so a high-traffic deployment should use a keyed tile service. Pages whose content
+policy blocks tile servers show grey tiles with a note.
+
+King bolt defaults use the user's reference register when it dimensions the drawing, else the PNW library. LV under HV
+is flagged because the separation rule (with or without a running earth) is not in the loaded reference data.
+
 ## Known limitations
 
 - The `.pnwx` export has not yet been reopened in PNW. Only the edited fields change, but PNW's own checks are not reproduced.
