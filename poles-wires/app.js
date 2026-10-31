@@ -31,7 +31,7 @@
   function setStatus(t, cls) { var n = $('status'); n.textContent = t; n.className = 'status' + (cls ? ' ' + cls : ''); }
 
   /* ---------- layout: project panel | viewport + table dock | inspector, each resizable and collapsible ---------- */
-  var UI_KEY = 'eve-poles-wires-ui-v1', U = { lw: Math.round(Math.min(300, window.innerWidth * 0.2)), rw: Math.round(Math.min(390, window.innerWidth * 0.27)), dh: Math.round(Math.min(250, window.innerHeight * 0.28)), left: true, right: true, dock: true, dockMin: false, insTab: 'pole', tab: 'poles' };
+  var UI_KEY = 'eve-poles-wires-ui-v1', U = { lw: Math.round(Math.min(300, window.innerWidth * 0.2)), rw: Math.round(Math.min(390, window.innerWidth * 0.27)), dh: Math.round(Math.min(250, window.innerHeight * 0.28)), left: true, right: true, dock: true, dockMin: false, insTab: 'design', tab: 'poles' };
   try { Object.assign(U, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch (e) { /* storage blocked: defaults */ }
   function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify(U)); } catch (e) { /* ignore */ } }
   var LIMITS = { lw: [220, 560], rw: [300, 680], dh: [120, 2000] };
@@ -244,7 +244,7 @@
 
   /* ---------- recompute and render ---------- */
   function recompute() {
-    syncDesign();
+    syncDesign(); autoTensionSync();
     var ok = S.files.filter(function (f) { return f.status === 'ok' && !TEXT_ROLES[f.role]; });
     merged = PNW.buildPoles(ok.concat(projectSurvey(ok)));
     var p = prof();
@@ -369,6 +369,7 @@
   /* ---------- selection and inspector ---------- */
   // info.segment: a wire was clicked in 3D (or a row in the conductor schedule), so its strain section is selected too.
   function select(id, info) {
+    if (CT.on && id && !(info && info.segment !== undefined)) { ctAdd(id); return; }
     S.selected = id; flags.inspected = true;
     if (info && info.segment !== undefined) { S.selSection = info.segment || null; if (info.segment) U.insTab = 'conductors'; }
     else if (!id) S.selSection = null;
@@ -385,9 +386,21 @@
     if ((S.view === '3d' || S.view === 'split') && window.PNW3D && mounted3d) { if (!window.PNW3D.focus(id)) setStatus(id + ' is not drawn in 3D (no coordinates or ground level).', 'bad'); }
     else if (S.view === 'plan') zoomTo(id);
   }
+  // King bolt default: the DCSH drawing's distance below the tip for the top construction, else the PNW library default.
+  function kbDefault(code, hag, above) {
+    var d = M.dcshFor(dcshReg(), code)[0];
+    if (above == null && d && d.kingboltBelowTip != null && hag > 0) return { value: Math.round((hag - d.kingboltBelowTip) * 1000) / 1000, below: d.kingboltBelowTip, source: 'DCSH ' + d.drawing + ' (' + d.part + ', p' + d.page + ') king bolt below tip' };
+    return M.defaultKingbolt(lib, code, hag, above);
+  }
+  // LV under HV: the separation depends on a running earth (RE), and that rule is not in the loaded DCSH parts.
+  function lvUnderHvNote(cons, i) {
+    var c = cons[i]; if (i === 0 || circuitClass(c.code) !== 'lv' || !cons.slice(0, i).some(function (x) { return circuitClass(x.code) === 'hv'; })) return '';
+    var re = cons.some(function (x) { return /^RE/i.test(x.code || ''); });
+    return '<span class="wbub" title="' + esc((re ? 'Running earth (RE) on this pole. ' : 'No running earth (RE) on this pole. ') + 'The HV to LV separation rule for this case is not in the loaded reference data. The LV height uses the PNW library distance below the supercircuit until that rule is loaded.') + '">!</span>';
+  }
   function tagS(t) { return '<span class="tag src">' + t + '</span>'; }
   function fact(k, v, cls, title) { return '<div class="fact ' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : esc(v)) + '</b></div>'; }
-  var INS_TABS = [['pole', 'Pole'], ['design', 'Constructions'], ['conductors', 'Conductors'], ['photo', '✨ AI photo'], ['checks', 'Checks']];
+  var INS_TABS = [['design', 'Constructions'], ['conductors', 'Conductors'], ['photo', '✨ AI photo'], ['checks', 'Checks'], ['pole', 'Pole details']];
   function renderSelected() {
     var id = S.selected, p = id && merged.poles[id];
     $('insTitle').textContent = p ? 'Pole ' + id : 'Project summary';
@@ -402,15 +415,16 @@
     var L = prow ? PNW.num(prow.Length) : r ? r.length : ex.value, hag = prow ? PNW.num(prow.HeightAG) : r ? r.height : null, sunk = prow ? PNW.num(prow.Sunk) : r ? r.sunk : null;
     var ch = prow ? PNW.num(prow.Distance) : r ? r.chainage : null, gl = p.survey ? p.survey.elevation : null;
     var h = '<div class="inspane" style="padding-bottom:0"><div class="ins-title"><b>' + esc(id) + '</b>' + (inProf ? '<span class="pill info">In profile #' + (prof().poleIds.indexOf(id) + 1) + '</span>' : '<span class="pill mute">Not in profile</span>') + (prow ? (prow.New === 'True' ? '<span class="pill info">New pole</span>' : '<span class="pill mute">Existing pole</span>') : '') + (ne ? '<span class="pill bad">' + ne + ' error' + (ne > 1 ? 's' : '') + '</span>' : nw ? '<span class="pill warn">' + nw + ' warning' + (nw > 1 ? 's' : '') + '</span>' : '<span class="pill ok">No errors or warnings</span>') + '</div>' +
-      '<div class="facts">' + fact('Chainage (m)', fmt(ch, 2)) + fact('Pole length (m)', fmt(L), L == null ? 'warn' : '', L == null ? 'No pole length from any source' : '') + fact('Above ground (m)', fmt(hag)) +
+      '</div>';
+    var facts = '<div class="facts">' + fact('Chainage (m)', fmt(ch, 2)) + fact('Pole length (m)', fmt(L), L == null ? 'warn' : '', L == null ? 'No pole length from any source' : '') + fact('Above ground (m)', fmt(hag)) +
       fact('Setting depth (m)', fmt(sunk)) + fact('Ground level (m)', fmt(gl, 2), gl == null ? 'warn' : '', gl == null ? 'No LiDAR elevation' : 'LiDAR') + fact('Span back (m)', r && r.span != null ? fmt(r.span, 2) : '') +
-      (project ? fact('Constructions', cons.length, prow && !cons.length ? 'warn' : '') + fact('Strain sections', secs.length) + fact('Attachment points', cons.reduce(function (n, c) { return n + c.attachments.length; }, 0)) : '') + '</div></div>';
-    var tab = U.insTab || 'pole';
+      (project ? fact('Constructions', cons.length, prow && !cons.length ? 'warn' : '') + fact('Strain sections', secs.length) + fact('Attachment points', cons.reduce(function (n, c) { return n + c.attachments.length; }, 0)) : '') + '</div>';
+    var tab = U.insTab || 'design';
     h += '<div class="instabs" role="tablist" aria-label="Pole details">' + INS_TABS.map(function (t) {
       var badge = t[0] === 'checks' && (ne || nw) ? ' <span class="pill ' + (ne ? 'bad' : 'warn') + '">' + (ne + nw) + '</span>' : t[0] === 'design' && project ? ' <span class="pill mute">' + cons.length + '</span>' : t[0] === 'conductors' && project ? ' <span class="pill mute">' + secs.length + '</span>' : '';
       return '<button role="tab" data-instab="' + t[0] + '" aria-selected="' + (t[0] === tab) + '" class="' + (t[0] === tab ? 'on' : '') + '">' + t[1] + badge + '</button>';
     }).join('') + '</div><div class="inspane" role="tabpanel">';
-    if (tab === 'pole') h += polePane(id, p, r, inProf, ex);
+    if (tab === 'pole') h += facts + polePane(id, p, r, inProf, ex);
     else if (tab === 'design') h += designPanel(id);
     else if (tab === 'conductors') h += project ? (prow ? sectionsOnPole(id) : '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>') : startDesignHint();
     else if (tab === 'photo') h += project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : '<p class="hint"><b>AI photo match</b> looks at a photo of the pole and ranks the PNW library constructions (with their DCSH drawings) that fit. ' + (project ? esc(id) + ' is not in the linked PNW project; pick a pole that is.' : 'It works on a design, so link a PNW project first.') + '</p>' + (project ? '' : startDesignHint());
@@ -537,7 +551,7 @@
     var now = steps.map(function (s) { return s[0]; }).indexOf(false);
     return '<div class="inspane"><div class="facts">' + fact('Poles', ids.length) + fact('In profile', built ? built.rows.length : 0) + fact('Errors', e, e ? 'bad' : '') + fact('Warnings', w, w ? 'warn' : '') + fact('Constructions', project ? project.constructions.length : '') + fact('Strain sections', project ? project.segments.length : '') + '</div>' +
       '<ul class="summary-list">' + steps.map(function (s, i) { return '<li class="' + (s[0] ? 'done' : i === now ? 'now' : '') + '"><span class="ix">' + (s[0] ? '✓' : i + 1) + '</span><div><b>' + s[1] + '</b><div class="meta">' + s[2] + '</div>' + (s[3] ? '<div class="btnrow" style="margin-top:4px">' + s[3] + '</div>' : '') + '</div></li>'; }).join('') + '</ul>' +
-      '<p class="hint">Select a pole on the map, in 3D, in the profile or in the Poles table to inspect and edit it. Click a conductor in 3D to select its strain section.</p></div>';
+      '<p class="hint explain">Select a pole on the map, in 3D, in the profile or in the Poles table to inspect and edit it. Click a conductor in 3D to select its strain section.</p></div>';
   }
   $('selected').addEventListener('click', function (e) {
     var t = e.target.closest('[data-instab],[data-act],[data-xuse]'); if (!t) return;
@@ -920,6 +934,8 @@
   }
   function regFor(c) { var k = c.code + '|' + JSON.stringify(c.attachments); return registerRows().filter(function (r) { return r.id === k; })[0] || null; }
   // Engineering status of a register row: the engineer's approval wins; otherwise what the DCSH comparison shows.
+  // Short status in the construction header; a warning is a small orange bubble with the reason on hover.
+  function statusBadge(st) { return st.cls === 'warn' ? '<span class="wbub" tabindex="0" title="' + esc(st.text) + '" aria-label="' + esc(st.text) + '">!</span>' : '<span class="pill ' + st.cls + '">' + esc(st.text) + '</span>'; }
   function statusOf(r) {
     if (!r) return { cls: 'warn', text: 'Needs engineering review' };
     if (r.user.status === 'approved') return { cls: 'ok', text: 'Approved by ' + (r.user.by || 'engineer') + (r.user.drawing || (r.dcsh && r.dcsh.drawing) ? ' · DCSH ' + (r.user.drawing || r.dcsh.drawing) : '') };
@@ -946,7 +962,7 @@
         '<td><span class="pill ' + st.cls + '">' + esc(st.text) + '</span></td>' +
         '<td><select data-regst="' + esc(r.id) + '" aria-label="Engineer status for ' + esc(r.code) + '"><option value="">Needs review</option><option value="approved"' + (r.user.status === 'approved' ? ' selected' : '') + '>Approved</option><option value="unsupported"' + (r.user.status === 'unsupported' ? ' selected' : '') + '>Unsupported</option></select></td></tr>';
     });
-    $('tableWrap').innerHTML = h + '</tbody></table><p class="hint" style="margin:8px">Attachment offsets come from your saved PNW projects; the DCSH column comes from the DCSH register file you imported. A construction is only "Approved" when an engineer sets it here; the tool never approves anything itself.</p>';
+    $('tableWrap').innerHTML = h + '</tbody></table><p class="hint explain" style="margin:8px">Attachment offsets come from your saved PNW projects; the DCSH column comes from the DCSH register file you imported. A construction is only "Approved" when an engineer sets it here; the tool never approves anything itself.</p>';
   }
   $('tableWrap').addEventListener('change', function (e) {
     var id = e.target.dataset.regst; if (id == null) return;
@@ -964,7 +980,7 @@
     S.design = Object.assign(blankDesign(), { register: S.design.register, link: name });
     recompute(); setStatus('Started a design from the ground profile. Add constructions to each pole, then string conductors in the Strain sections tab.', 'good');
   }
-  var secForm = { tension: '', units: '%CBL' };
+  var secForm = { tension: '', units: '%CBL' }, CT = { on: false, chain: [], hover: null };
   // A library conductor, or one already in the project (Table4) turned into the same shape.
   function conductorFor(code) {
     var c = lib && lib.conductors.filter(function (x) { return x.code === code; })[0];
@@ -1014,7 +1030,7 @@
   }
   function parsedCon(id, unique) { return ((dm && dm.byPole[id]) || []).filter(function (c) { return c.unique === unique; })[0] || null; }
   function renderSections() {
-    if (!project) { $('tableWrap').innerHTML = '<div style="padding:14px">' + startDesignHint() + '<p class="hint">The conductor schedule lists the strain sections of the linked PNW project.</p></div>'; return; }
+    if (!project) { $('tableWrap').innerHTML = '<div style="padding:14px">' + startDesignHint() + '<p class="hint explain">The conductor schedule lists the strain sections of the linked PNW project.</p></div>'; return; }
     var tables = stringing(), q = $('search').value.trim().toLowerCase();
     var h = '<table class="grid"><thead><tr><th>Section</th><th>Poles</th><th>Conductor</th><th>Tension</th><th>Units</th><th class="num">Wires</th><th class="num">Spans</th><th class="num">Length</th><th class="num">Ruling span</th><th>DCSH sag table</th><th></th></tr></thead><tbody>';
     var shown = 0;
@@ -1029,7 +1045,7 @@
           var cc = conductorFor(v); if (!cc) { setStatus(v + ' is not in the PNW library or this project.', 'bad'); renderTable(); return; }
           commit(function (p) { var s0 = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = s0.Conductor; M.updateSection(p, n, { conductor: cc }); return [logEntry('', n, 'Conductor', from, cc.code, 'manual', lib && lib.conductors.indexOf(cc) >= 0 ? 'PNW library ' + cc.code : '')]; });
         } }) + (c && c.name ? '<small class="muted">' + esc(c.name) + '</small>' : '') + '</td>' +
-        '<td><input data-secten="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal" style="width:64px" aria-label="Tension of ' + esc(n) + '"></td>' +
+        '<td><input data-secten="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal" style="width:64px" aria-label="Tension of ' + esc(n) + '"> ' + ((S.design.tensionAuto || {})[n] ? '<span class="tag der" title="Follows the ruling span (DCSH Part 10). Typing a tension makes it manual.">auto</span>' : '<button class="tag edit" data-secauto="' + esc(n) + '" title="Manual tension. Click to follow the ruling span (DCSH Part 10) instead.">manual</button>') + '</td>' +
         '<td><select data-secunits="' + esc(n) + '" aria-label="Tension units of ' + esc(n) + '"><option' + (sg.TensionUnits === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (sg.TensionUnits === 'kN' ? ' selected' : '') + '>kN</option></select></td>' +
         '<td class="num">' + esc(sg.numconds) + '</td><td class="num">' + sp.length + '</td><td class="num">' + (sp.length ? sp.reduce(function (a, b) { return a + b; }, 0).toFixed(1) + ' m' : '') + '</td>' +
         '<td class="num">' + (sp.length ? M.rulingSpan(sp).toFixed(1) + ' m' : '') + '</td>' +
@@ -1039,7 +1055,26 @@
     if (!project.segments.length) h += '<tr><td colspan="11" class="muted">No strain sections yet. String the first one with the form below.</td></tr>';
     else if (!shown) h += '<tr><td colspan="11" class="muted">No strain section matches the search.</td></tr>';
     h += '</tbody></table>';
-    $('tableWrap').innerHTML = h + '<div class="con add" style="margin:10px 8px" id="secFormBox">' + secFormHtml() + '</div>';
+    $('tableWrap').innerHTML = h + '<div class="con add" style="margin:10px 8px" id="secFormBox">' + (CT.on ? '<p class="hint">Drawing a conductor: use the panel over the view.</p>' : secFormHtml()) + '</div>';
+  }
+  // Tension of the section being strung: automatic (DCSH Part 10 table for the ruling span), else the only standard value,
+  // else what the user picked. f.tmode: 'auto' | 'default' | 'manual'.
+  function fillTension(f, mem, ts) {
+    if (f.tensionUser) { f.tmode = 'manual'; return; }
+    var at = f.cond && mem.length > 1 ? autoTension(f.cond, membersRs(mem)) : null;
+    if (at) { f.tension = String(at.value); f.units = at.units; f.table = at.table; f.tsrc = at.note; f.tmode = 'auto'; return; }
+    if (f.cond && ts.length === 1) { f.tension = String(ts[0].value); f.units = ts[0].units; f.table = ts[0].table || ''; f.tsrc = ts[0].note; f.tmode = 'default'; return; }
+    f.tension = ''; f.table = ''; f.tsrc = ''; f.tmode = '';
+  }
+  function tmodeTag(f) { return f.tmode === 'auto' ? '<span class="tag der" title="' + esc(f.tsrc) + '">auto by span</span>' : f.tmode === 'default' ? '<span class="tag src" title="' + esc(f.tsrc) + '">default</span>' : f.tmode === 'manual' ? '<span class="tag edit">manual</span>' : ''; }
+  // Standard tensions (this project and DCSH Part 10 tables) in a list; a typed value only when no standard value exists.
+  function tensionPicker(f, ts, bad) {
+    var typed = '<input data-secf="tension" value="' + esc(f.tension) + '" inputmode="decimal" placeholder="tension" style="width:70px"' + (bad ? ' class="invalid"' : '') + '>';
+    if (f.typeT && ts.length) return typed + ' <select data-secf="tpick" style="width:auto"><option value="type" selected>typed</option><option value="auto">Auto</option>' + ts.map(function (t, i) { return '<option value="' + i + '">' + esc(t.label) + '</option>'; }).join('') + '</select>';
+    if (!ts.length) return '<input data-secf="tension" value="' + esc(f.tension) + '" inputmode="decimal" placeholder="no standard value"' + (bad ? ' class="invalid"' : '') + '>';
+    var cur = ts.filter(function (t) { return String(t.value) === String(f.tension) && t.units === f.units && (t.table || '') === (f.table || ''); })[0] || ts.filter(function (t) { return String(t.value) === String(f.tension) && t.units === f.units; })[0];
+    return '<select data-secf="tpick"' + (bad ? ' class="invalid"' : '') + ' title="' + esc(cur ? cur.note : '') + '"><option value="auto"' + (f.tmode === 'auto' || f.tmode === 'default' ? ' selected' : '') + '>Auto' + (f.tmode === 'auto' || f.tmode === 'default' ? ' (' + esc(f.tension + ' ' + f.units) + ')' : '') + '</option>' +
+      ts.map(function (t, i) { return '<option value="' + i + '"' + (f.tmode === 'manual' && t === cur ? ' selected' : '') + ' title="' + esc(t.note) + '">' + esc(t.label) + ' · ' + esc(t.note) + '</option>'; }).join('') + '<option value="type">Type a value…</option></select>';
   }
   function secFormHtml() {
     var f = secForm, ids = project.poles.map(function (r) { return r.ID; });
@@ -1052,22 +1087,22 @@
     var gis = circuitOf(f.level) ? gisConductorsAt(f.from, circuitOf(f.level)) : [];
     if (!f.condUser) { f.cond = gis.length === 1 && gis[0].lib ? gis[0].lib.code : ''; f.gis = f.cond ? gis[0] : null; }
     var ts = f.cond ? tensionSuggestions(f.cond) : [];
-    if (!f.tensionUser && f.cond && f.autoFor !== f.cond) { f.autoFor = f.cond; if (ts.length === 1) { f.tension = String(ts[0].value); f.units = ts[0].units; f.table = ts[0].table || ''; f.tsrc = ts[0].note; } else { f.tension = ''; f.table = ''; f.tsrc = ''; } }
-    var mem = sectionMembers(f), c = conductorFor(f.cond), ck = secChecks(f, mem, c, gis, ts);
+    var mem = CT.on && CT.chain.length < 2 ? [] : sectionMembers(f), c = conductorFor(f.cond);
+    fillTension(f, mem, ts);
+    var ck = secChecks(f, mem, c, gis, ts);
     var poleSel = function (key, cur, label) { return '<select data-secf="' + key + '" aria-label="' + label + '">' + ids.map(function (i) { return '<option' + (i === cur ? ' selected' : '') + '>' + esc(i) + '</option>'; }).join('') + '</select>'; };
-    var h = '<div class="con-title">String conductors (new strain section)</div><div class="secform">' +
-      '<div class="field"><label>From pole</label>' + poleSel('from', f.from, 'From pole') + '</div><div class="field"><label>To pole</label>' + poleSel('to', f.to, 'To pole') + '</div>' +
-      '<div class="field"><label title="Construction code prefix that carries the circuit, with how many poles in the range have it">Circuit (constructions)</label><select data-secf="level" aria-label="Circuit">' + (levels.length ? levels.map(function (l) { return '<option value="' + esc(l) + '"' + (l === f.level ? ' selected' : '') + '>' + esc(l) + ' · ' + Object.keys(counts[l]).length + ' of ' + run.length + ' poles</option>'; }).join('') : '<option value="">Add constructions first</option>') + '</select></div>' +
-      '<div class="field" style="grid-column:span 2"><label>Conductor</label>' + chipRow('cmat', condFilter, COND_MAT) + combo('secNewCond', { value: f.cond, placeholder: 'Search code, name or stranding…', aria: 'Conductor for the new strain section', groups: function () { return conductorGroups(f.from, f.level); }, emptyText: 'import the PNW library tables or link a project with conductors.', onPick: function (v) { f.cond = v; f.condUser = true; f.gis = null; refreshSecForm(); } }) + '</div>' +
-      '<div class="field"><label>Tension</label><input data-secf="tension" value="' + esc(f.tension) + '" inputmode="decimal" placeholder="from the design"' + (ck.bad.tension ? ' class="invalid"' : '') + '></div>' +
-      '<div class="field"><label>Units</label><select data-secf="units"><option' + (f.units === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (f.units === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
+    var h = '<div class="con-title">String conductors (new strain section)</div>' + chipRow('cmat', condFilter, COND_MAT) + '<div class="secform">' +
+      '<div class="field f-pole"><label>From pole</label>' + poleSel('from', f.from, 'From pole') + '</div><div class="field f-pole"><label>To pole</label>' + poleSel('to', f.to, 'To pole') + '</div>' +
+      '<div class="field f-circ"><label title="Construction code prefix that carries the circuit, with how many poles in the range have it">Circuit</label><select data-secf="level" aria-label="Circuit">' + (levels.length ? levels.map(function (l) { return '<option value="' + esc(l) + '"' + (l === f.level ? ' selected' : '') + '>' + esc(l) + ' · ' + Object.keys(counts[l]).length + ' of ' + run.length + ' poles</option>'; }).join('') : '<option value="">Add constructions first</option>') + '</select></div>' +
+      '<div class="field f-cond"><label>Conductor</label>' + combo('secNewCond', { value: f.cond, placeholder: 'Search code, name or stranding…', aria: 'Conductor for the new strain section', groups: function () { return conductorGroups(f.from, f.level); }, emptyText: 'import the PNW library tables or link a project with conductors.', onPick: function (v) { f.cond = v; f.condUser = true; f.gis = null; refreshSecForm(); } }) + '</div>' +
+      '<div class="field f-ten"><label>Tension ' + tmodeTag(f) + '</label>' + tensionPicker(f, ts, ck.bad.tension) + '</div>' +
+      '<div class="field f-un"><label>Units</label><select data-secf="units"><option' + (f.units === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (f.units === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
     if (c) h += '<p class="meta"><b>' + esc(c.code) + '</b> ' + esc(c.name || '') + (c.name2 ? ' · ' + esc(c.name2) : '') + (c.material ? ' · ' + esc(c.material) : '') + (c.cbl != null ? ' · CBL ' + c.cbl + ' kN' : '') + (c.mass != null ? ' · ' + c.mass + ' kg/m' : '') + '</p>';
-    if (ts.length) h += '<div class="meta">Tension suggestions: ' + ts.map(function (t, i) { return '<button class="btn small' + (String(t.value) === String(f.tension) && t.units === f.units && (t.table || '') === (f.table || '') ? ' on' : '') + '" data-tpick="' + i + '" title="' + esc(t.note) + '">' + esc(t.label) + ' · ' + esc(t.note) + '</button>'; }).join(' ') + '</div>';
     h += mem.length ? '<p class="meta">' + mem.map(function (m) { var pc = m.c ? parsedCon(m.id, m.c.unique) : null; return '<b>' + esc(m.id) + '</b> ' + (m.options.length > 1 ? '<select data-secpick="' + esc(m.id) + '" aria-label="Construction on ' + esc(m.id) + '">' + m.options.map(function (o) { return '<option value="' + esc(o.unique) + '"' + (o === m.c ? ' selected' : '') + '>' + esc(o.descr) + '</option>'; }).join('') + '</select>' : m.c ? esc(m.c.descr) : '<span class="pill bad">no ' + esc(f.level || '') + ' construction</span>') + (pc ? ' <small class="muted">' + pc.attachments.length + ' pts</small>' : ''); }).join(' → ') + '</p>' : '';
     if (ck.preview) h += '<p class="meta">' + ck.preview + '</p>';
     h += '<ul class="msgs">' + ck.msgs.map(function (m) { return '<li class="' + m.level + '">' + m.text + '</li>'; }).join('') + '</ul>';
     h += '<div class="btnrow"><button class="btn small primary" id="secAdd"' + (ck.ok ? '' : ' disabled') + '>Add strain section</button></div>' +
-      '<p class="hint">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p>';
+      '<p class="hint explain">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p>';
     return h;
   }
   // Checks on the new strain section before it can be added: errors block it, warnings and notes are shown.
@@ -1132,11 +1167,13 @@
     if (!n && !h) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">' + (q ? 'Nothing matches the search.' : 'No constructions in the linked project yet.') + '</p>'; return; }
     $('tableWrap').innerHTML = '<table class="grid"><thead><tr><th>Pole</th><th>Construction</th><th>Code</th><th class="num">King bolt AG (m)</th><th class="num">#</th><th class="num">Height AG (m)</th><th class="num">Elevation (m)</th><th>Carries</th><th>King bolt source</th><th></th></tr></thead><tbody>' + h + '</tbody></table>';
   }
-  $('tableWrap').addEventListener('change', function (e) {
+  $('tableWrap').addEventListener('change', secChange);
+  function secChange(e) {
     var t = e.target, d = t.dataset;
     if (d.secf) {
       var v = t.value.trim();
       if (d.secf === 'tension') { secForm.tension = v; secForm.tensionUser = v !== ''; secForm.table = ''; secForm.tsrc = ''; }
+      else if (d.secf === 'tpick') { secForm.typeT = v === 'type'; if (v === 'type') { secForm.tensionUser = true; secForm.table = ''; secForm.tsrc = ''; } else if (v === 'auto') secForm.tensionUser = false; else { var tp = tensionSuggestions(secForm.cond)[+v]; if (tp) { secForm.tension = String(tp.value); secForm.units = tp.units; secForm.table = tp.table || ''; secForm.tsrc = tp.note; secForm.tensionUser = true; } } }
       else secForm[d.secf] = v;
       if (d.secf === 'from' || d.secf === 'to' || d.secf === 'level') secForm.pick = {};
       if (d.secf === 'units') secForm.table = '';
@@ -1147,29 +1184,37 @@
     if (d.secten != null || d.secunits != null) {
       var n = d.secten || d.secunits, tv = PNW.num(t.value);
       if (d.secten != null && !(tv > 0)) { setStatus('"' + t.value + '" is not a valid tension for ' + n + '.', 'bad'); renderTable(); return; }
+      if (S.design.tensionAuto) delete S.design.tensionAuto[n];
       commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = sg.Tension + ' ' + sg.TensionUnits; M.updateSection(p, n, d.secten != null ? { tension: tv } : { units: t.value }); return [logEntry('', n, 'Tension', from, sg.Tension + ' ' + sg.TensionUnits, 'manual')]; });
     }
-  });
-  function refreshSecForm() { var box = $('secFormBox'); if (box && project) box.innerHTML = secFormHtml(); }
+  }
+  function refreshSecForm() { var box = CT.on ? $('ctForm') : $('secFormBox'); if (box && project) box.innerHTML = secFormHtml(); if (CT.on) ctDraw(); }
   $('tableWrap').addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b && tab === 'sections') { var tr = e.target.closest('tr[data-sec]'); if (tr && !e.target.closest('input,select,.combo')) { var mem0 = project.segPoles.filter(function (x) { return x.strsection === tr.dataset.sec; })[0]; select(S.selected || (mem0 && mem0.id) || null, { segment: S.selSection === tr.dataset.sec ? '' : tr.dataset.sec }); } return; }
     if (!b || tab !== 'sections') return;
+    if (b.dataset.secauto) { var an = b.dataset.secauto, sg0 = project.segments.filter(function (x) { return x.StrainSect === an; })[0], ids0 = project.segPoles.filter(function (x) { return x.strsection === an; }).map(function (x) { return x.id; }), sp0 = spansOf(ids0);
+      if (!sg0 || !sp0.length || !autoTension(sg0.Conductor, M.rulingSpan(sp0))) { setStatus('No DCSH Part 10 table for ' + (sg0 ? sg0.Conductor : an) + ' covers this ruling span, so the tension stays manual.', 'bad'); return; }
+      (S.design.tensionAuto = S.design.tensionAuto || {})[an] = true; recompute(); setStatus(an + ' now follows its ruling span.', 'good'); return; }
     if (b.dataset.chip) { condFilter = b.dataset.chip.split(':')[1]; refreshSecForm(); return; }
     if (b.dataset.tpick != null) { var ts = tensionSuggestions(secForm.cond)[+b.dataset.tpick]; if (ts) { secForm.tension = String(ts.value); secForm.units = ts.units; secForm.table = ts.table || ''; secForm.tsrc = ts.note; secForm.tensionUser = true; } refreshSecForm(); return; }
     if (b.dataset.secdel != null) { var n = b.dataset.secdel; if (S.selSection === n) S.selSection = null; commit(function (p) { M.removeSection(p, n); return [logEntry('', n, 'Strain section', n, 'removed', 'manual')]; }); return; }
-    if (b.id === 'secAdd') {
+    if (b.id === 'secAdd') secAddNow();
+  });
+  function secAddNow() {
+    {
       var f = secForm, c = conductorFor(f.cond), mem = sectionMembers(f), gis = circuitOf(f.level) ? gisConductorsAt(f.from, circuitOf(f.level)) : [], ck = secChecks(f, mem, c, gis, c ? tensionSuggestions(f.cond) : []);
       if (!ck.ok) { setStatus(ck.msgs.filter(function (m) { return m.level === 'error'; })[0].text.replace(/<[^>]+>/g, ''), 'bad'); refreshSecForm(); return; }
       var added = null;
       commit(function (p) {
         var name = added = M.addSection(p, { conductor: c, tension: PNW.num(f.tension), units: f.units, poles: mem.map(function (m) { return { id: m.id, unique: m.c.unique }; }) });
         if (f.table) (S.design.tables = S.design.tables || {})[name] = f.table;
+        if (f.tmode === 'auto') (S.design.tensionAuto = S.design.tensionAuto || {})[name] = true;
         return [logEntry(mem[0].id + '→' + mem[mem.length - 1].id, name, 'Strain section', '', c.code + ' at ' + f.tension + ' ' + f.units + ' on ' + mem.map(function (m) { return m.id + ' ' + m.c.descr; }).join(', '), f.gis && !f.condUser ? 'calculated' : 'manual', [lib && lib.conductors.indexOf(c) >= 0 ? 'PNW library ' + c.code : '', f.gis && !f.condUser ? 'GIS ' + f.gis.description + ' on feeder ' + f.gis.feeder + ' (' + f.gis.runs.join(', ') + ')' : '', f.tsrc ? 'tension from ' + f.tsrc : ''].filter(Boolean).join('; '))];
       });
-      if (added) { secForm = { tension: '', units: f.units, from: f.from, to: f.to, level: f.level }; select(S.selected, { segment: added }); setStatus('Added strain section ' + added + '.', 'good'); }
+      if (added) { secForm = { tension: '', units: f.units, from: f.from, to: f.to, level: f.level }; CT.chain = []; select(S.selected, { segment: added }); setStatus('Added strain section ' + added + '.', 'good'); if (CT.on) ctRender(); }
     }
-  });
+  }
   function renderLog() {
     var l = liveLog();
     if (!l.length) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">No design changes yet. Changes you make to constructions and register approvals are recorded here.</p>'; return; }
@@ -1236,6 +1281,30 @@
     return groups;
   }
   function tablesFor(c) { return M.tablesForConductor(stringing(), c); }
+  // Default tension by span: the DCSH Part 10 table for this conductor whose ruling-span range holds the section's ruling span.
+  function autoTension(code, rs) {
+    var c = conductorFor(code); if (!c || !(rs > 0)) return null;
+    var hits = tablesFor(c).filter(function (x) { return x.table.spanMin != null && rs >= x.table.spanMin - 1e-9 && rs <= x.table.spanMax + 1e-9; }).sort(function (a, b) { return a.table.spanMin - b.table.spanMin; });
+    if (!hits.length) return null;
+    var x = hits[0];
+    return { value: x.pct, units: '%CBL', table: x.table.id, note: x.table.title + ' (DCSH Part 10 p' + x.table.page + ') for ruling span ' + rs.toFixed(1) + ' m' + (hits.length > 1 ? '; also fits ' + hits.slice(1).map(function (h) { return h.table.title; }).join(', ') : '') };
+  }
+  function membersRs(mem) { var sp = spansOf(mem.map(function (m) { return m.id; })); return sp.length ? M.rulingSpan(sp) : null; }
+  // Sections on automatic tension follow their ruling span: when a span changes, the tension is re-read from DCSH Part 10.
+  // A tension typed or picked by hand switches the section to manual and is never overwritten.
+  function autoTensionSync() {
+    var auto = S.design.tensionAuto; if (!project || !auto) return;
+    var p = null, entries = [];
+    Object.keys(auto).forEach(function (name) {
+      var seg = project.segments.filter(function (x) { return x.StrainSect === name; })[0]; if (!seg) { delete auto[name]; return; }
+      var ids = project.segPoles.filter(function (x) { return x.strsection === name; }).map(function (x) { return x.id; }), sp = spansOf(ids);
+      var at = sp.length ? autoTension(seg.Conductor, M.rulingSpan(sp)) : null;
+      if (!at || (PNW.num(seg.Tension) === at.value && seg.TensionUnits === at.units)) return;
+      p = p || M.readPnwx(projectXml()); M.updateSection(p, name, { tension: at.value, units: at.units }); (S.design.tables = S.design.tables || {})[name] = at.table;
+      entries.push(logEntry('', name, 'Tension', seg.Tension + ' ' + seg.TensionUnits, at.value + ' ' + at.units, 'calculated', at.note));
+    });
+    if (p) { S.design.xml = M.writePnwx(p); S.design.log = liveLog().concat(entries); syncDesign(); }
+  }
   // Tension suggestions: what this project already uses for the conductor, and the DCSH Part 10 table tensions for it.
   function tensionSuggestions(code) {
     var out = [], seen = {}, c = conductorFor(code);
@@ -1329,14 +1398,14 @@
     var inSec = project.segPoles.some(function (s) { return s.id === id; }), next = project.poles[project.poles.indexOf(row) + 1];
     var gap = next ? Math.round((PNW.num(next.Distance) - PNW.num(row.Distance)) / 2 * 100) / 100 : 20;
     var h = '<div class="con"><div class="con-h"><b>Pole ' + esc(id) + '</b>' + (row.New === 'True' ? '<span class="pill info">New</span>' : '') + (pt.poleType ? '<small>' + esc(pt.poleType) + (pt.diamTip ? ' · tip ' + pt.diamTip + ' mm' : '') + '</small>' : '') + '</div>' +
-      '<div class="field"><label>Pole type (PNW library)</label><select data-ptype="' + esc(id) + '">' + poleTypeOptions((S.design.poleTypes || {})[id] || '', 'Not set (length and depth as typed)') + '</select></div>' +
-      '<div class="row2"><div class="field"><label>Length (m)</label><input data-pfield="length" value="' + esc(row.Length) + '" inputmode="decimal"></div><div class="field"><label>Setting depth (m)</label><input data-pfield="sunk" value="' + esc(row.Sunk) + '" inputmode="decimal"></div></div>' +
+      '<div class="row3"><div class="field"><label>Pole type</label><select data-ptype="' + esc(id) + '" title="PNW library pole type">' + poleTypeOptions((S.design.poleTypes || {})[id] || '', 'Not set') + '</select></div>' +
+      '<div class="field"><label>Length (m)</label><input data-pfield="length" value="' + esc(row.Length) + '" inputmode="decimal"></div><div class="field"><label>Depth (m)</label><input data-pfield="sunk" value="' + esc(row.Sunk) + '" inputmode="decimal" title="Setting depth"></div></div>' +
       '<p class="meta">' + esc(row.HeightAG) + ' m above ground · chainage ' + esc(row.Distance) + ' m · <label><input type="checkbox" data-pnew' + (row.New === 'True' ? ' checked' : '') + '> new pole</label></p>' +
       '<div class="btnrow">' + (inSec ? '<span class="meta">In a strain section, so it cannot be removed here.</span>' : '<button class="btn small" data-pdel="' + esc(id) + '">Remove pole from design</button>') + '</div>' +
       '<details class="addpole"><summary>Add a new pole near ' + esc(id) + '</summary><div class="row2"><div class="field"><label>New pole ID</label><input id="poleAddId" placeholder="e.g. P1"></div><div class="field"><label>Distance from ' + esc(id) + ' (m)</label><input id="poleAddDist" value="' + gap + '" inputmode="decimal" title="Positive is towards the next pole, negative towards the previous one"></div></div>' +
       '<div class="field"><label>Pole type</label><select id="poleAddType">' + poleTypeOptions('', 'Type the length') + '</select></div>' +
       '<div class="row2"><div class="field"><label>Length (m)</label><input id="poleAddLen" value="' + esc(row.Length) + '" inputmode="decimal"></div><div class="field"><label>Setting depth (m)</label><input id="poleAddSunk" placeholder="10% + 0.6 m" inputmode="decimal"></div></div>' +
-      '<div class="btnrow"><button class="btn small primary" id="poleAdd" data-from="' + esc(id) + '">Add pole</button></div><p class="hint">The new pole goes on the ground line at that distance (positive is towards the next pole), with the ground level read from the profile.</p></details></div>';
+      '<div class="btnrow"><button class="btn small primary" id="poleAdd" data-from="' + esc(id) + '">Add pole</button></div><p class="hint explain">The new pole goes on the ground line at that distance (positive is towards the next pole), with the ground level read from the profile.</p></details></div>';
     return h;
   }
   // Strain sections and attachment heights at one pole (inspector Conductors tab).
@@ -1373,11 +1442,11 @@
     var h = '<div class="con-title">Design <span class="pill info">' + esc(linked.name) + '</span></div>' + poleBlock(id, row, pt) + '<div class="con-title" style="margin-top:10px">Constructions (' + cons.length + ')</div>';
     if (!cons.length) h += '<p class="hint">No constructions on ' + esc(id) + ' yet. Add one below.</p>';
     cons.forEach(function (c, i) {
-      var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), above = i > 0 ? cons[i - 1].kingbolt : null, def = M.defaultKingbolt(lib, c.code, hag, above);
+      var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), above = i > 0 ? cons[i - 1].kingbolt : null, def = kbDefault(c.code, hag, above);
       var carries = project.segPoles.filter(function (s) { return s.id === id && s.constr === c.descr; }).map(function (s) { return s.strsection; });
       var src = lastSource(id, c.descr, 'King bolt height'), d = M.dcshFor(dcshReg(), c.code)[0], cmp = d ? M.compareDcsh(d, c, i === 0 ? hag : null) : null;
       var u = esc(c.unique);
-      h += '<div class="con" data-u="' + u + '"><div class="con-h"><b>' + esc(c.descr || '(blank construction)') + '</b><span class="pill mute">' + CLASS_LABEL[circuitClass(c.code)] + '</span>' + (lc ? '<small>' + esc(lc.description) + '</small>' : c.code ? '<span class="pill warn" title="This code is not in the PNW library tables">not in library</span>' : '') + '<span class="pill ' + st.cls + '">' + esc(st.text) + '</span></div>' +
+      h += '<div class="con" data-u="' + u + '"><div class="con-h"><b>' + esc(c.descr || '(blank construction)') + '</b><span class="pill mute">' + CLASS_LABEL[circuitClass(c.code)] + '</span>' + (lc ? '<small>' + esc(lc.description) + '</small>' : c.code ? '<span class="pill warn" title="This code is not in the PNW library tables">not in library</span>' : '') + statusBadge(st) + lvUnderHvNote(cons, i) + '</div>' +
         '<div class="row2"><div class="field"><label>Code</label>' + combo('ccode|' + c.unique, { value: c.code, placeholder: 'Search code…', aria: 'Construction code of ' + (c.descr || 'construction'), free: true, groups: function () { return constructionGroups(id); }, onPick: function (v) { changeCode(id, c.unique, v, 'manual', ''); if (!M.libraryConstruction(lib, v) && !knownLayout(v)) setStatus(v + ' is not in the PNW library or your projects: no defaults or offsets are known, so it needs engineering review.', 'bad'); } }) + '</div>' +
         '<div class="field"><label title="Height of the king bolt above ground, in metres">King bolt above ground (m) <span class="tag ' + (src === 'manual' ? 'edit' : src === 'imported' ? 'src' : 'der') + '">' + esc(src) + '</span></label><input data-ckb="' + u + '" value="' + fmt(c.kingbolt) + '" inputmode="decimal"' + (c.kingbolt != null && hag != null && c.kingbolt > hag ? ' class="invalid" title="Above the pole tip (' + hag + ' m above ground)"' : '') + '></div></div>';
       if (c.kingbolt != null && hag != null && c.kingbolt > hag) h += '<p class="hint bad">The king bolt is ' + fmt(Math.round((c.kingbolt - hag) * 1000) / 1000) + ' m above the pole tip (' + hag + ' m above ground).</p>';
@@ -1400,7 +1469,7 @@
     var x = conContext(id), out = { msgs: [], ok: false, def: null, lay: null, lc: null, dc: null };
     if (!d.code) { out.msgs.push({ level: 'info', text: 'Choose a construction code. Codes on the neighbouring poles are listed first.' }); return out; }
     out.lc = M.libraryConstruction(lib, d.code); out.lay = knownLayout(d.code); out.dc = M.dcshFor(dcshReg(), d.code)[0] || null;
-    out.def = M.defaultKingbolt(lib, d.code, x.hag, x.lowest);
+    out.def = kbDefault(d.code, x.hag, x.lowest);
     if (!out.lc) out.msgs.push({ level: 'warning', text: esc(d.code) + ' is not in the PNW library tables, so there is no default height or voltage. Check the code.' });
     if (!out.lay) out.msgs.push({ level: 'warning', text: 'No attachment offsets are known for ' + esc(d.code) + ' (no dimensioned DCSH drawing and not in your projects). It will be added without attachment points and needs engineering review.' });
     var kb = PNW.num(d.kb);
@@ -1432,13 +1501,13 @@
     return '<div class="con-title">Add a construction to ' + esc(id) + '</div>' + conFilterChips() +
       '<div class="row2"><div class="field"><label>Construction code</label>' + combo('conAdd', { value: conDraft.code, placeholder: 'Search code or description…', aria: 'Construction code to add', free: true, groups: function () { return constructionGroups(id, conFilter); }, onPick: function (v) {
         conDraft.code = v;
-        if (!conDraft.kbUser) { var x = conContext(id), df = M.defaultKingbolt(lib, v, x.hag, x.lowest); conDraft.kb = df ? String(df.value) : ''; }
+        if (!conDraft.kbUser) { var x = conContext(id), df = kbDefault(v, x.hag, x.lowest); conDraft.kb = df ? String(df.value) : ''; }
         refreshConAdd();
       } }) + '</div>' +
       '<div class="field"><label for="conAddKb">King bolt above ground (m)</label><input id="conAddKb" inputmode="decimal" value="' + esc(conDraft.kb) + '" placeholder="library default"></div></div>' +
       '<div id="conAddPrev">' + pv.html + '</div>' +
       '<div class="btnrow"><button class="btn small primary" id="conAdd" data-pole="' + esc(id) + '"' + (pv.ok ? '' : ' disabled') + '>Add to ' + esc(id) + '</button>' + '<button class="btn small" id="conKbDefault" title="Go back to the library default height"' + (conDraft.kbUser ? '' : ' hidden') + '>Use default height</button>' + '</div>' +
-      '<p class="hint">The king bolt starts at the PNW library default (below the tip, or below the construction above). Offsets are copied from a dimensioned DCSH drawing or one of your projects; nothing is made up. Attach the construction to conductors in the Conductor schedule.</p>';
+      '<p class="hint explain">The king bolt starts at the PNW library default (below the tip, or below the construction above). Offsets are copied from a dimensioned DCSH drawing or one of your projects; nothing is made up. Attach the construction to conductors in the Conductor schedule.</p>';
   }
   function refreshConAdd() { var box = $('conAddBox'); if (box && S.selected) box.innerHTML = conAddHtml(S.selected); }
   function refreshConPreview() { var id = S.selected, el = $('conAddPrev'); if (!el || !id) return; var pv = conPreview(id); el.innerHTML = pv.html; if ($('conAdd')) $('conAdd').disabled = !pv.ok; if ($('conKbDefault')) $('conKbDefault').hidden = !conDraft.kbUser; }
@@ -1514,7 +1583,7 @@
     if (b.dataset.arm != null) { var ak = b.dataset.arm.split('|'); editAttachments(id, ak[0], function (list) { var a = list.splice(+ak[1], 1)[0]; return ['Attachment ' + a.order, a.x + ', ' + a.y, 'removed']; }); return; }
     if (b.dataset.gotab) { openTab(b.dataset.gotab); return; }
     if (b.dataset.chip) { var cp = b.dataset.chip.split(':'); conFilter[cp[0]] = cp[1]; refreshConAdd(); return; }
-    if (b.id === 'conKbDefault') { var cx = conContext(id), df = M.defaultKingbolt(lib, conDraft.code, cx.hag, cx.lowest); conDraft.kb = df ? String(df.value) : ''; conDraft.kbUser = false; refreshConAdd(); return; }
+    if (b.id === 'conKbDefault') { var cx = conContext(id), df = kbDefault(conDraft.code, cx.hag, cx.lowest); conDraft.kb = df ? String(df.value) : ''; conDraft.kbUser = false; refreshConAdd(); return; }
     if (b.dataset.secshow) { select(id, { segment: b.dataset.secshow }); return; }
     if (b.dataset.pdel != null) { commit(function (p) { M.removePole(p, b.dataset.pdel); return [logEntry(b.dataset.pdel, '', 'Pole', b.dataset.pdel, 'removed', 'manual')]; }); return; }
     if (b.id === 'poleAdd') {
@@ -1704,7 +1773,7 @@
     if ((((dm && dm.byPole[id]) || []).some(function (c) { return String(c.code).toUpperCase() === m.code.toUpperCase(); }))) { setStatus(m.code + ' is already on ' + id + '; one construction carries the whole circuit.', 'bad'); return; }
     if (target !== 'new') { mark(); changeCode(id, target, m.code, 'AI suggestion', ref); return; }
     var cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, c) { return (c.kingbolt || 0) - (a.kingbolt || 0); }), row = project.poles.filter(function (x) { return x.ID === id; })[0];
-    var d = M.defaultKingbolt(lib, m.code, PNW.num(row.HeightAG), cons.length ? cons[cons.length - 1].kingbolt : null);
+    var d = kbDefault(m.code, PNW.num(row.HeightAG), cons.length ? cons[cons.length - 1].kingbolt : null);
     if (!d) { setStatus('No library default height for ' + m.code + '. Add it with the form below and type the king bolt height.', 'bad'); return; }
     var lay = knownLayout(m.code), lc = M.libraryConstruction(lib, m.code);
     mark();
@@ -1740,7 +1809,7 @@
       return;
     }
     window.PNW3D.mount($('v3host'), function (id, info) { select(id, id ? info : { segment: '' }); });
-    mounted3d = true; update3d(); window.PNW3D.select(S.selected); window.PNW3D.selectSection(S.selSection);
+    mounted3d = true; update3d(); window.PNW3D.select(S.selected); window.PNW3D.selectSection(S.selSection); base3d();
     if ($('stage').clientWidth < 820) $('v3legend').open = false;
     var fade = function () { $('v3help').classList.add('fade'); }; setTimeout(fade, 6000); $('v3host').addEventListener('pointerdown', fade, { once: true });
   }
@@ -1770,15 +1839,25 @@
     var poles = rows.map(function (r) { var t = poleTypeFor(r.id, r.length); return { id: r.id, easting: r.easting, northing: r.northing, ground: r.elevation, height: r.height, sunk: r.sunk, diamTip: t ? t.diamTip : null, diamGL: t ? t.diamGL : null }; });
     return { poles: poles, axes: M.crossarmAxes(poles), constructions: [], points: [], wires: [], showLabels: S.labels, keepView: true };
   }
+  // 3D map layer: web tiles under the model (website only; the private build's page policy blocks tile servers).
+  function base3d() {
+    if (!window.PNW3D || !mounted3d) return;
+    var def = '+proj=utm +zone=' + S.zone + ' +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
+    $('v3base').value = U.base3d || 'none'; $('v3terrain').checked = !!U.terrain3d;
+    window.PNW3D.basemap({ kind: U.base3d || 'none', terrain: !!U.terrain3d, toLL: function (e, n) { var l = toLatLng(e, n); return l ? [l.lat, l.lng] : null; }, toEN: function (lat, lng) { try { return proj4('EPSG:4326', def, [lng, lat]); } catch (x) { return null; } } });
+  }
+  $('v3base').onchange = function () { U.base3d = this.value; saveUi(); base3d(); };
+  $('v3terrain').onchange = function () { U.terrain3d = this.checked; saveUi(); base3d(); };
   function update3d() {
     if (!mounted3d) return;
     var d = data3d(); window.PNW3D.update(d);
+    if (CT.on) ctDraw();
     $('v3empty').hidden = d.poles.length > 0;
   }
   var WCOL = { hv: '#c2410c', lv: '#2f6ea4', earth: '#64748b', other: '#0f766e' };
   function wireKind(w) { return /^RE/i.test(w.code || '') ? 'earth' : w.voltage == null ? 'other' : w.voltage > 1 ? 'hv' : 'lv'; }
   function renderProfileView() {
-    var box = $('profileView'), cs = getComputedStyle(box), W = Math.max(box.clientWidth - 16, 300), H = Math.max(box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 30, 140), m = { l: 52, r: 20, t: 14, b: 30 };
+    var box = $('profileView'), cs = getComputedStyle(box), W = Math.max(box.clientWidth - 16, 300), H = Math.max(box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 58, 140), m = { l: 52, r: 20, t: 14, b: 30 };
     var poles, ground, clr = [];
     if (dm && dm.allPoles.length) {
       poles = dm.allPoles.filter(function (p) { return p.chainage != null && p.ground != null; });
@@ -1793,10 +1872,13 @@
     var x1 = Math.max.apply(null, poles.map(function (p) { return p.chainage; }).concat(ground.map(function (g) { return g.c; }))) || 1;
     var lo = Math.min.apply(null, poles.map(function (p) { return p.ground - (p.sunk || 0); })), hi = Math.max.apply(null, poles.map(function (p) { return p.ground + (p.height || 0); }).concat(clr.map(function (g) { return g.z + g.c1; })));
     var y0 = Math.floor(lo - 0.5), y1 = Math.ceil(hi + 1);
-    var X = function (v) { return m.l + v / x1 * (W - m.l - m.r); }, Y = function (v) { return H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b); };
-    var g = '', step = niceStep(y1 - y0, 5), xs = niceStep(x1, 8);
+    // Horizontal zoom (PV.hz, 1 = whole line) and pan (PV.x0, chainage at the left edge) are independent of the vertical scale.
+    PV.x1 = x1; PV.hz = Math.max(1, Math.min(PV.hz, Math.max(1, x1 / 5))); var span = x1 / PV.hz; PV.x0 = Math.max(0, Math.min(PV.x0, x1 - span)); PV.plotW = W - m.l - m.r; PV.ml = m.l;
+    var X = function (v) { return m.l + (v - PV.x0) / span * (W - m.l - m.r); }, Y = function (v) { return H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b); };
+    var g = '', step = niceStep(y1 - y0, 5), xs = niceStep(span, 8);
     for (var v = Math.ceil(y0 / step) * step; v <= y1; v += step) g += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#e6ebf0"/><text x="' + (m.l - 6) + '" y="' + (Y(v) + 3) + '" text-anchor="end" class="ax">' + +v.toFixed(2) + '</text>';
-    for (var c = 0; c <= x1 + 1e-9; c += xs) g += '<text x="' + X(c) + '" y="' + (H - m.b + 14) + '" text-anchor="middle" class="ax">' + +c.toFixed(1) + '</text>';
+    for (var c = Math.ceil(PV.x0 / xs) * xs; c <= PV.x0 + span + 1e-9; c += xs) g += '<text x="' + X(c) + '" y="' + (H - m.b + 14) + '" text-anchor="middle" class="ax">' + +c.toFixed(1) + '</text>';
+    g += '<clipPath id="pvClip"><rect x="' + m.l + '" y="0" width="' + (W - m.l - m.r) + '" height="' + H + '"/></clipPath><g clip-path="url(#pvClip)">';
     g += '<path d="' + ground.map(function (q, i) { return (i ? 'L' : 'M') + X(q.c).toFixed(1) + ' ' + Y(q.z).toFixed(1); }).join(' ') + '" fill="none" stroke="#2f6ea4" stroke-width="2"/>';
     if (clr.length > 1) g += '<path d="' + clr.map(function (q, i) { return (i ? 'L' : 'M') + X(q.c).toFixed(1) + ' ' + Y(q.z + q.c1).toFixed(1); }).join(' ') + '" fill="none" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="6 4"/>';
     poles.forEach(function (p) {
@@ -1813,11 +1895,32 @@
       });
       dm.points.forEach(function (q) { var c0 = chainOf[q.pole]; if (c0 == null) return; g += '<circle cx="' + X(c0) + '" cy="' + Y(q.elevation) + '" r="2.6" fill="#fff" stroke="#172638" stroke-width="1.2"><title>' + esc(q.pole + ' ' + q.construction + ' #' + q.order + ': ' + q.heightAG + ' m above ground (king bolt ' + q.provenance.kingbolt + ' + y ' + q.provenance.y + ')') + '</title></circle>'; });
     }
-    poles.forEach(function (p) { g += '<rect class="hit" data-pick="' + esc(p.id) + '" x="' + (X(p.chainage) - 12) + '" y="' + m.t + '" width="24" height="' + (H - m.t - m.b) + '" fill="transparent"/>'; });
+    if (CT.on && dm) g += ctProfile(chainOf, X, Y);
+    poles.forEach(function (p) { g += '<rect class="hit' + (CT.on ? ' ct' : '') + '" data-pick="' + esc(p.id) + '" x="' + (X(p.chainage) - 12) + '" y="' + m.t + '" width="24" height="' + (H - m.t - m.b) + '" fill="transparent"/>'; });
     var leg = '<div class="chart-legend pv-legend"><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#2f6ea4" stroke-width="2"/></svg>Ground</span>' + (clr.length > 1 ? '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="6 4"/></svg>Clearance 1 line from the project (reference only)</span>' : '') +
       '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#5b4636" stroke-width="3" stroke-dasharray="3 3" opacity=".6"/></svg>Embedment</span>' + (dm ? '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.hv + '" stroke-width="2"/></svg>HV</span><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.lv + '" stroke-width="2"/></svg>LV</span><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.earth + '" stroke-width="2"/></svg>Running earth</span>' : '') + '<span class="muted">Chainage (m) vs elevation (m), vertical scale exaggerated</span></div>';
-    box.innerHTML = leg + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Line profile">' + g + '</svg>';
+    var mpp = span / (W - m.l - m.r), ratio = Math.round(mpp / 0.000264583 / 10) * 10; // metres per screen pixel at 96 dpi
+    if (!$('pvPlot')) box.innerHTML = '<div id="pvPlot"></div><div class="pv-nav"><input type="range" id="pvSlide" min="0" max="1000" step="1" aria-label="Pan along the profile" title="Drag to move along the line (or use the mouse wheel)">' +
+      '<span class="pv-scale" id="pvScale" title="Horizontal scale only; the vertical scale does not change. Ctrl + wheel zooms horizontally."></span>' +
+      '<button class="ibtn" data-pvz="out" title="Zoom out horizontally" aria-label="Zoom out horizontally">−</button><button class="ibtn" data-pvz="in" title="Zoom in horizontally" aria-label="Zoom in horizontally">+</button><button class="ibtn" data-pvz="fit" title="Whole line" aria-label="Show the whole line">⤢</button></div>';
+    $('pvPlot').innerHTML = leg + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Line profile">' + g + '</g></svg>';
+    var sl = $('pvSlide'); sl.disabled = !(PV.hz > 1); if (document.activeElement !== sl) sl.value = x1 > span ? Math.round(PV.x0 / (x1 - span) * 1000) : 0;
+    $('pvScale').textContent = 'H ×' + PV.hz.toFixed(1) + ' · ≈1:' + ratio.toLocaleString('en-AU') + ' · ' + fmt(PV.x0, 0) + '–' + fmt(PV.x0 + span, 0) + ' m';
   }
+  var PV = { hz: 1, x0: 0, x1: 1, plotW: 1, ml: 0 };
+  function pvZoom(k, atX) { // atX: chainage kept under the cursor
+    var span = PV.x1 / PV.hz, c = atX != null ? atX : PV.x0 + span / 2, f = (c - PV.x0) / span;
+    PV.hz = Math.max(1, Math.min(PV.hz * k, Math.max(1, PV.x1 / 5))); var ns = PV.x1 / PV.hz; PV.x0 = c - f * ns; renderProfileView();
+  }
+  $('profileView').addEventListener('wheel', function (e) {
+    if (!$('profileView').querySelector('svg')) return;
+    e.preventDefault();
+    var span = PV.x1 / PV.hz, d = e.deltaY || e.deltaX;
+    if (e.ctrlKey) { var r = $('profileView').querySelector('svg').getBoundingClientRect(); pvZoom(d < 0 ? 1.25 : 0.8, PV.x0 + (e.clientX - r.left - PV.ml) / PV.plotW * span); }
+    else if (PV.hz > 1) { PV.x0 += Math.sign(d) * span * 0.1; renderProfileView(); }
+  }, { passive: false });
+  $('profileView').addEventListener('input', function (e) { if (e.target.id !== 'pvSlide') return; var span = PV.x1 / PV.hz; PV.x0 = e.target.value / 1000 * (PV.x1 - span); renderProfileView(); });
+  $('profileView').addEventListener('click', function (e) { var b = e.target.closest('[data-pvz]'); if (!b) return; if (b.dataset.pvz === 'fit') { PV.hz = 1; PV.x0 = 0; renderProfileView(); } else pvZoom(b.dataset.pvz === 'in' ? 1.5 : 1 / 1.5); });
   $('profileView').addEventListener('click', function (e) { var t = e.target.closest('[data-pick]'); if (t) select(t.dataset.pick); });
   Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) { b.onclick = function () { setView(b.dataset.view); }; });
   function cam(fn) { if (!window.PNW3D || !mounted3d) { setStatus('Open the 3D view first.'); return false; } return fn(window.PNW3D); }
@@ -2017,7 +2120,7 @@
       var own = (st.plant || {})[c] || {}, d = plantData(c), v = function (k) { return own[k] != null ? own[k] : ''; }, ph = function (k) { return d && d[k] != null ? d[k] : ''; };
       return '<tr><td>' + esc(c) + '</td>' + ['weight', 'offset', 'area'].map(function (k) { return '<td class="num"><input data-pd="' + esc(c) + '|' + k + '" value="' + esc(v(k)) + '" placeholder="' + esc(ph(k)) + '" inputmode="decimal" style="width:70px" aria-label="' + esc(c + ' ' + k) + '"></td>'; }).join('') + '<td><small class="muted">' + esc(d ? d.source : 'missing: the plant is left out of the tipload') + '</small></td></tr>';
     }).join('') + '</tbody></table>';
-    h += '<p class="hint">' + (BUILTIN_TIP ? esc(BUILTIN_TIP.optionsSource) : 'Enter the load combinations from your PNW Options, or paste them from a PNW tipload report below. Only what you enter is used.') + '</p>';
+    h += '<p class="hint explain">' + (BUILTIN_TIP ? esc(BUILTIN_TIP.optionsSource) : 'Enter the load combinations from your PNW Options, or paste them from a PNW tipload report below. Only what you enter is used.') + '</p>';
     h += '<div class="tip-paste"><textarea id="lcPaste" rows="3" placeholder="Paste the Options page text of a PNW tipload report (open the PDF, select all, copy) to read its load combinations"></textarea><button class="btn small" id="lcRead">Read load combinations</button></div></details>';
     return h;
   }
@@ -2046,7 +2149,7 @@
     if (saved) h += '<p class="hint">PNW has tipload data saved for ' + esc(id) + ' in this project (stay ' + esc(saved.stay1_wire || 'none') + (saved.stay1_checked === 'True' ? '' : ', not included') + '; plant ' + esc((saved.plant1 || '').trim() || 'none') + (saved.plant1 && saved.plant1.trim() ? ' at ' + esc(saved.plant_attht) + ' m' : '') + '). <button class="btn small" data-tipuse="' + esc(id) + '">Use its stay and plant</button></p>';
     var notes = inp.notes.concat(r.issues);
     if (notes.length) h += '<ul class="issues-list">' + notes.map(function (n) { return '<li class="warning">' + esc(n) + '</li>'; }).join('') + '</ul>';
-    h += '<p class="hint">Method as in the PNW 7 manual: wind from every ' + r.options.step + '°, conductor tension by change of state from the stringing tension at the ruling span, loads added as vectors and the worst direction reported. Tipload = ground moment ÷ (tip height − ' + r.options.loadBelowTip + ' m). Ice is not modelled. ' + (BUILTIN_TIP ? 'Checked against your S1242155 PNW report: 6.58 kN @ 66° (wind from 300°), 2.53 kN @ 45°, kingbolt 4.73 kN.' : 'Checked against a PNW 7.18 tipload report to the precision it prints.') + '</p>';
+    h += '<p class="hint explain">Method as in the PNW 7 manual: wind from every ' + r.options.step + '°, conductor tension by change of state from the stringing tension at the ruling span, loads added as vectors and the worst direction reported. Tipload = ground moment ÷ (tip height − ' + r.options.loadBelowTip + ' m). Ice is not modelled. ' + (BUILTIN_TIP ? 'Checked against your S1242155 PNW report: 6.58 kN @ 66° (wind from 300°), 2.53 kN @ 45°, kingbolt 4.73 kN.' : 'Checked against a PNW 7.18 tipload report to the precision it prints.') + '</p>';
     return h;
   }
   function tipTableHtml(ids) {
@@ -2133,6 +2236,79 @@
   $('closeTip').onclick = function () { $('tipDlg').hidden = true; };
   $('tipDlg').addEventListener('keydown', function (e) { if (e.key === 'Escape') $('tipDlg').hidden = true; });
   $('tbTip').onclick = function () { recompute(); openTip(S.selected); };
+  /* ---------- conductor tool: string a strain section pole to pole in plan, 3D or profile ---------- */
+  var lyCt = L.layerGroup().addTo(map), CT_SNAP = 14, CT_COL = { chain: '#16a34a', cand: '#f97316' };
+  function ctToggle(on) {
+    CT.on = on; CT.chain = []; CT.hover = null;
+    if (on && !project) { CT.on = false; setStatus('Link a PNW project or start a design first: conductors attach to its constructions.', 'bad'); }
+    if (CT.on) { secForm.pick = {}; secForm.tensionUser = false; openTab('sections'); var bb = bounds(); if (S.view === 'plan' && bb.isValid()) map.fitBounds(bb, { paddingTopLeft: [380, 30], paddingBottomRight: [30, 30], maxZoom: 19 }); }
+    ctRender(); if (tab === 'sections') renderTable();
+  }
+  function ctAdd(id) {
+    var ids = project ? project.poles.map(function (r) { return r.ID; }) : [], k = ids.indexOf(id), c = CT.chain;
+    if (k < 0) { setStatus(id + ' is not in the linked PNW project, so a conductor cannot attach to it.', 'bad'); return; }
+    if (c[c.length - 1] === id) return;
+    if (c.length > 1 && (ids.indexOf(c[c.length - 1]) - ids.indexOf(c[0])) * (k - ids.indexOf(c[c.length - 1])) <= 0) { setStatus('A strain section follows line order: pick a pole beyond ' + c[c.length - 1] + ', or undo.', 'bad'); return; }
+    c.push(id); secForm.from = c[0]; secForm.to = c[c.length - 1]; ctRender();
+  }
+  function ctMembers() { return CT.chain.length > 1 ? sectionMembers(secForm) : []; }
+  // Attachment points of the construction each member uses (green), and of the hovered pole's candidate (orange).
+  function ctPts() {
+    var out = [], mem = ctMembers(), inChain = {};
+    mem.forEach(function (m) { inChain[m.id] = 1; if (m.c) dm.points.forEach(function (q) { if (q.pole === m.id && q.code === m.c.code) out.push(Object.assign({ color: CT_COL.chain }, q)); }); });
+    var hv = CT.hover && !inChain[CT.hover] ? CT.hover : CT.chain.length === 1 ? CT.chain[0] : null;
+    if (hv) dm.points.forEach(function (q) { if (q.pole === hv && (!secForm.level || levelOf(q.code) === secForm.level)) out.push(Object.assign({ color: hv === CT.chain[0] ? CT_COL.chain : CT_COL.cand }, q)); });
+    return out;
+  }
+  function ctProfile(chainOf, X, Y) {
+    var g = '', last = {};
+    ctPts().forEach(function (q) { var c0 = chainOf[q.pole]; if (c0 == null) return; g += '<circle cx="' + X(c0) + '" cy="' + Y(q.elevation) + '" r="4.5" fill="none" stroke="' + q.color + '" stroke-width="2.2" pointer-events="none"/>'; if (q.color === CT_COL.chain && (!last[q.pole] || q.elevation > last[q.pole].elevation)) last[q.pole] = q; });
+    var ln = ctMembers().map(function (m) { return last[m.id]; }).filter(Boolean);
+    if (ln.length > 1) g += '<path d="' + ln.map(function (q, i) { return (i ? 'L' : 'M') + X(chainOf[q.pole]).toFixed(1) + ' ' + Y(q.elevation).toFixed(1); }).join(' ') + '" fill="none" stroke="' + CT_COL.chain + '" stroke-width="2" stroke-dasharray="6 3" pointer-events="none"/>';
+    return g;
+  }
+  function ctPlan(cursor) {
+    lyCt.clearLayers(); if (!CT.on) return;
+    var ll = function (id) { var p = merged.poles[id]; return p ? poleLatLng(p) : null; };
+    var path = (ctMembers().length ? ctMembers().map(function (m) { return m.id; }) : CT.chain).map(ll).filter(Boolean);
+    if (path.length > 1) L.polyline(path, { color: CT_COL.chain, weight: 5, opacity: .8, interactive: false }).addTo(lyCt);
+    path.forEach(function (x) { L.circleMarker(x, { radius: 9, weight: 2, color: CT_COL.chain, fill: false, interactive: false }).addTo(lyCt); });
+    var snap = CT.hover && ll(CT.hover), end = snap || cursor;
+    if (path.length && end) L.polyline([path[path.length - 1], end], { color: snap ? CT_COL.chain : '#64748b', weight: 2, dashArray: '6 4', interactive: false }).addTo(lyCt);
+    if (snap) L.circleMarker(snap, { radius: 13, weight: 3, color: CT_COL.cand, dashArray: '4 3', fill: false, interactive: false }).addTo(lyCt);
+  }
+  function ctDraw() {
+    ctPlan();
+    if (window.PNW3D && mounted3d) { window.PNW3D.hover(CT.on ? function (id) { if (CT.hover !== id) { CT.hover = id; ctDraw(); } } : null); window.PNW3D.marks(CT.on && dm ? ctPts() : []); }
+    if (S.view === 'profile' || S.view === 'split') renderProfileView();
+  }
+  function ctRender() {
+    var pn = $('ctPanel'); pn.hidden = !CT.on;
+    $('tbCond').classList.toggle('on', CT.on); $('tbCond').setAttribute('aria-pressed', CT.on);
+    $('mapWrap').classList.toggle('ct-on', CT.on);
+    if (CT.on) pn.innerHTML = '<div class="ct-head"><b>Draw conductor</b><span class="ct-chain">' + (CT.chain.length ? CT.chain.map(esc).join(' → ') : 'Click the first pole') + '</span>' +
+      '<button class="ibtn" id="ctUndo" title="Remove the last pole" aria-label="Undo last pole"' + (CT.chain.length ? '' : ' disabled') + '>↶</button><button class="ibtn" id="ctCancel" title="Stop drawing (Esc)" aria-label="Stop drawing">✕</button></div>' +
+      '<div id="ctForm">' + secFormHtml() + '</div>';
+    ctDraw();
+  }
+  $('tbCond').onclick = function () { ctToggle(!CT.on); };
+  $('ctPanel').addEventListener('change', secChange);
+  $('ctPanel').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'ctCancel') ctToggle(false);
+    else if (b.id === 'ctUndo') { CT.chain.pop(); if (CT.chain.length) { secForm.from = CT.chain[0]; secForm.to = CT.chain[CT.chain.length - 1]; } ctRender(); }
+    else if (b.id === 'secAdd') { if (CT.chain.length < 2) { setStatus('Pick at least two poles.', 'bad'); return; } secAddNow(); }
+    else if (b.dataset.chip) { condFilter = b.dataset.chip.split(':')[1]; refreshSecForm(); }
+  });
+  // Plan view: the nearest pole within CT_SNAP screen pixels is the snap target; nothing connects without a snap.
+  map.on('mousemove', function (e) {
+    if (!CT.on) return;
+    var best = null, bd = CT_SNAP, ids = project ? project.poles.map(function (r) { return r.ID; }) : [];
+    ids.forEach(function (id) { var x = markers[id]; if (!x) return; var d = map.latLngToContainerPoint(x.getLatLng()).distanceTo(e.containerPoint); if (d <= bd) { bd = d; best = id; } });
+    CT.hover = best; ctPlan(e.latlng);
+  });
+  map.on('click', function () { if (CT.on && CT.hover) ctAdd(CT.hover); });
+  window.__pnwMarker = function (id) { var x = markers[id]; return x ? map.latLngToContainerPoint(x.getLatLng()) : null; }; // screen position, for tests
   // One line per load case for the inspector's Pole tab.
   function tipSummaryHtml(id) {
     if (!project || !dm || !tipSet().cases.length || tipPoles().indexOf(id) < 0) return '';
@@ -2156,8 +2332,24 @@
   $('tbDock').onclick = function () { U.dock = !(U.dock && !U.dockMin); U.dockMin = false; applyLayout(); };
   $('dockMin').onclick = function () { U.dockMin = !U.dockMin; applyLayout(); };
   Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function (b) { b.onclick = function () { if (b.dataset.close === 'left') U.left = false; else U.right = false; applyLayout(); }; });
+  // Help: explanations are hidden by default and shown everywhere with the ? Help button.
+  function applyHelp() { document.body.classList.toggle('help-on', !!U.help); $('vHelp').classList.toggle('on', !!U.help); $('vHelp').setAttribute('aria-pressed', !!U.help); }
+  $('vHelp').onclick = function () { U.help = !U.help; saveUi(); applyHelp(); };
+  applyHelp();
+  // Full window: one panel fills the browser window (not the screen); Esc or the same button restores it.
+  var fullEl = null;
+  function setFull(id) {
+    if (fullEl) { fullEl.classList.remove('fullwin'); }
+    fullEl = id && (!fullEl || fullEl.id !== id) ? $(id) : null;
+    if (fullEl) fullEl.classList.add('fullwin');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-full]'), function (b) { var on = !!fullEl && b.dataset.full === fullEl.id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    setTimeout(function () { map.invalidateSize(); if (window.PNW3D && mounted3d) window.PNW3D.resize(); if (S.view === 'profile' || S.view === 'split') renderProfileView(); }, 30);
+  }
+  document.addEventListener('click', function (e) { var b = e.target.closest('[data-full]'); if (b) setFull(b.dataset.full); });
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && fullEl && !e.defaultPrevented && document.getElementById('tipDlg').hidden && document.getElementById('review').hidden) { setFull(null); return; }
     if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (CT.on) { ctToggle(false); return; }
     if (!$('layersPop').hidden) { $('layersPop').hidden = true; return; }
     if (!$('review').hidden || !$('tipDlg').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
     if (S.selected || S.selSection) select(null);

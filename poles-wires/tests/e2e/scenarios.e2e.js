@@ -66,10 +66,12 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const cg = await pg.$$eval('#comboList .cg', (els) => els.map((e) => e.textContent)); ok(cg.length >= 2, '3 conductor suggestions: ' + cg.join(' | '));
   await pg.keyboard.type('MA'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(300);
   form = await pg.$eval('#secFormBox', (e) => e.innerText);
-  ok(/Tension suggestions/.test(form), '4 tension suggestions shown for MA: ' + (form.match(/Tension suggestions:[^\n]*/) || [''])[0].slice(0, 200));
+  const topts = await pg.$$eval('[data-secf="tpick"] option', (o) => o.map((x) => x.textContent));
+  ok(topts.length > 2 && /auto by span|default/.test(form), '4 tension auto-filled with standard values in a list for MA: ' + topts.slice(0, 4).join(' | '));
+  await pg.selectOption('[data-secf="tpick"]', 'type'); await pg.waitForTimeout(200);
   await pg.fill('[data-secf="tension"]', '150'); await pg.press('[data-secf="tension"]', 'Tab'); await pg.waitForTimeout(200);
   ok(await pg.$eval('#secAdd', (e) => e.disabled), '10 150 %CBL blocks the section');
-  const tp = await pg.$('[data-tpick="0"]'); if (tp) { await tp.click(); await pg.waitForTimeout(200); }
+  await pg.selectOption('[data-secf="tpick"]', 'auto'); await pg.waitForTimeout(200);
   form = await pg.$eval('#secFormBox', (e) => e.innerText);
   const dis = await pg.$eval('#secAdd', (e) => e.disabled);
   console.log('   msgs:', form.split('\n').filter((l) => /\.$/.test(l)).slice(0, 6).join(' | '));

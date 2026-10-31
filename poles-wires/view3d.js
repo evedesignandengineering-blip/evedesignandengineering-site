@@ -51,6 +51,7 @@ function mount(el, cb) {
   controls.enableDamping = true; controls.dampingFactor = 0.12; controls.screenSpacePanning = true;
   controls.zoomToCursor = true; controls.minDistance = 0.4; controls.maxDistance = 20000;
   controls.zoomSpeed = 1.1; controls.rotateSpeed = 0.8;
+  controls.maxPolarAngle = Math.PI / 2; // never orbit under the ground
   // Middle button (wheel pressed) pans like the right button; stop the browser's middle-click autoscroll.
   controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
   host.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
@@ -82,6 +83,17 @@ function mount(el, cb) {
     if (!hit) return onSelect(null);
     const u = hit.object.userData;
     onSelect(u.pole, u.segment ? { segment: u.segment } : undefined);
+  });
+  // Hover (used by the conductor tool to preview the attachment points it would snap to).
+  let hoverT = 0, hoverId = null;
+  labels.domElement.addEventListener('pointermove', (e) => {
+    if (!onHover || e.buttons || performance.now() - hoverT < 50) return;
+    hoverT = performance.now();
+    const r = renderer.domElement.getBoundingClientRect();
+    m.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(m, camera);
+    const hit = ray.intersectObjects(Object.values(poleMeshes).flat(), false)[0], id = hit ? hit.object.userData.pole : null;
+    if (id !== hoverId) { hoverId = id; onHover(id); }
   });
   labels.domElement.addEventListener('dblclick', (e) => { e.preventDefault(); if (selected) focus(selected); else fit(); });
   host.tabIndex = 0;
@@ -119,10 +131,31 @@ function loop() {
     dirty = true;
   }
   if (controls.update()) dirty = true;
+  if (keepAboveGround()) dirty = true;
   if (!dirty) return;
   dirty = false; clipPlanes();
   renderer.render(scene, camera); labels.render(scene, camera); renders++;
   updateCompass();
+}
+// Ground under a point: inverse-distance blend of the three nearest surveyed pole ground levels.
+let groundPts = [];
+function groundY(x, z) {
+  if (!groundPts.length) return -Infinity;
+  const near = groundPts.map((g) => ({ g, d: Math.hypot(g.x - x, g.z - z) })).sort((a, b) => a.d - b.d).slice(0, 3);
+  if (near[0].d < 0.01) return near[0].g.y;
+  let w = 0, y = 0; near.forEach((n) => { const k = 1 / (n.d * n.d); w += k; y += k * n.g.y; });
+  return y / w;
+}
+// Keeps the camera at least 1.5 m above the ground and the orbit target no deeper than the pole butts.
+function keepAboveGround() {
+  if (!groundPts.length) return false;
+  let moved = false;
+  const g = groundY(camera.position.x, camera.position.z) + 1.5;
+  if (camera.position.y < g) { camera.position.y = g; moved = true; }
+  const t = groundY(controls.target.x, controls.target.z) - 3;
+  if (controls.target.y < t) { const dy = t - controls.target.y; controls.target.y += dy; if (camera.position.y < g + dy) camera.position.y += dy; moved = true; }
+  if (moved) camera.lookAt(controls.target);
+  return moved;
 }
 function onWheel(e) {
   e.preventDefault(); e.stopPropagation();
@@ -187,6 +220,7 @@ function update(data) {
   const base = Math.min(...poles.map((p) => p.ground - (p.sunk || 0)));
   const newSite = !origin || Math.hypot(poles[0].easting - origin.e, poles[0].northing - origin.n) > 2000;
   if (newSite) origin = { e: poles[0].easting, n: poles[0].northing, z: base };
+  groundPts = poles.map((p) => P(p.easting, p.northing, p.ground));
 
   // Ground ribbon through the surveyed pole base levels (known only at the poles; straight between them).
   // One ribbon per line (data.ribbons when intersecting lines are drawn, else the poles in order).
@@ -304,6 +338,7 @@ function update(data) {
   const ext = poles.reduce((m, p) => Math.max(m, Math.abs(p.easting - origin.e), Math.abs(p.northing - origin.n)), 20);
   const grid = new THREE.GridHelper(Math.ceil(ext * 2.4 / 10) * 10, Math.ceil(ext * 2.4 / 10), 0xc5d0db, 0xdde4ea);
   grid.position.y = Math.min(...poles.map((p) => p.ground)) - origin.z - 0.02; grid.material.depthWrite = false; grid.renderOrder = -2; group.add(grid);
+  grid.visible = tileOpts.kind === 'none'; gridRef = grid; tileExt = ext; gridY = grid.position.y;
 
   const box = bounds(fitObjects); sceneRadius = Math.max(10, box.getBoundingSphere(new THREE.Sphere()).radius);
   controls.maxDistance = Math.max(200, sceneRadius * 12);
@@ -313,6 +348,7 @@ function update(data) {
   if (newSite || !poleKey) fit(newSite ? 'iso' : undefined, { instant: true });
   else if (key !== poleKey && !inView(fitPoints(fitObjects))) fit(undefined, {});
   poleKey = key; invalidate();
+  buildTiles();
 }
 
 function bounds(list) {
@@ -404,6 +440,60 @@ function fit(name, opt) {
   if (name) viewName = name;
   return frame(fitPoints(fitObjects), viewDir(name), !opt.instant);
 }
+// Marker spheres at given points ({easting, northing, elevation, color}); kept apart from the model so update() leaves them.
+let onHover = null, markGroup = null;
+function hover(cb) { onHover = cb || null; }
+function marks(list) {
+  if (!scene) return;
+  if (!markGroup) { markGroup = new THREE.Group(); markGroup.renderOrder = 5; scene.add(markGroup); }
+  markGroup.children.slice().forEach((c) => { markGroup.remove(c); c.geometry.dispose(); c.material.dispose(); });
+  if (origin) (list || []).forEach((q) => {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(q.r || 0.16, 16, 12), new THREE.MeshBasicMaterial({ color: q.color || 0xff7a00, depthTest: false, transparent: true, opacity: 0.9 }));
+    s.position.copy(P(q.easting, q.northing, q.elevation)); s.renderOrder = 10; markGroup.add(s);
+  });
+  invalidate();
+}
+// Map layer under the model: web-map tiles (Esri World Imagery or OpenStreetMap), flat at the lowest pole base or draped
+// on the ground interpolated from the surveyed pole levels (no terrain model is loaded). opts: {kind, terrain, toLL, toEN}.
+let tileGroup = null, tileOpts = { kind: 'none', terrain: false }, tileKey = '', gridRef = null, tileExt = 20, gridY = 0, tileStat = { want: 0, ok: 0, failed: 0 };
+const TILE_URL = { satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', street: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' };
+const TILE_ATTR = { satellite: 'Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community', street: '© OpenStreetMap contributors' };
+function basemap(opts) { tileOpts = Object.assign({}, tileOpts, opts || {}); tileKey = ''; buildTiles(); return tileStat; }
+function buildTiles() {
+  if (!scene || !origin || !lastData) return;
+  if (!tileGroup) { tileGroup = new THREE.Group(); scene.add(tileGroup); }
+  const key = JSON.stringify([tileOpts.kind, tileOpts.terrain, origin, poleKey]); if (key === tileKey) return; tileKey = key;
+  tileGroup.children.slice().forEach((c) => { tileGroup.remove(c); c.geometry.dispose(); if (c.material.map) c.material.map.dispose(); c.material.dispose(); });
+  if (gridRef) gridRef.visible = tileOpts.kind === 'none';
+  let attr = host && host.querySelector('.v3attr');
+  if (host && !attr) { attr = document.createElement('div'); attr.className = 'v3attr'; host.appendChild(attr); }
+  tileStat = { want: 0, ok: 0, failed: 0 };
+  if (attr) attr.textContent = TILE_URL[tileOpts.kind] ? TILE_ATTR[tileOpts.kind] : '';
+  if (!TILE_URL[tileOpts.kind] || !tileOpts.toLL || !tileOpts.toEN) { invalidate(); return; }
+  const pad = Math.max(60, tileExt * 0.4), e0 = origin.e - tileExt - pad, e1 = origin.e + tileExt + pad, n0 = origin.n - tileExt - pad, n1 = origin.n + tileExt + pad;
+  const ll = [[e0, n0], [e1, n0], [e0, n1], [e1, n1]].map((c) => tileOpts.toLL(c[0], c[1])).filter(Boolean); if (ll.length < 4) return;
+  const lat0 = Math.min(...ll.map((q) => q[0])), lat1 = Math.max(...ll.map((q) => q[0])), lng0 = Math.min(...ll.map((q) => q[1])), lng1 = Math.max(...ll.map((q) => q[1]));
+  const tx = (lng, z) => Math.floor((lng + 180) / 360 * 2 ** z), ty = (lat, z) => { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); };
+  const lonOf = (x, z) => x / 2 ** z * 360 - 180, latOf = (y, z) => { const n = Math.PI - 2 * Math.PI * y / 2 ** z; return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))); };
+  let z = 19; while (z > 12 && (tx(lng1, z) - tx(lng0, z) + 1) * (ty(lat0, z) - ty(lat1, z) + 1) > 36) z--;
+  const loader = new THREE.TextureLoader(); loader.setCrossOrigin('anonymous');
+  const N = tileOpts.terrain ? 8 : 1, yFlat = gridY - 0.03;
+  for (let x = tx(lng0, z); x <= tx(lng1, z); x++) for (let y = ty(lat1, z); y <= ty(lat0, z); y++) {
+    const pos = [], uv = [], idx = [];
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const en = tileOpts.toEN(latOf(y + j / N, z), lonOf(x + i / N, z)); if (!en) return;
+      const v = P(en[0], en[1], origin.z); v.y = tileOpts.terrain ? Math.max(groundY(v.x, v.z), -1e6) - 0.05 : yFlat;
+      pos.push(v.x, v.y, v.z); uv.push(i / N, 1 - j / N);
+    }
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+    const m = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
+    const mesh = new THREE.Mesh(g, m); mesh.renderOrder = -3; tileGroup.add(mesh); tileStat.want++;
+    const url = TILE_URL[tileOpts.kind].replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; m.map = t; m.needsUpdate = true; tileStat.ok++; invalidate(); }, undefined, () => { tileStat.failed++; m.color.set(0xe7ecf1); if (attr) attr.textContent = TILE_ATTR[tileOpts.kind] + ' · ' + tileStat.failed + ' tile(s) could not load (offline, or blocked by this page)'; invalidate(); });
+  }
+  invalidate();
+}
 function view(name) { return fit(name || 'iso'); }
 function reset() { return fit('iso'); }
 function focus(id) {
@@ -450,11 +540,11 @@ function state() {
     view: viewName, near: camera.near, far: camera.far, renders: renders, distance: camera.position.distanceTo(controls.target),
     target: controls.target.toArray(), position: camera.position.toArray(), selectedSection: selectedSection,
     screen: ndc && { minX: Math.min(...ndc.map((v) => v.x)), maxX: Math.max(...ndc.map((v) => v.x)), minY: Math.min(...ndc.map((v) => v.y)), maxY: Math.max(...ndc.map((v) => v.y)) },
-    wires: wireLines.length, poles: Object.keys(poleMeshes).length, glow: !!halo, stays: (lastData && lastData.stays || []).length, plant: (lastData && lastData.plant || []).length, tweening: !!tween, scale: scaleEl && { len: +scaleEl.dataset.len, px: +scaleEl.dataset.px, text: scaleEl.querySelector('.txt').textContent },
+    wires: wireLines.length, poles: Object.keys(poleMeshes).length, glow: !!halo, marks: markGroup ? markGroup.children.length : 0, groundGap: groundPts.length ? camera.position.y - groundY(camera.position.x, camera.position.z) : null, stays: (lastData && lastData.stays || []).length, plant: (lastData && lastData.plant || []).length, tweening: !!tween, scale: scaleEl && { len: +scaleEl.dataset.len, px: +scaleEl.dataset.px, text: scaleEl.querySelector('.txt').textContent },
     // screen position (CSS px in the host) of the middle of the first wire, so tests can click it
     wireAt: wireLines.length ? (() => { const l = wireLines[0], v = l.userData.pts[12].clone().project(camera); return { segment: l.userData.segment, x: (v.x + 1) / 2 * host.clientWidth, y: (1 - v.y) / 2 * host.clientHeight }; })() : null
   };
 }
 
-window.PNW3D = { mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS };
+window.PNW3D = { mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS, hover, marks, basemap, tiles: () => Object.assign({ kind: tileOpts.kind, terrain: tileOpts.terrain, meshes: tileGroup ? tileGroup.children.length : 0 }, tileStat) };
 window.dispatchEvent(new Event('pnw3d-ready'));
