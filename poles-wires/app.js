@@ -393,10 +393,43 @@
     return M.defaultKingbolt(lib, code, hag, above);
   }
   // LV under HV: the separation depends on a running earth (RE), and that rule is not in the loaded DCSH parts.
-  function lvUnderHvNote(cons, i) {
+  function lvUnderHvNote(cons, i, id) {
     var c = cons[i]; if (i === 0 || circuitClass(c.code) !== 'lv' || !cons.slice(0, i).some(function (x) { return circuitClass(x.code) === 'hv'; })) return '';
     var re = cons.some(function (x) { return /^RE/i.test(x.code || ''); });
-    return '<span class="wbub" title="' + esc((re ? 'Running earth (RE) on this pole. ' : 'No running earth (RE) on this pole. ') + 'The HV to LV separation rule for this case is not in the loaded reference data. The LV height uses the PNW library distance below the supercircuit until that rule is loaded.') + '">!</span>';
+    var r = lvRule(id, cons, i); if (r && r.value != null) return '';
+    return '<span class="wbub" title="' + esc((re ? 'Running earth (RE) on this pole. ' : 'No running earth (RE) on this pole. ') + ((r && r.why) || 'The HV to LV separation rule for this case is not in the loaded reference data.') + ' The LV height uses the PNW library distance below the supercircuit.') + '">!</span>';
+  }
+  // LV king bolt under HV from the private separation rule (window.PNW_HVLV, built only into the private page):
+  // RE below the HV king bolt by the HV drawing's distance, then the LV king bolt below the RE by LV and RE conductor type.
+  function reCondText(id, re) {
+    if (!project || !re) return '';
+    var s = project.segPoles.filter(function (x) { return x.id === id && x.constr === re.descr; })[0], sg = s && project.segments.filter(function (x) { return x.StrainSect === s.strsection; })[0], c = sg && conductorFor(sg.Conductor);
+    return sg ? [sg.Conductor, c && c.name, c && c.name2, c && c.material].filter(Boolean).join(' ') : '';
+  }
+  function lvRule(id, cons, i) {
+    var c = cons[i]; if (i === 0 || circuitClass(c.code) !== 'lv') return null;
+    var hv = cons.slice(0, i).filter(function (x) { return circuitClass(x.code) === 'hv'; })[0]; if (!hv) return null;
+    var re = cons.filter(function (x) { return /^RE/i.test(x.code || ''); })[0], R = window.PNW_HVLV, out = { re: !!re };
+    if (!R) { out.why = 'The HV to LV separation rule is not loaded on this page.'; return out; }
+    var d = M.dcshFor(dcshReg(), hv.code)[0], rule = d && R.hvToRe[d.drawing];
+    if (!rule) { out.why = 'No separation rule for ' + (d ? d.drawing : hv.code) + ' yet.'; return out; }
+    if (hv.kingbolt == null) { out.why = 'The HV king bolt height is not set.'; return out; }
+    var mm, parts;
+    if (rule.lvKb != null) { mm = rule.lvKb; parts = [rule.ref]; }
+    else if (!re) { var nr = R.noRe[d.drawing] || R.noRe['default']; mm = rule.mm + nr.mm; parts = [rule.ref, nr.ref]; }
+    else if (/^AB/i.test(c.code || '')) { mm = rule.mm + R.abc.mm; parts = [rule.ref, R.abc.ref]; }
+    else {
+      var t = reCondText(id, re), k = Object.keys(R.bare).filter(function (x) { return new RegExp(R.bare[x].match, 'i').test(t); })[0];
+      if (!k) { out.why = 'Running earth conductor ' + (t || '(not strung)') + ' is not one the rule covers for bare LV.'; return out; }
+      mm = rule.mm + R.bare[k].mm; parts = [rule.ref, R.bare[k].ref];
+    }
+    out.value = Math.round((hv.kingbolt - mm / 1000) * 1000) / 1000;
+    out.src = 'DCSH ' + parts.join('; ') + ': ' + mm + ' mm below the ' + hv.code + ' king bolt' + (re ? '' : ' (no RE)');
+    return out;
+  }
+  function lvRuleHint(id, cons, i, u) {
+    var r = lvRule(id, cons, i), c = cons[i]; if (!r || r.value == null) return '';
+    return Math.abs(r.value - (c.kingbolt || 0)) > 0.0005 ? '<p class="hint">' + esc(r.src) + ': <b>' + r.value + ' m</b>. <button class="btn small" data-cdef="' + u + '" data-v="' + r.value + '" data-ref="' + esc(r.src) + '">Use</button></p>' : '<p class="hint ok">LV height matches ' + esc(r.src) + '.</p>';
   }
   function tagS(t) { return '<span class="tag src">' + t + '</span>'; }
   function fact(k, v, cls, title) { return '<div class="fact ' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : esc(v)) + '</b></div>'; }
@@ -1446,11 +1479,12 @@
       var carries = project.segPoles.filter(function (s) { return s.id === id && s.constr === c.descr; }).map(function (s) { return s.strsection; });
       var src = lastSource(id, c.descr, 'King bolt height'), d = M.dcshFor(dcshReg(), c.code)[0], cmp = d ? M.compareDcsh(d, c, i === 0 ? hag : null) : null;
       var u = esc(c.unique);
-      h += '<div class="con" data-u="' + u + '"><div class="con-h"><b>' + esc(c.descr || '(blank construction)') + '</b><span class="pill mute">' + CLASS_LABEL[circuitClass(c.code)] + '</span>' + (lc ? '<small>' + esc(lc.description) + '</small>' : c.code ? '<span class="pill warn" title="This code is not in the PNW library tables">not in library</span>' : '') + statusBadge(st) + lvUnderHvNote(cons, i) + '</div>' +
+      h += '<div class="con" data-u="' + u + '"><div class="con-h"><b>' + esc(c.descr || '(blank construction)') + '</b><span class="pill mute">' + CLASS_LABEL[circuitClass(c.code)] + '</span>' + (lc ? '<small>' + esc(lc.description) + '</small>' : c.code ? '<span class="pill warn" title="This code is not in the PNW library tables">not in library</span>' : '') + statusBadge(st) + lvUnderHvNote(cons, i, id) + '</div>' +
         '<div class="row2"><div class="field"><label>Code</label>' + combo('ccode|' + c.unique, { value: c.code, placeholder: 'Search code…', aria: 'Construction code of ' + (c.descr || 'construction'), free: true, groups: function () { return constructionGroups(id); }, onPick: function (v) { changeCode(id, c.unique, v, 'manual', ''); if (!M.libraryConstruction(lib, v) && !knownLayout(v)) setStatus(v + ' is not in the PNW library or your projects: no defaults or offsets are known, so it needs engineering review.', 'bad'); } }) + '</div>' +
         '<div class="field"><label title="Height of the king bolt above ground, in metres">King bolt above ground (m) <span class="tag ' + (src === 'manual' ? 'edit' : src === 'imported' ? 'src' : 'der') + '">' + esc(src) + '</span></label><input data-ckb="' + u + '" value="' + fmt(c.kingbolt) + '" inputmode="decimal"' + (c.kingbolt != null && hag != null && c.kingbolt > hag ? ' class="invalid" title="Above the pole tip (' + hag + ' m above ground)"' : '') + '></div></div>';
       if (c.kingbolt != null && hag != null && c.kingbolt > hag) h += '<p class="hint bad">The king bolt is ' + fmt(Math.round((c.kingbolt - hag) * 1000) / 1000) + ' m above the pole tip (' + hag + ' m above ground).</p>';
       if (def && c.kingbolt != null && Math.abs(def.value - c.kingbolt) > 0.0005) h += '<p class="hint">' + esc(def.source) + ': <b>' + def.value + ' m</b> (' + def.below + ' m). <button class="btn small" data-cdef="' + u + '" data-v="' + def.value + '" data-ref="' + esc(def.source) + '">Use default</button></p>';
+      h += lvRuleHint(id, cons, i, u);
       if (cmp && cmp.notes.length) h += '<p class="hint warn">' + esc(cmp.notes.join(' ')) + '</p>';
       h += c.attachments.length ? '<p class="meta">Height above ground: <b>' + (c.kingbolt != null ? c.attachments.map(function (a) { return fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; }).join(' / ') + ' m' : '–') + '</b> · ' + c.attachments.length + ' conductor' + (c.attachments.length === 1 ? '' : 's') + '</p><details class="offs"><summary>Edit attachment offsets</summary><table class="att"><tr><th>#</th><th>x (m)</th><th>y (m)</th><th class="num">Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' x"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' y"></td><td class="num">' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '" title="Remove this attachment point">×</button>') + '</td></tr>'; }).join('') + '</table></details>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
       h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + ', so points and the construction cannot be removed here.</span>' : '<button class="btn small" data-aadd="' + u + '">Add attachment point</button><button class="btn small danger" data-cdel="' + u + '">Remove construction</button>') + '</div></div>';
