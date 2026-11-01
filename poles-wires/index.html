@@ -819,5 +819,18 @@ table.grid tr.sel td{background:#1f4e94!important;color:#fff}
 </div>
 <div id="dcshPop" hidden role="dialog" aria-label="DCSH drawing"></div>
 <script src="app.js?v=20261106"></script>
+<script>
+// DCSH drawing thumbnails: fetched only after the page has fully loaded, then the images are warmed in idle time.
+window.addEventListener('load', function () {
+  setTimeout(function () {
+    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261106';
+    sc.onload = function () {
+      var keys = Object.keys(window.PNW_DCSH_IMG || {}), idle = window.requestIdleCallback || function (f) { return setTimeout(f, 200); };
+      (function next() { var k = keys.shift(); if (!k) return; var im = new Image(); im.onload = im.onerror = function () { idle(next); }; im.src = window.PNW_DCSH_IMG[k].src; })();
+    };
+    document.body.appendChild(sc);
+  }, 2000);
+});
+</script>
 </body>
 </html>
