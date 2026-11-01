@@ -3678,7 +3678,27 @@
     if (v) setStatus('“' + v + '” is not a pole or span in this project.', 'bad');
   });
   var wsReady = false;
-  function renderExtras(sel) { if (!wsReady) return; if (sel && /^(spans|calc|tipsum)$/.test(tab)) renderTable(); syncHeader(); syncPvTools(); renderAnalysis(); renderStatusBar(); markRail(); renderExplorer(); syncPlanProf(); syncAnCtl(); syncTitleBar(); syncRibbon(); syncTabMore(); syncRail(); }
+  // Each table cell carries its column name, so phones can show rows as cards.
+  new MutationObserver(function () {
+    Array.prototype.forEach.call($('tableWrap').querySelectorAll('table.grid'), function (t) {
+      var hs = Array.prototype.map.call(t.querySelectorAll('thead th'), function (th) { return th.textContent.replace(/[▴▾]/g, '').trim(); });
+      Array.prototype.forEach.call(t.querySelectorAll('tbody tr'), function (tr) { Array.prototype.forEach.call(tr.children, function (td, i) { if (hs[i] && !td.dataset.label) td.dataset.label = hs[i]; }); });
+    });
+  }).observe($('tableWrap'), { childList: true });
+  // Project summary folds to a slim bar once steps 1-5 are done and nothing is selected; the bar unfolds it.
+  function sumDone() { return !!(S.files.length && built && built.rows.length > 1 && project && project.constructions.length && project.segments.length); }
+  function syncFold() {
+    var none = !S.selected && !S.selSpan && !(S.multi && S.multi.length > 1), fold = none && U.right && sumDone() && U.sumFold !== false, ws = $('workspace');
+    var was = ws.classList.contains('sum-fold'); ws.classList.toggle('sum-fold', fold);
+    var b = $('insFold'); if (!b) { $('insTitle').insertAdjacentHTML('afterend', '<button class="ibtn" id="insFold" aria-label="Fold the summary"></button>'); b = $('insFold'); b.onclick = function () { U.sumFold = !$('workspace').classList.contains('sum-fold'); saveUi(); syncFold(); }; }
+    b.hidden = !none || !sumDone();
+    var e = allIssues.filter(function (i) { return i.level === 'error'; }).length, w = allIssues.filter(function (i) { return i.level === 'warning'; }).length;
+    b.innerHTML = fold ? '<span>Project summary' + (e ? ' · ' + e + ' error' + (e > 1 ? 's' : '') : w ? ' · ' + w + ' warning' + (w > 1 ? 's' : '') : ' · ready') + '</span>' : '⇥';
+    b.title = fold ? 'Show the project summary' : 'Fold the summary to a slim bar for more drawing space';
+    b.className = 'ibtn' + (fold ? ' foldbar' + (e ? ' bad' : w ? ' warn' : '') : '');
+    if (was !== fold) setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); if (S.view !== 'plan') renderViews(); }, 30);
+  }
+  function renderExtras(sel) { if (!wsReady) return; syncFold(); if (sel && /^(spans|calc|tipsum)$/.test(tab)) renderTable(); syncHeader(); syncPvTools(); renderAnalysis(); renderStatusBar(); markRail(); renderExplorer(); syncPlanProf(); syncAnCtl(); syncTitleBar(); syncRibbon(); syncTabMore(); syncRail(); }
   function syncRail() { var pr = prof(), n = pr ? pr.poleIds.length : 0, has = S.files.length > 0; $('railState').textContent = has ? n + ' pole' + (n === 1 ? '' : 's') + ' in profile' : 'No project'; $('railFoot').querySelector('.dot').classList.toggle('off', !has); $('railName').textContent = has && pr ? pr.name || '' : ''; $('railQuick').classList.toggle('loaded', has); }
 
   /* delegated actions from the contextual panel, bars and tables */
@@ -3799,8 +3819,23 @@
       }).join('');
       return '<div class="rgrp"><div class="rbtns">' + inner + '</div><div class="rlab">' + g[0] + '</div></div>';
     }).join('');
-    syncRibbon();
+    syncRibbon(); rove();
   }
+  // Arrow keys move within the ribbon tabs and within the ribbon buttons; each is one Tab stop.
+  function rove() {
+    [['#rtabs', '[data-rtab]'], ['#rbody', '.rbt, [data-rchk]']].forEach(function (g) {
+      var els = Array.prototype.slice.call(document.querySelectorAll(g[0] + ' ' + g[1].split(', ').join(', ' + g[0] + ' '))), cur = els.filter(function (el) { return el.classList.contains('on'); })[0] || els[0];
+      els.forEach(function (el) { el.tabIndex = el === cur ? 0 : -1; });
+    });
+  }
+  ['rtabs', 'rbody'].forEach(function (id) {
+    $(id).addEventListener('keydown', function (e) {
+      var k = e.key; if (!/^(ArrowLeft|ArrowRight|Home|End)$/.test(k)) return;
+      var els = Array.prototype.slice.call($(id).querySelectorAll(id === 'rtabs' ? '[data-rtab]' : '.rbt, [data-rchk]')).filter(function (el) { return !el.disabled && el.offsetParent; }), i = els.indexOf(document.activeElement); if (i < 0) return;
+      var j = k === 'Home' ? 0 : k === 'End' ? els.length - 1 : (i + (k === 'ArrowRight' ? 1 : -1) + els.length) % els.length;
+      e.preventDefault(); els.forEach(function (el) { el.tabIndex = -1; }); els[j].tabIndex = 0; els[j].focus();
+    });
+  });
   function syncRibbon() {
     Array.prototype.forEach.call(document.querySelectorAll('#rbody .rbt'), function (b) {
       var id = b.dataset.rid, t = b.dataset.rt, on = false, dis = false;
