@@ -335,7 +335,7 @@ function update(data) {
     if (data.showLabels !== false && w.sag && w.phase === 1) { const k = w.from.pole + '|' + w.to.pole, e = sagAt[k] = sagAt[k] || { t: [], pos: vs[12] }; e.t.push(kind(w).toUpperCase() + ' ' + w.sag.toFixed(2)); if (vs[12].y < e.pos.y) e.pos = vs[12]; }
   });
   // One sag label per span (HV and LV together), so labels do not overlap.
-  Object.keys(sagAt).forEach((k) => { const e = sagAt[k]; label('sag ' + e.t.join(' · ') + ' m', e.pos.clone().add(new THREE.Vector3(0, -0.6, 0)), 'l3d sag'); });
+  Object.keys(sagAt).forEach((k) => { const e = sagAt[k]; label('sag ' + e.t.join(' · ') + ' m', e.pos.clone().add(new THREE.Vector3(0, -1.6, 0)), 'l3d sag'); });
 
   // Reference grid on the lowest pole base (not part of the fit).
   const ext = poles.reduce((m, p) => Math.max(m, Math.abs(p.easting - origin.e), Math.abs(p.northing - origin.n)), 20);
