@@ -27,6 +27,8 @@ tr:last-child td{border-bottom:0}
 input[type=checkbox]{width:18px;height:18px;accent-color:var(--blue)}
 .status{margin:12px 0;min-height:1.3em}.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}
 a{color:var(--blue);font-weight:600}
+.rb{display:flex;gap:6px;justify-content:flex-end}.rb button{font:700 13px "DM Sans",sans-serif;border:0;border-radius:6px;padding:7px 12px;cursor:pointer;background:var(--blue);color:#fff}.rb button.no{background:#fff;color:var(--bad);border:1px solid #e8b4b0}
+td small{display:block;color:var(--muted);font-size:12px}
 .log td{font-size:12.5px;font-variant-numeric:tabular-nums}
 h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
 </style>
@@ -34,8 +36,11 @@ h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
 <body>
 <div class="wrap">
   <h1>LVDesign Web access</h1>
-  <p>Tick the accounts that can open LVDesign Web. Admins always have access. To add someone, create their account in Supabase (Authentication › Users › Add user), then tick them here.</p>
+  <p>People can request access from the LVDesign Web sign-in page. Approve or deny their requests here, and tick the accounts that can open LVDesign Web. Admins always have access.</p>
   <div id="status" class="status" role="status">Loading…</div>
+  <h2 id="reqH" hidden>Requests waiting</h2>
+  <div class="card" id="reqCard" hidden><table><thead><tr><th>Name</th><th>Email</th><th>Reason</th><th></th></tr></thead><tbody id="reqRows"></tbody></table></div>
+  <h2 id="allH" hidden>Accounts</h2>
   <div class="card" id="tblCard" hidden><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th></tr></thead><tbody id="rows"></tbody></table></div>
   <h2 id="logH" hidden>Recent openings</h2>
   <div class="card" id="logCard" hidden><table class="log"><thead><tr><th>When</th><th>Account</th><th>Result</th><th>From</th></tr></thead><tbody id="logRows"></tbody></table></div>
@@ -53,8 +58,25 @@ h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
   var p = await sb.from('profiles').select('id,name,email,role').order('name');
   var mine = (p.data || []).find(function (x) { return x.id === me.id; });
   if (p.error || !mine || String(mine.role).toLowerCase() !== 'admin') { st('Only EVE administrators can manage access.', 'bad'); return; }
-  var a = await sb.from('lvd_access').select('user_id,active');
-  var on = {}; (a.data || []).forEach(function (r) { on[r.user_id] = r.active; });
+  var on = {}, acc = {};
+  async function loadAcc() {
+    var a = await sb.from('lvd_access').select('user_id,active,status,email,name,company,reason,granted_at');
+    on = {}; acc = {}; (a.data || []).forEach(function (r) { acc[r.user_id] = r; on[r.user_id] = r.active && r.status === 'approved'; });
+    var pend = (a.data || []).filter(function (r) { return r.status === 'pending'; }).sort(function (x, y) { return String(y.granted_at).localeCompare(String(x.granted_at)); });
+    $('reqRows').innerHTML = pend.length ? pend.map(function (r) {
+      return '<tr><td>' + esc(r.name) + (r.company ? '<small>' + esc(r.company) + '</small>' : '') + '</td><td>' + esc(r.email) + '<small>Requested ' + new Date(r.granted_at).toLocaleDateString('en-AU') + '</small></td><td>' + esc(r.reason || 'No reason given') + '</td><td><div class="rb"><button type="button" data-a="approve" data-id="' + r.user_id + '">Approve</button><button type="button" class="no" data-a="deny" data-id="' + r.user_id + '">Deny</button></div></td></tr>';
+    }).join('') : '<tr><td colspan="4" class="role">No requests waiting.</td></tr>';
+    $('reqH').hidden = false; $('reqCard').hidden = false; $('allH').hidden = false;
+  }
+  await loadAcc();
+  $('reqRows').addEventListener('click', async function (e) {
+    var b = e.target.closest('button[data-a]'); if (!b) return; b.disabled = true;
+    var r = await sb.rpc('lvd_decide', { p_user: b.dataset.id, p_action: b.dataset.a });
+    var who = (acc[b.dataset.id] && (acc[b.dataset.id].email || acc[b.dataset.id].name)) || 'The account';
+    if (r.error) { st('Could not save: ' + r.error.message, 'bad'); b.disabled = false; return; }
+    st(b.dataset.a === 'approve' ? who + ' can now open LVDesign Web.' : 'Request from ' + who + ' denied.', 'ok');
+    p = await sb.from('profiles').select('id,name,email,role').order('name'); await loadAcc(); render();
+  });
   function render() {
     $('rows').innerHTML = p.data.map(function (u) {
       var admin = String(u.role).toLowerCase() === 'admin';
@@ -65,9 +87,9 @@ h2{font:800 17px Manrope,sans-serif;color:var(--navy);margin:28px 0 8px}
   render(); $('tblCard').hidden = false; st('');
   $('rows').addEventListener('change', async function (e) {
     var id = e.target.dataset.id; if (!id) return; var v = e.target.checked;
-    var r = await sb.from('lvd_access').upsert({ user_id: id, active: v }, { onConflict: 'user_id' });
+    var r = await sb.rpc('lvd_decide', { p_user: id, p_action: v ? 'approve' : 'remove' });
     if (r.error) { st('Could not save: ' + r.error.message, 'bad'); e.target.checked = !v; return; }
-    on[id] = v; render(); st(v ? 'Access granted.' : 'Access removed. They are locked out within 15 minutes.', 'ok');
+    await loadAcc(); render(); st(v ? 'Access granted.' : 'Access removed. They are locked out within 15 minutes.', 'ok');
   });
   var lg = await sb.from('lvd_access_log').select('at,user_id,ok,reason,origin').order('at', { ascending: false }).limit(30);
   if (!lg.error && lg.data.length) {
