@@ -2054,7 +2054,7 @@
     shrink(file).then(function (img) {
       r.thumb = img.thumb; r.view = img.view; if (!(meta && meta.noAttach)) r.photoId = attachPhoto(id, file.name, img, meta).id; else if (meta && meta.photoId) r.photoId = meta.photoId; renderSelected();
       var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
-      return fetch(AI_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + AI_KEY }, body: JSON.stringify({ mime: 'image/jpeg', image: img.data, pole: id, existing: existing, candidates: aiCandidates() }) });
+      return fetch(AI_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + AI_KEY }, body: JSON.stringify({ mime: 'image/jpeg', image: img.data, pole: id, existing: existing, candidates: aiCandidates(), conductors: aiConductors() }) });
     }).then(function (res) {
       if (res.status === 404) throw new Error('The AI photo service is not switched on yet (the pnw-pole-photo-ai function is not deployed).');
       return res.json().then(function (j) { if (!res.ok || !j.ok) throw new Error(j.error || 'AI request failed (' + res.status + ').'); return j; });
