@@ -8,13 +8,13 @@
 <meta name="theme-color" content="#09284b">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f4f6f8;--fg:#13202b;--mut:#64748b;--card:#fff;--bd:#e2e8f0;--br:#09284b;--ac:#2f6ea4;--ac2:#fff;--hov:#eef3f6;--er:#d93a3a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root{--bg:#f4f6f8;--fg:#13202b;--mut:#5b6576;--card:#fff;--bd:#e2e8f0;--br:#09284b;--ac:#2f6ea4;--ac2:#fff;--hov:#eef3f6;--er:#d93a3a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d151c;--fg:#e6edf3;--mut:#8b9bab;--card:#15202a;--bd:#25333f;--br:#081923;--ac:#2fd0bb;--ac2:#04211d;--hov:#1b2935;--er:#ff6b6b}}
 :root[data-theme="dark"]{--bg:#0d151c;--fg:#e6edf3;--mut:#8b9bab;--card:#15202a;--bd:#25333f;--br:#081923;--ac:#2fd0bb;--ac2:#04211d;--hov:#1b2935;--er:#ff6b6b}
 *{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 "DM Sans",Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
 header{background:var(--br);color:#fff;display:flex;align-items:center;gap:12px;padding:12px 18px;position:sticky;top:0;z-index:20}
-header h1{font:800 17px Manrope,system-ui;margin:0;font-weight:650;letter-spacing:.2px}
+header h1{font:800 17px Manrope,system-ui;margin:0;letter-spacing:.2px}
 .logo{width:28px;height:28px;border-radius:7px;background:var(--ac);color:var(--ac2);display:grid;place-items:center;font-weight:800}
 .layout{display:flex;align-items:flex-start}
 aside{width:340px;flex:none;background:var(--card);border-right:1px solid var(--bd);height:calc(100vh - 53px);position:sticky;top:53px;display:flex;flex-direction:column;transition:margin .2s}
@@ -35,7 +35,7 @@ main{flex:1;min-width:0;max-width:1000px;margin:0 auto;padding:20px 18px 60px}
 input,select{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;font:inherit}input:focus,select:focus{outline:2px solid var(--ac);outline-offset:-1px}
 #q{width:100%}input[type=number]{width:110px}
 button{background:var(--ac);color:var(--ac2);border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:650;cursor:pointer}button.g{background:transparent;color:var(--fg);border:1px solid var(--bd)}button:disabled{opacity:.5;cursor:default}
-.chip{display:inline-block;background:var(--hov);border:1px solid var(--bd);border-radius:99px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0}.ok{color:var(--ac)}.bad{color:var(--er);font-weight:600}.wr{color:#c77d00;font-weight:600}.err{color:var(--er)}
+.chip{display:inline-block;background:var(--hov);border:1px solid var(--bd);border-radius:99px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0}.ok{color:var(--ac)}.bad{color:var(--er);font-weight:600}.wr{color:var(--wn);font-weight:600}.err{color:var(--er)}
 table{width:100%;border-collapse:collapse}th{text-align:left;font-size:11.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}th,td{padding:5px 6px;border-bottom:1px solid var(--bd);font-size:13px}
 td input{width:100%;padding:5px 7px}td input.q{width:80px}td:first-child{white-space:nowrap}#dr details{margin:8px 0;padding:8px 12px;border:1px solid var(--bd);border-radius:8px}button.rm{padding:0 6px;line-height:18px;font-size:12px}#dr summary{cursor:pointer;font-weight:650}#dr details ul{margin:8px 0 0 18px}.sc{overflow-x:auto}.tabs{display:flex;gap:6px;margin-bottom:14px}.tabs button.on{background:var(--br);color:#fff;border-color:var(--br)}.dz.over{outline:2px dashed var(--ac)}
 #rpt{position:fixed;inset:0;z-index:100;background:#fff;color:#13202b;overflow:auto;font:12px/1.45 Arial,Helvetica,sans-serif}
@@ -51,7 +51,7 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 #rbW{flex:none;width:120px;height:120px;display:grid;place-items:center}#rbB{flex:1;min-width:0}
 #rbS{font-weight:650;font-size:15px}#rbD{font-size:12.5px;color:var(--mut);margin:2px 0 6px;min-height:19px}#pt{font-size:12px;color:var(--mut)}
 #pbW{display:none}#pg.fail #rbS{color:var(--er)}
-.card.busy>*:not(#pg):not(#btnRow){display:none!important}.card.busy #btnRow>*:not(#clr){display:none!important}
+.card.busy>*:not(#pg):not(#btnRow):not(#sumL){display:none!important}.card.busy #btnRow>*:not(#clr){display:none!important}
 .card.busy #btnRow{justify-content:center;order:2;margin-top:4px!important}.card.busy{display:flex;flex-direction:column}
 .card.busy #pg{flex-direction:column;text-align:center;border:0;background:transparent;padding:26px 10px 6px;margin:0;gap:26px}
 .card.busy #rbW{width:200px;height:200px}
@@ -92,6 +92,67 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 #acc .empty{color:var(--mut);font-size:13px;margin:0 0 8px}#accSt{min-height:1.2em;font-size:13px;color:var(--mut)}
 #accToast{position:fixed;right:16px;bottom:16px;z-index:950;background:var(--br);color:#fff;border-radius:10px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;max-width:calc(100% - 32px)}#accToast[hidden]{display:none}#accToast button{padding:5px 10px;font-size:12.5px}
 </style>
+<style>
+/* ---- UX layer (review fixes, Nov 2026) ---- */
+[hidden]:not([hidden=until-found i]){display:none!important}
+.card h2{font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg);font-weight:700}
+.dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}.dhead h2{margin:0!important}
+.dhead .eng{display:flex;align-items:center;gap:8px}.dhead .eng label{margin:0}.dhead .eng select{padding:5px 8px;font-size:13px}
+h3.step{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:18px 0 8px;font-weight:700}
+h3.step>span:first-child,h3.step>span.n{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:10px;background:var(--hov);border:1px solid var(--bd);color:var(--fg);font-size:11px;letter-spacing:0}
+h3.step[hidden],.ronly[hidden]{display:none!important}
+.vh{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.drop{display:flex;align-items:center;gap:14px;border:2px dashed var(--bd);border-radius:12px;padding:16px 18px;cursor:pointer;background:var(--bg);margin:0;color:var(--fg);font-size:14px}
+.drop:hover,.drop.over{border-color:var(--ac);background:var(--hov)}.drop:focus-within{outline:2px solid var(--ac);outline-offset:2px}
+.drop-i{flex:none;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:var(--card);border:1px solid var(--bd);font-size:18px;color:var(--ac)}
+.drop-t{display:block}.drop-t u{color:var(--ac);text-underline-offset:2px}.drop-s{display:block;font-size:12px;color:var(--mut);margin-top:2px}
+.drop.has{border-style:solid;border-color:var(--ac)}.drop>span:last-child{min-width:0;overflow-wrap:anywhere}
+#btnRow .sp{flex:1}#btnRow label.chk{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:13px;color:var(--fg);cursor:pointer}#btnRow label.chk input{width:auto}
+#btnRow{align-items:center}
+.aidisc{font-size:12px;color:var(--mut);margin:10px 0 0}
+#sumL{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);font-size:13px;margin:4px 0 0}#sumL[hidden]{display:none!important}#sumL span{flex:1;min-width:0;overflow-wrap:anywhere}#sumL button{padding:5px 11px;font-size:12.5px}
+.card.collapsed>*:not(.dhead):not(.mode):not(#sumL):not(#pg):not(#st):not(#errP):not(#lastQ){display:none!important}.card.collapsed .dhead{margin-bottom:6px}
+.card.busy>#sumL{display:flex!important;order:1;max-width:560px;margin:0 auto;justify-content:center;text-align:center}.card.busy #sumL button{display:none}
+#errP{margin-top:12px;padding:12px 14px;border:1px solid var(--er);border-radius:10px;background:var(--card)}#errP[hidden]{display:none}
+#errP b{color:var(--er)}#errP p{margin:4px 0 10px}#errP .acts{display:flex;gap:8px;flex-wrap:wrap}#errP details{margin-top:8px;font-size:12px;color:var(--mut)}#errP details pre{white-space:pre-wrap;margin-top:6px}
+#staleB{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin-bottom:16px;border-radius:10px;border:1px solid #e0a100;background:rgba(224,161,0,.12);font-size:13px}#staleB[hidden]{display:none}#staleB span{flex:1;min-width:0}#staleB button{padding:5px 11px;font-size:12.5px}
+#out.stale,#rv.stale{opacity:.45;pointer-events:none;transition:opacity .2s}
+#lastQ{margin-top:10px;font-size:13px;color:var(--mut)}#lastQ[hidden]{display:none}#lastQ button{background:none;border:0;padding:0;color:var(--ac);font-weight:650;text-decoration:underline;text-underline-offset:2px}
+/* results bar */
+#rbar{position:sticky;top:var(--hh,53px);z-index:15;display:grid;grid-template-columns:1fr auto auto;gap:6px 22px;align-items:center;padding:14px 18px;box-shadow:0 6px 18px rgba(9,40,75,.10)}
+#rbar .rb-t{font-weight:700;font-size:15px;outline:0}#rbar .rb-s{font-size:12.5px;color:var(--mut)}#rbar .rb-s button{background:none;border:0;padding:0;font:inherit;color:var(--er);font-weight:650;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+#rbar .rb-m{text-align:right}#rbar .rb-tot{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+#rbar .rb-a{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}#rbar .rb-n{grid-column:1/-1;font-size:11.5px;color:var(--mut);border-top:1px solid var(--bd);padding-top:6px}
+@media(max-width:760px){#rbar{grid-template-columns:1fr auto;padding:10px 12px;gap:4px 12px}#rbar .rb-a{grid-column:1/-1;justify-content:stretch}#rbar .rb-a button{flex:1}#rbar .rb-tot{font-size:20px}#rbar .rb-n,#rbar #rbSplit{display:none}}
+/* quote table */
+#tb td{font-variant-numeric:tabular-nums}#tb input.q{text-align:right}
+#tb td:first-child input{border-color:transparent;background:transparent}#tb td:first-child input:hover,#tb td:first-child input:focus{border-color:var(--bd);background:var(--bg)}
+#tb td:nth-child(6){font-size:12px;color:var(--mut)}
+#tb tr.grp td{font-weight:700;padding-top:16px;border-bottom:2px solid var(--bd)}#tb tr.grp td.gsub{text-align:right;white-space:nowrap}
+#tb tr.mat td:nth-child(2)::after{content:"material";display:inline-block;margin-left:6px;padding:0 6px;border:1px solid var(--bd);border-radius:99px;font-size:10.5px;color:var(--mut);vertical-align:1px}
+#tb tr.nr td:nth-child(4){color:var(--wn)!important;font-weight:650}
+#cov li.mo{color:var(--mut)}#cov li.err{color:var(--er)}
+/* phone: stacked quote lines */
+@media(max-width:640px){#dz .sc{overflow:visible}#dz table,#dz tbody{display:block}#dz thead{display:none}
+ #tb tr{display:grid;grid-template-columns:1fr auto auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--bd)}
+ #tb td{border:0;padding:2px 0}#tb td:nth-child(1){grid-column:1/3}#tb td:nth-child(7){grid-column:3;grid-row:1;justify-self:end}
+ #tb td:nth-child(2){grid-column:1/4;font-size:12.5px}#tb td:nth-child(3){grid-column:1}#tb td:nth-child(4){grid-column:2;align-self:center}#tb td:nth-child(5){grid-column:3;align-self:center;font-weight:700}
+ #tb td:nth-child(6){grid-column:1/4}#tb td:nth-child(6):empty{display:none}
+ #tb tr.grp{display:flex;justify-content:space-between;border-bottom:2px solid var(--bd)}#tb tr.grp td{border:0;padding-top:10px}#tb tr.grp td:empty{display:none}
+ #tb td:nth-child(3)::before{content:"Qty ";font-size:11px;color:var(--mut)}#tb tr.grp td::before{content:none!important}
+ #tb td:first-child input{margin-left:0!important}}
+/* design review list */
+#rvList li:focus-visible{outline:2px solid var(--ac);outline-offset:-2px}.rvsev{font-weight:700;text-transform:capitalize}
+/* library drawer */
+#scrim{display:none}
+@media(max-width:800px){body.libopen #scrim{display:block;position:fixed;inset:0;z-index:29;background:rgba(9,20,30,.45)}}
+/* reduced motion: static progress bar instead of the animated robot */
+@media (prefers-reduced-motion:reduce){#rbW{display:none!important}#pbW{display:block!important;height:6px;border-radius:3px;background:var(--bd);overflow:hidden;margin:6px 0}#pb{height:100%;background:var(--ac);width:0}*{scroll-behavior:auto!important}}
+:root{--wn:#9a5b00}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--wn:#f0b44c}}:root[data-theme="dark"]{--wn:#f0b44c}
+.wr{color:var(--wn)!important}
+aside.c{visibility:hidden;box-shadow:none!important}aside{transition:margin .2s,visibility .2s}
+.dhead .eng select{width:auto!important;max-width:100%}
+</style>
 </head><body>
 <div id="gate" role="dialog" aria-modal="true" aria-labelledby="gH"><div class="gc" aria-live="polite">
 <div class="ey">Authorised users</div><h2 id="gH">Create Quote</h2>
@@ -127,33 +188,35 @@ pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:12
 <h3>Other accounts</h3><div id="accOff"></div>
 </div></div>
 <div id="accToast" role="status" hidden><span id="accToastT"></span><button type="button" id="accToastB">Review</button></div>
-<header><button class="g" id="tg" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><div id="who" hidden><button type="button" id="accBtn" hidden title="Who can use Create Quote">Access<b id="accN" hidden></b></button><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
+<header><button class="g" id="tg" type="button" aria-expanded="false" style="color:#fff;border-color:#3a566a;padding:5px 10px">☰ CU library</button><a href="tools.html" style="color:#cfe0ef;text-decoration:none;font-size:13px">← Tools</a><div class="logo" style="width:auto;padding:0 8px">EVE</div><h1>Create Quote</h1><div id="who" hidden><button type="button" id="accBtn" hidden title="Who can use Create Quote">Access<b id="accN" hidden></b></button><span id="whoEm"></span><button type="button" id="gOut">Sign out</button></div></header>
 <div class="layout">
-<aside id="sb"><div class="ah"><input id="q" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
+<aside id="sb"><div class="ah"><input id="q" type="search" aria-label="Search the CU library" placeholder="Search CUs, e.g. dof, 240 cable, locate clay…" autocomplete="off"></div><div id="lib"></div></aside>
 <main>
-<div class="card"><h2>1 · Drawing</h2>
-<div class="mode" role="tablist"><button class="on" id="mQ" type="button">Generate quote</button><button id="mR" type="button">Design review only</button></div><div id="mHelp">Builds a DQM quote of CU IDs and quantities from the drawing.</div>
-<div class="row"><div><label>Design drawing (PDF, DGN or DXF)</label><input type="file" id="f" accept="application/pdf,.pdf,.dgn,.dxf"></div>
-<div class="qonly"><label>Existing quote to check (optional: PDF or .txt)</label><input type="file" id="fq" accept="application/pdf,.pdf,.txt,text/plain"></div>
-<div style="flex:1;min-width:220px"><label>Extra instructions (optional)</label><input id="ex" style="width:100%" placeholder="e.g. rock at pole, CBD, night works"></div></div>
-<div id="site" class="qonly" style="margin-top:12px"></div><details class="qonly" style="margin-top:10px"><summary>Traffic conditions (optional: ticked items set the TRAFFIC CUs)</summary><div id="tcl" style="padding:6px 8px"></div></details>
-<div class="row" id="btnRow" style="margin-top:8px">
-<div><label>AI engine</label><select id="eng"><option value="gemini" selected>Gemini (runs here)</option><option value="claude">Claude (opens in Claude, sign in)</option></select></div>
-<div class="qonly"><label>Depot</label><select id="dep"></select></div>
-<div class="qonly"><label>Round trip (km)</label><input type="number" id="km" min="0" placeholder="auto"></div>
-<div class="qonly"><label>Switching visits</label><input type="number" id="sv" value="3" min="0"></div>
-
-<label class="qonly" style="display:inline-flex;align-items:center;gap:6px;margin:0 10px 0 0;font-size:13px;cursor:pointer"><input type="checkbox" id="dtl" style="width:auto"> Include detailed drawing review</label><button id="go" disabled>Generate quote</button><button class="g" id="clr">Clear</button> <button class="g" id="rbDemo" type="button" hidden title="Plays the loading animation without running the AI">Preview loading robot</button></div>
+<div class="card" id="dcard"><div class="dhead"><h2 id="dH">New quote</h2><div class="eng"><label for="eng">AI engine</label><select id="eng"><option value="gemini" selected>Gemini (runs here)</option><option value="claude">Claude (opens in Claude, sign in)</option></select></div></div>
+<div class="mode" role="group" aria-label="What to do"><button class="on" id="mQ" type="button">Generate quote</button><button id="mR" type="button">Design review only</button></div><div id="mHelp">Builds a DQM quote of CU IDs and quantities from the drawing.</div>
+<div id="sumL" hidden><span id="sumT"></span><button class="g" type="button" id="sumE">Edit inputs</button></div>
+<h3 class="step"><span>1</span> Drawing</h3>
+<label class="drop" id="drop" for="f"><input type="file" id="f" class="vh" accept="application/pdf,.pdf,.dgn,.dxf"><span class="drop-i" aria-hidden="true">&#8679;</span><span><span class="drop-t" id="dropT"><b>Drop a PDF, DGN or DXF drawing here</b> or <u>browse</u></span><span class="drop-s" id="dropS">Design drawing (required)</span></span></label>
+<div id="site" class="qonly" style="margin-top:10px"></div><div id="lastQ" hidden></div>
+<h3 class="step qonly"><span>2</span> Job details</h3>
+<div class="row qonly"><div><label for="dep">Depot</label><select id="dep"></select></div><div><label for="km">Round trip (km)</label><input type="number" id="km" min="0" placeholder="auto"></div><div><label for="sv">Switching visits</label><input type="number" id="sv" value="3" min="0"></div></div>
+<details class="qonly" style="margin-top:10px"><summary>Traffic conditions (optional: ticked items set the TRAFFIC CUs)</summary><div id="tcl" style="padding:6px 8px"></div></details>
+<h3 class="step"><span class="qonly">3</span><span class="ronly" hidden>2</span> Options</h3>
+<div class="row"><div style="flex:1;min-width:220px"><label for="ex">Extra instructions (optional)</label><input id="ex" style="width:100%" placeholder="e.g. rock at pole, CBD, night works"></div></div>
+<details class="qonly" style="margin-top:10px"><summary>Compare with an existing quote (optional)</summary><div style="padding:8px 8px 2px"><label for="fq">Existing quote (PDF or .txt)</label><input type="file" id="fq" accept="application/pdf,.pdf,.txt,text/plain"></div></details>
+<div class="row" id="btnRow" style="margin-top:14px"><label class="qonly chk" for="dtl"><input type="checkbox" id="dtl"> Include detailed drawing review</label><span class="sp"></span><button class="g" id="clr" type="button">Clear</button><button id="go" type="button" disabled>Generate quote</button> <button class="g" id="rbDemo" type="button" hidden title="Plays the loading animation without running the AI">Preview loading robot</button></div>
 <div id="pg" hidden><div id="rbW"><div id="rbH"></div></div><div id="rbB"><div id="rbS">Working…</div><div id="rbD"></div><div id="pbW"><div id="pb"></div></div><div id="pt"></div></div></div>
-<div id="st"></div><p style="font-size:12px;color:var(--mut);margin:10px 0 0">AI-assisted draft. Quantities are estimated from the drawing text and image: always review every line against the drawing before submitting.</p></div>
-<div class="card" id="rv" hidden><div class="row" style="justify-content:space-between;align-items:center"><div id="rvHead"></div><span><select id="rvZoom" title="Zoom"><option value="0">Fit width</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option></select> <button class="g" id="rvRestore" hidden>Restore removed</button> <button class="g" id="rvCsv">List (.csv)</button> <button id="rvDl">Download marked-up PDF</button></span></div>
+<div id="st" role="status" aria-live="polite"></div><div id="errP" role="alert" hidden></div><p class="aidisc">AI-assisted draft. Quantities are estimated from the drawing text and image: always review every line against the drawing before submitting.</p></div>
+<div id="staleB" role="status" hidden><span id="staleT"></span><button class="g" type="button" onclick="this.parentNode.hidden=true;document.getElementById('out').hidden=true;document.getElementById('rv').hidden=true">Hide old results</button></div>
+<div class="card" id="rv" hidden><div class="row" style="justify-content:space-between;align-items:center"><div id="rvHead"></div><span><select id="rvZoom" title="Zoom" aria-label="Drawing zoom"><option value="0">Fit width</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option></select> <button class="g" id="rvRestore" hidden>Restore removed</button> <button class="g" id="rvCsv">List (.csv)</button> <button id="rvDl">Download marked-up PDF</button></span></div>
 <div id="rvSum" style="margin:8px 0 12px"></div><div class="rvg"><ul id="rvList"></ul><div id="rvPdf"></div></div>
 <p style="font-size:12px;color:var(--mut);margin:10px 0 0">These are things to check, not confirmed errors. In the downloaded PDF each callout is a normal Bluebeam / Acrobat markup you can move, edit or delete.</p></div>
-<div id="out" hidden><div class="tabs"><button class="g on" id="t1">Quote</button><button class="g" id="t2">Non-CU items</button></div><div id="pq">
+<div id="out" hidden><div class="card" id="rbar" aria-label="Quote summary"><div><div class="rb-t" id="rbT">Quote</div><div class="rb-s" id="rbSub"></div></div><div class="rb-m"><div class="rb-tot" id="rbTot">$0.00</div><div class="rb-s" id="rbSplit"></div></div><div class="rb-a"><button type="button" id="rbDl">Download DQM file</button><button type="button" class="g" id="rbNc" hidden>Non-CU list</button></div><div class="rb-n"><span id="rbFn"></span> · AI-assisted draft: check every line against the drawing before submitting. Rates from the DQM manual rev 40 CU library; materials have no rate.</div></div><div class="tabs"><button class="g on" id="t1" type="button">Quote</button><button class="g" id="t2" type="button">Non-CU items</button></div><div id="pq">
 <div class="card" id="dr" hidden></div>
+<div class="card" id="gs" hidden></div>
 <div class="card" id="cmp" hidden></div>
-<div class="card dz" id="dz"><h2>Quote lines <span id="val" class="chip"></span></h2><div class="sc"><table><thead><tr><th>CU ID</th><th>Description</th><th>Qty</th><th>Basis</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>
-<div class="row" style="margin-top:12px"><button class="g" id="add">+ Add line</button><div><label style="margin:0">Arrange CUs</label><select id="ord"><option value="s">By scope of work number (drawing)</option><option value="t">By CU type</option><option value="g">Material → its service CUs</option><option value="a">Alphabetical only</option></select></div><span style="color:var(--mut)">Tip: drag CUs from the library onto this card.</span></div>
+<div class="card dz" id="dz"><h2>Quote lines <span id="val" class="chip"></span></h2><div class="sc"><table><thead><tr><th>CU ID</th><th>Description</th><th>Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th><th>Basis</th><th></th></tr></thead><tbody id="tb"></tbody></table></div><div id="cost" style="margin-top:12px"></div>
+<div class="row" style="margin-top:12px"><button class="g" id="add">+ Add line</button><div><label style="margin:0" for="ord">Arrange CUs</label><select id="ord"><option value="s">By scope of work number (drawing)</option><option value="t">By CU type</option><option value="g">Material → its service CUs</option><option value="a">Alphabetical only</option></select></div><span style="color:var(--mut)">Tip: open the CU library and click + on a CU (or drag it here) to add a line.</span></div>
 <div id="cov" style="margin-top:12px"></div><div id="as"></div></div>
 <div class="card"><div class="row" style="justify-content:space-between"><div><h2 style="margin:0">DQM files</h2><div id="fn" style="color:var(--mut);font-size:12px;margin-top:2px"></div></div><button id="dl">Download DQM file</button></div></div>
 </div><div id="pn" hidden><div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Non-CU items (not covered by any CU)</h2><span><button class="g" id="ncAdd">+ Add item</button> <button id="ncDl">Download non-CU list</button></span></div>
@@ -318,16 +381,23 @@ function value(){return rows.reduce((s,r)=>{const c=BY[r.cu];return s+(c&&c.c&&!
 const _cx=document.createElement("canvas").getContext("2d");
 const fit=i=>{const c=getComputedStyle(i);_cx.font=c.fontStyle+" "+c.fontWeight+" "+c.fontSize+" "+c.fontFamily;const w=_cx.measureText(i.value||"").width;i.style.width=Math.min(640,Math.ceil(w)+(parseFloat(c.paddingLeft)||0)+(parseFloat(c.paddingRight)||0)+(parseFloat(c.borderLeftWidth)||0)+(parseFloat(c.borderRightWidth)||0)+16+(i.hasAttribute("list")?30:0))+"px"};
 function render(){const tb=$("tb");tb.innerHTML="";
- view().forEach(it=>{if(it.h){const h=document.createElement("tr");h.innerHTML="<td colspan='5' style='font-weight:650;padding-top:14px'></td>";h.firstChild.textContent=it.h;tb.appendChild(h);return}
-  if(it.n){const x=it.n,t=document.createElement("tr");t.innerHTML="<td><input></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td><button class='g'>×</button></td>";const [a,dd,b,d,e]=t.children;
+ view().forEach(it=>{if(it.h){const h=document.createElement("tr");h.innerHTML="<td colspan='7' style='font-weight:650;padding-top:14px'></td>";h.firstChild.textContent=it.h;tb.appendChild(h);return}
+  if(it.n){const x=it.n,t=document.createElement("tr");t.innerHTML="<td><input></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td></td><td></td><td><button class='g'>×</button></td>";const [a,dd,b,,,d,e]=t.children;
    a.firstChild.value=x.desc;fit(a.firstChild);b.firstChild.value=x.qty;dd.textContent=[x.type,x.unit,x.note].filter(Boolean).join(" · ");dd.style.color="var(--mut)";d.textContent="Non-CU";d.style.color="var(--mut)";t.style.background="rgba(47,110,164,.07)";
    a.firstChild.oninput=ev=>{x.desc=ev.target.value;fit(ev.target);renderNC()};b.firstChild.oninput=ev=>{x.qty=ev.target.value;renderNC()};e.firstChild.onclick=()=>{nc.splice(nc.indexOf(x),1);renderNC();render()};tb.appendChild(t);return}
-  const r=it.r,ind=it.ind;const tr=document.createElement("tr");tr.innerHTML="<td><input list='ids'></td><td></td><td><input class='q' type='number' step='any'></td><td></td><td><button class='g'>×</button></td>";
-  const [a,dd,b,d,e]=tr.children;a.firstChild.value=r.cu;b.firstChild.value=r.qty;fit(a.firstChild);if(ind===1)a.firstChild.style.marginLeft="18px";
+  const r=it.r,ind=it.ind;const tr=document.createElement("tr");tr.innerHTML="<td><input list='ids'></td><td></td><td><input class='q' type='number' step='any'></td><td class='rt' style='text-align:right;white-space:nowrap'></td><td class='am' style='text-align:right;white-space:nowrap'></td><td></td><td><button class='g'>×</button></td>";
+  const [a,dd,b,rt,am,d,e]=tr.children;tr._r=r;a.firstChild.value=r.cu;b.firstChild.value=r.qty;fit(a.firstChild);if(ind===1)a.firstChild.style.marginLeft="18px";
   dd.textContent=(ind===1?"↳ ":"")+((BY[r.cu]||{}).d||"Material / custom CU");dd.style.color="var(--mut)";d.textContent=r.basis||"";d.style.color="var(--mut)";
-  a.firstChild.oninput=x=>fit(x.target);a.firstChild.onchange=x=>{r.cu=x.target.value.trim();render()};b.firstChild.oninput=x=>{r.qty=x.target.value;pv()};e.firstChild.onclick=()=>{rows.splice(rows.indexOf(r),1);render()};tb.appendChild(tr)});tb.querySelectorAll("td:first-child input").forEach(fit);pv()}
+  a.firstChild.oninput=x=>fit(x.target);a.firstChild.onchange=x=>{r.cu=x.target.value.trim();render()};b.firstChild.oninput=x=>{r.qty=x.target.value;amt(tr);pv()};e.firstChild.onclick=()=>{rows.splice(rows.indexOf(r),1);render()};amt(tr);tb.appendChild(tr)});tb.querySelectorAll("td:first-child input").forEach(fit);pv()}
+// ---- cost: every priced CU (internal ES services, external/contractor services); materials have no rate in the library
+const money=v=>"$"+(Math.round(v*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const rateOf=id=>{const c=BY[id];return c&&c.g!=="Materials (EM)"&&c.c!=null?c.c:null};
+function amt(tr){const r=tr._r,c=rateOf(r.cu),q=Number(r.qty||0);tr.querySelector(".rt").textContent=c==null?(isMat(r)?"material":"no rate"):money(c);tr.querySelector(".am").textContent=c==null?"–":money(c*q);tr.querySelector(".rt").style.color=c==null?"var(--mut)":""}
+function costs(){const o={ins:0,ext:0,mat:0,nr:[]};rows.forEach(r=>{if(!r.cu)return;const c=rateOf(r.cu),q=Number(r.qty||0);if(c==null){if(isMat(r))o.mat++;else o.nr.push(r.cu);return}if(/^Internal/.test(BY[r.cu].g))o.ins+=c*q;else o.ext+=c*q});o.tot=o.ins+o.ext;return o}
+function renderCost(){const o=costs(),C=$("cost");if(!rows.length){C.innerHTML="";return}
+ C.innerHTML="<div style='display:grid;grid-template-columns:1fr auto;gap:4px 18px;max-width:440px;margin-left:auto;padding:12px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--bg)'><span>Internal service CUs (ES crews)</span><b style='text-align:right'>"+money(o.ins)+"</b><span>External / contractor service CUs</span><b style='text-align:right'>"+money(o.ext)+"</b><span style='border-top:1px solid var(--bd);padding-top:6px;font-weight:700'>Total quote (incl. service CUs)</span><b style='text-align:right;border-top:1px solid var(--bd);padding-top:6px;font-size:16px'>"+money(o.tot)+"</b></div><div style='font-size:12px;color:var(--mut);text-align:right;margin-top:4px'>"+(o.mat?o.mat+" material CU line(s) have no rate in the CU library and are not in the total. ":"")+(o.nr.length?"No rate for: "+esc(o.nr.join(", "))+". ":"")+"Rates from the DQM manual rev 40 CU library.</div>"}
 const PN=()=>String((proj&&proj.drawingNo)||name||"").toUpperCase().trim().replace(/\s+/g,"")||"QUOTE",FN=()=>PN().replace(/[^A-Z0-9_\-]/g,"")||"QUOTE";
-function pv(){$("fn").textContent=FN()+"_CU.txt"+(nc.some(x=>x.desc)?"  +  "+FN()+"_NonCU.txt":"");$("val").textContent="External CU value ≈ $"+Math.round(value()).toLocaleString()}
+function pv(){$("fn").textContent=FN()+"_CU.txt"+(nc.some(x=>x.desc)?"  +  "+FN()+"_NonCU.txt":"");$("val").textContent="Total ≈ "+money(costs().tot)+" incl. service CUs";renderCost()}
 $("ord").onchange=render;$("add").onclick=()=>{rows.push({cu:"",qty:1,basis:""});render()};
 async function save(fn,data){try{const d=await claude.use("downloads");if(!d)throw 0;await d.save({filename:fn,data})}catch(e){try{await navigator.clipboard.writeText(data);st("Download unavailable here; copied to clipboard instead.")}catch(_){st("Download unavailable; copy from the preview.",1)}}}
 $("dl").onclick=async()=>{await save(FN()+"_CU.txt",fmt());if(nc.some(x=>x.desc)){await new Promise(r=>setTimeout(r,600));await save(FN()+"_NonCU.txt",ncText())}};
@@ -440,6 +510,11 @@ const TC=[["Work site within 6m of road edge",[1,4,7,8]],["Closing traffic lane 
 const DETAIL="\nDETAILED DRAWING REVIEW: act as a senior Western Power distribution design checker. Add \"reviewSummary\":\"2-3 sentence overall assessment\" and \"drawingReview\":[{\"category\":\"Scope vs CU notes\"|\"Cable and conduit\"|\"Quantities and measurements\"|\"Traffic and access\"|\"Switching and outages\"|\"Missing information\"|\"Standards and clearances\"|\"Title block and revisions\",\"severity\":\"high\"|\"medium\"|\"low\",\"where\":\"scope step / item\",\"issue\":\"what is wrong or unclear\",\"action\":\"what the designer should check or change\"}]. Check: every scope step has matching CU notes and every CU note maps to a scope step; poles/pillars/pits/TX numbers, streets and cable sizes consistent between plan, scope text, legend and CU notes; cable lengths vs allowances and slack; terminations vs joints; duct/conduit/road crossings shown and sized; traffic management needed; HV/LV switching, isolation, outage and customer-notification needs; earthing, clearances, trenching depth/reinstatement notes; missing quantities, scale, GEO REF, designer, revision, date, approvals. Give 5-15 specific findings, no padding; empty list only if the drawing is genuinely clean.";
 const EXTRA="\n\nADDITIONAL OUTPUT: add \"terminationPoints\": number to the JSON = the number of DISTINCT scope-of-work steps that contain a cable termination (pole, pillar, penda, TX, RMU). Several terminations inside the same scope step count as ONE. Do not output TRENCH_07 or GENSER_07 (the app adds them).\nCONDUITS: check the drawing detail/legend/notes for conduit, duct, poly pipe or sleeve (e.g. 63mm, 110mm, 160mm). If present, find the drawing scale (1:250, 1:200, 1:50, 1:500 or as printed; use dimensions/scale bar printed on the drawing) and MEASURE each conduit run length in metres from the plan using that scale, or take stated dimensions. Add to JSON \"conduits\":[{\"count\":1 (number of parallel pipes),\"size\":110,\"method\":\"drill\"|\"trench\",\"length\":number (raw metres measured),\"scale\":\"1:250\",\"scope\":number,\"note\":\"which run\"}]. Use \"drill\" unless the drawing says open trench/excavate. Use [] if no conduit shown. The app rounds to nearest 5m and adds DDRILL/TRENCH/CONDUIT/LOCATE CUs itself: do not output those for conduits.\nTRAFFIC CUs (TRAFFIC_01..12) by condition: work site within 6m of road edge -> 01,04,07*,08*; closing lane >1000 veh/hr -> 01,02,05,08; within 200m of intersection -> 01,02,05,08; within 10m of railway crossing -> 01,02,05,08; freeway works affecting trafficable lane -> 01,02,05,08,10; posted speed above 60km/hr -> 01,02,05,08,09; overhead work where equipment + 1.5m drop zone encroaches road/footpath -> 01,07*,08*; foot path reinstatement -> 01,03,07; road closure overnight without attendance -> 11; night work -> 12; site >6m from road edge or speed <=60 -> none. *07 pedestrian only, 08 vehicle only; if both, use 08 only. TRAFFIC_07/08 are hours in multiples of 4 depending on project run length; all other TRAFFIC CUs are always quantity 1. State the conditions you assumed in assumptions.\nPROJECT DETAILS: also add \"project\":{\"drawingNo\":\"MPxxxxxx\",\"designer\":\"the person's name printed beside or under the DESIGNER label of the title block, e.g. ISHAN PALIKHE (look near labels DESIGNER, DESIGN TEAM, DRAWN BY; not the customer, consultant company or lead designer)\",\"address\":\"site street address, suburb, state\",\"title\":\"drawing title e.g. PILLAR RELOCATION\",\"voltage\":\"\",\"rev\":\"\",\"date\":\"\"} to the JSON, using \"\" for anything not found.\nNON-CU SCOPE: every item in \"nonCUs\" must also include \"scope\": number (the scope-of-work step it belongs to, 0 if general).";
 // asked for only when "Include detailed drawing review" is ticked
+const SOWGEN="\n\nNO CU OR DCSH NOTES ON THIS DRAWING: the designer has not written CU: or DCSH: notes, so build the quote from the scope of work yourself. Read the Western Power scope-of-work text, plan symbols and labels (e.g. 240LV, 16SL, UNI-PILLAR, POLE), lengths, dimensions and scale. For each scope step choose the best matching MATERIAL CUs from the MATERIAL CU LIST with quantities (cable lengths with the MEASURING METHOD allowances), then all of their service CUs as usual. List those materials in \"materials\" and in \"lines\" (with the qty) like normal, and give cables in \"cables\". Also suggest the DCSH (Distribution Construction Standards Handbook) drawing reference for the step when you know it (e.g. U09 uni-pillar install, U23-2 pillar cable terminations); leave it empty rather than guess. Add \"generatedScope\":[{\"step\":1,\"text\":\"the scope step written in drawing style, e.g. INSTALL NEW UNI-PILLAR AT L368 WALCOTT ST\",\"cu\":\"CU: LU11 x 1\",\"dcsh\":\"DCSH: U09\" or \"\",\"confidence\":\"high\"|\"medium\"|\"low\",\"why\":\"short evidence from the drawing\"}]. If the drawing has no numbered steps, number them yourself in work order and use those numbers as scope. Put every assumption (soil, length, size, pillar type) in assumptions.";
+let gen=[];
+function renderGS(){const G=$("gs");if(!gen.length){G.hidden=true;G.innerHTML="";return}G.hidden=false;
+ G.innerHTML="<h2>Scope of work generated from the drawing</h2><p style='margin:0 0 10px;color:var(--mut);font-size:12.5px'>The drawing has no CU or DCSH notes, so these CU and DCSH references were chosen from the scope of work. The quote below is calculated from them. Check each step before using the quote.</p>"+gen.map(g=>"<div style='padding:10px 12px;border:1px solid var(--bd);border-radius:8px;margin-bottom:8px'><div style='display:flex;gap:8px;align-items:baseline'><b style='flex:none'>"+esc(g.step)+"</b><div style='flex:1;min-width:0'><div>"+esc(g.text)+"</div><pre style='margin-top:6px;white-space:pre-wrap'>"+esc([g.cu,g.dcsh].filter(Boolean).join("\n")||"No CU chosen")+"</pre>"+(g.why?"<div style='font-size:12px;color:var(--mut);margin-top:4px'>"+esc(g.why)+"</div>":"")+"</div><span class='chip "+(g.confidence==="low"?"bad":g.confidence==="medium"?"wr":"ok")+"' style='flex:none'>"+esc(g.confidence||"check")+"</span></div></div>").join("")+"<button class='g' id='gsDl'>Download generated scope (.txt)</button>";
+ $("gsDl").onclick=()=>save(FN()+"_GeneratedScope.txt","GENERATED SCOPE OF WORK - "+FN()+"\n(no CU/DCSH notes on drawing: verify before use)\n\n"+gen.map(g=>g.step+". "+g.text+"\n   "+[g.cu,g.dcsh].filter(Boolean).join("\n   ")).join("\n\n")+"\n")}
 const TYPOS_REQ="\nTYPOS: also add \"typos\":[{\"text\":\"as written\",\"where\":\"scope step or label\",\"suggestion\":\"likely correct text\"}] listing spelling mistakes and inconsistencies in the drawing text: misspelt words, wrong or inconsistent street/pole/pillar/cable numbers, cable sizes that differ between scope text and CU notes, CU IDs that look mistyped. Empty list if none.";
 TC.forEach((c,i)=>{const l=document.createElement("label");l.style.cssText="display:block;font-size:13px;color:var(--fg);margin:3px 0";const b=document.createElement("input");b.type="checkbox";b.className="tcb";l.appendChild(b);l.appendChild(document.createTextNode(" "+c[0]));$("tcl").appendChild(l)});
 function applyTraffic(run){const ids=new Set();let any=false;document.querySelectorAll(".tcb").forEach((b,i)=>{if(b.checked){any=true;TC[i][1].forEach(n=>ids.add(n))}});
@@ -464,22 +539,23 @@ $("eng").onchange=()=>{if($("eng").value==="claude")location.href="https://claud
 $("go").onclick=async()=>{if(mode==="review")return runReview();$("go").disabled=true;startProg(!!$("fq").files[0]);
  try{const sample=await claude.use("sample");if(!sample){st("The AI service is not available.",1);return}
   const f=$("f").files[0];name=((f.name.match(/MP\d+/i)||doc.text.match(/MP\d{6}/i)||["quote"])[0]).toLowerCase();
-  mats=parseMats(doc.text);splitMats();const opts={modelTier:"complex",cache:false};
+  mats=parseMats(doc.text);splitMats();const noRefs=!mats.length&&!/\bCU\s*(?:'?S)?\s*[:\-]|DCSH/i.test(doc.text);gen=[];const opts={modelTier:"complex",cache:false};
   try{if(doc.img&&(await sample.limits()).images)opts.images=[doc.img]}catch(e){}
   st("AI is building the quote… this can take a minute.");
   const km=$("km").value;if(!km)st("No distance set: travel CUs will be quantity 0 until you enter km.",1);
-  const inp=RULES+EXTRA+($("dtl").checked?TYPOS_REQ+DETAIL:"")+"\n\nMATERIAL CUs FOUND ON DRAWING (authoritative): "+JSON.stringify(mats.map(m=>({cu:m.cu,qty:m.qty,desc:(BY[m.cu]||{}).d||""})))+"\n\nJOB INPUTS: round-trip depot-to-site km="+(km||0)+"; switching visits="+$("sv").value+"; site days=1; extra: "+($("ex").value||"none")+"\n\nFULL CU LIST (ID|description):\n"+CAT.filter(c=>c.g!=="Materials (EM)").map(c=>c.id+"|"+c.d).join("\n")+"\n\nDRAWING TEXT:\n"+doc.text.slice(0,30000);
+  const inp=RULES+EXTRA+($("dtl").checked?TYPOS_REQ+DETAIL:"")+(noRefs?SOWGEN:"\n\nMATERIAL CUs FOUND ON DRAWING (authoritative): "+JSON.stringify(mats.map(m=>({cu:m.cu,qty:m.qty,desc:(BY[m.cu]||{}).d||""}))))+"\n\nJOB INPUTS: round-trip depot-to-site km="+(km||0)+"; switching visits="+$("sv").value+"; site days=1; extra: "+($("ex").value||"none")+"\n\nFULL CU LIST (ID|description):\n"+CAT.filter(c=>c.g!=="Materials (EM)").map(c=>c.id+"|"+c.d).join("\n")+(noRefs?"\n\nMATERIAL CU LIST (ID|description):\n"+CAT.filter(c=>c.g==="Materials (EM)").map(c=>c.id+"|"+c.d).join("\n"):"")+"\n\nDRAWING TEXT:\n"+doc.text.slice(0,30000);
   const r=await sample.json(inp,opts);proj=r.project||{};typos=(r.typos||[]).filter(t=>t&&t.text);drDone=$("dtl").checked;drIss=drDone?(r.drawingReview||[]).filter(x=>x&&x.issue):[];drIss2=[];drSum=drDone?(r.reviewSummary||""):"";aiOrd={};(r.materials||[]).forEach((m,i)=>{aiOrd[canonId(m.cu)]=i});
   rows=(r.lines||[]).map(l=>({cu:canonId(l.cu),qty:l.qty,basis:l.basis||"",scope:l.scope|0}));const ms={};(r.materials||[]).forEach(m=>ms[canonId(m.cu)]=m.scope|0);
-  mats.forEach(m=>{setRow(m.cu,m.qty,"material on drawing");rows.find(x=>x.cu===m.cu).scope=ms[m.cu]||0});applyCables(r.cables);applyConduits(r.conduits);postRules(r);
+  mats.forEach(m=>{setRow(m.cu,m.qty,"material on drawing");rows.find(x=>x.cu===m.cu).scope=ms[m.cu]||0});
+  if(noRefs){gen=(r.generatedScope||[]).filter(g=>g&&g.text).map(g=>Object.assign({},g,{cu:g.cu?String(g.cu).replace(/[A-Z]{1,4}\d[A-Za-z0-9_\/.\-]*/g,canonId):""}));mats=(r.materials||[]).map(m=>({cu:canonId(m.cu),qty:(rows.find(x=>x.cu===canonId(m.cu))||{}).qty||0}));rows.forEach(x=>{if(mats.some(m=>m.cu===x.cu)&&!/scope/i.test(x.basis||""))x.basis=(x.basis?x.basis+"; ":"")+"chosen from scope of work"})}renderGS();applyCables(r.cables);applyConduits(r.conduits);postRules(r);
   const s54=rows.find(y=>y.cu==="CN54");if(s54){setRow("CABLE_07",2*Number(s54.qty),"2 x CN54 qty");rows.find(x=>x.cu==="CABLE_07").scope=s54.scope|0}
   links={};(r.materials||[]).forEach(m=>links[canonId(m.cu)]=(m.services||[]).map(canonId));if(s54)links.CN54=(links.CN54||[]).concat("CABLE_07");
   nc=(r.nonCUs||[]).map(x=>({desc:x.desc||"",type:x.type,qty:x.qty??1,unit:x.unit||"",note:x.note||"",scope:x.scope|0})).concat(droppedNonCU.map(d=>Object.assign(d,{scope:ms[canonId(d.desc)]||0})));renderNC();
   const hasOH=rows.some(x=>/^OH /.test(x.cu)||/^(PO|HV|ST|RE|TX)\d/.test(x.cu)),hasUG=rows.some(x=>/^(UG|CABLE|DDRILL|TRENCH|LOCATE|LU|CONDUIT)/.test(x.cu));
   if(hasUG)setRow("AUX_014",1,"1 per project with underground work");
   if(hasOH){const v=value();setRow("AUX_013",v<=50000?1:v<=200000?3:12,"external value ≈ $"+Math.round(v).toLocaleString()+" → tier")}
-  const ul=document.createElement("ul"),cv=$("cov");cv.innerHTML="<b>Materials on drawing → installation CUs</b>";
-  if(!mats.length){const li=document.createElement("li");li.textContent="No CU: notes detected in the drawing text.";li.className="err";ul.appendChild(li)}
+  const ul=document.createElement("ul"),cv=$("cov");cv.innerHTML="<b>"+(noRefs?"Materials chosen from the scope of work":"Materials on drawing")+" → installation CUs</b>";
+  if(!mats.length){const li=document.createElement("li");li.textContent=noRefs?"No CU or DCSH notes on the drawing, and no materials could be chosen from the scope of work.":"No CU: notes detected in the drawing text.";li.className="err";ul.appendChild(li)}
   mats.forEach(m=>{const s=((r.materials||[]).find(x=>x.cu===m.cu)||{}).services||[];const li=document.createElement("li");li.textContent=m.cu+" x"+m.qty+" → "+(s.length?s.join(", "):"no service CU (material only, or unmapped: check)");if(!s.length)li.className="err";ul.appendChild(li)});cv.appendChild(ul);
   window.lastAssump=r.assumptions||[];typos=typos.concat(unknownCuFlags());const as=$("as");as.innerHTML=(r.assumptions||[]).length?"<b>Assumptions to check</b>":"";const u2=document.createElement("ul");(r.assumptions||[]).forEach(a=>{const li=document.createElement("li");li.textContent=a;u2.appendChild(li)});as.appendChild(u2);
   if(r.drawing)name=String(r.drawing).toLowerCase();renderDR();
@@ -543,7 +619,7 @@ function sortRes(mode){const c=window.lastCmp;if(!c)return;const rank={missing:0
 function renderCmp(){const c=window.lastCmp,tb=$("cmpBody");if(!c||!tb)return;tb.innerHTML=c.res.filter(x=>!x.rm).map(x=>"<tr><td><b style='font-family:ui-monospace,monospace'>"+esc(x.id)+"</b></td><td>"+esc((BY[x.id]||{}).d||"")+"</td><td>"+(x.e==null?"–":x.e)+"</td><td>"+(x.u==null?"–":x.u)+"</td><td class='"+LAB[x.st][0]+"'>"+LAB[x.st][1]+"</td><td><button class='g rm' data-id='"+esc(x.id)+"' title='Remove from report'>×</button></td></tr>").join("");if(!tb._d){tb._d=1;tb.addEventListener("click",e=>{const b=e.target.closest("button.rm");if(!b)return;const x=c0().res.find(r=>r.id===b.dataset.id);if(x)x.rm=1;renderCmp();updChips()})}}
 const c0=()=>window.lastCmp;
 $("clr").onclick=()=>{rows=[];nc=[];links={};mats=[];doc=null;geo=null;name="quote";proj={};typos=[];window.lastCmp=null;window.lastAssump=[];closeRpt();
- ["f","fq"].forEach(i=>{try{$(i).value=""}catch(e){}});$("ex").value="";$("km").value="";$("site").innerHTML="";$("cov").innerHTML="";$("as").innerHTML="";drIss=[];drIss2=[];drSum="";aiOrd={};$("dr").hidden=true;$("dr").innerHTML="";rvF=[];rvSum="";$("rv").hidden=true;$("rvList").innerHTML="";$("rvPdf").innerHTML="";$("cmp").hidden=true;$("cmp").innerHTML="";$("out").hidden=true;$("go").disabled=true;$("tb").innerHTML="";
+ ["f","fq"].forEach(i=>{try{$(i).value=""}catch(e){}});$("ex").value="";$("km").value="";$("site").innerHTML="";$("cov").innerHTML="";$("as").innerHTML="";gen=[];renderGS();$("cost").innerHTML="";drIss=[];drIss2=[];drSum="";aiOrd={};$("dr").hidden=true;$("dr").innerHTML="";rvF=[];rvSum="";$("rv").hidden=true;$("rvList").innerHTML="";$("rvPdf").innerHTML="";$("cmp").hidden=true;$("cmp").innerHTML="";$("out").hidden=true;$("go").disabled=true;$("tb").innerHTML="";
  try{renderNC()}catch(e){}try{$("dep").value="auto"}catch(e){}document.querySelectorAll(".tcb").forEach(c=>c.checked=false);$("pg").hidden=true;$("q").value="";buildLib();st("Cleared. Upload a drawing to start.")};
 // smart suggestions: reference mapping (manual + sample quote) + what this browser has used before
 const REL=[[/^PO\d/,["OH INST_001"]],[/^HV5[12]/,["OH INST_016"]],[/^TX5_/,["OH INST_009"]],[/^TX\d/,["OH INST_010"]],[/^LU11$/,["UG INST_010"]],[/^LU10$/,["UG INST_009"]],[/^LU(2|13)$/,["UG JNT_002A","UG JNT_002C"]],[/^LU7_/,["UG JNT_006A","UG JNT_006C"]],[/^UM3_R$/,["UG INST_025"]],[/^ST\d/,["OH INST_024"]],[/^RE\d/,["OH INST_025"]],[/^SL\d/,["OH INST_027"]],[/^HU\d/,["UG INST_003","UG JNT_007"]],[/^CN54$/,["CABLE_07"]],[/^LU61/,["UG JNT_011B","OH INST_025"]]];
@@ -784,6 +860,151 @@ var RobotHeads=(()=>{var Ot=Object.defineProperty;var Ae=Object.getOwnPropertyDe
  $("clr").addEventListener("click",()=>{clearInterval(phT);if(demo){clearTimeout(demo);demo=null;$("rbDemo").disabled=false}scr.p=null;card.classList.remove("busy")});
  $("rbDemo").onclick=()=>{startProg(false);const real=pgEst;pgEst=14000;$("rbDemo").disabled=true;
   demo=setTimeout(()=>{demo=null;pgEst=real;stopProg();$("rbDemo").disabled=false},14000)};
+})();
+</script>
+<script>
+// ---- UX layer (review fixes, Nov 2026): cancel, stale results, results bar, states, accessibility
+(function(){
+const card=$("pg").closest(".card"),hdr=document.querySelector("body>header"),narrow=()=>matchMedia("(max-width:800px)").matches;
+let runId=0,curRun=0,cancelled=new Set(),rvShown=false,rvOwner="review",runShown=false,lastOk=0,dirty=false,clrArm=0,clrT=null,fromQuoteBtn=false;
+const setHH=()=>{if(hdr)document.documentElement.style.setProperty("--hh",hdr.offsetHeight+"px")};setHH();addEventListener("resize",setHH);
+const fmtClock=t=>new Date(t).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+
+// ---- late AI replies from a cancelled run are dropped (the promise never settles)
+function wrapAI(){const c=window.claude;if(!c||typeof c.use!=="function"||c.use._ux)return;const u=c.use.bind(c);
+ const nu=async n=>{const s=await u(n);if(n!=="sample"||!s)return s;const o=Object.create(s);
+  o.json=(...a)=>{const my=runId;const hang=()=>new Promise(()=>{});return s.json(...a).then(r=>my!==runId?hang():r,e=>{if(my!==runId)return hang();throw e})};
+  o.limits=(...a)=>s.limits(...a);return o};nu._ux=1;
+ try{c.use=nu}catch(e){}if(c.use!==nu){try{Object.defineProperty(window,"claude",{value:Object.assign(Object.create(c),{use:nu}),configurable:true,writable:true})}catch(e){}}}
+wrapAI();setTimeout(wrapAI,0);addEventListener("load",wrapAI);
+
+// ---- library drawer: closed by default, scrim + Escape on phones
+const sb=$("sb"),tg=$("tg");let wantLib=false;try{wantLib=localStorage.getItem("qfdLib")==="1"}catch(e){}
+if(narrow()||!wantLib)sb.classList.add("c");
+const scrim=document.createElement("div");scrim.id="scrim";document.body.appendChild(scrim);scrim.onclick=()=>sb.classList.add("c");
+tg.setAttribute("aria-controls","sb");
+const syncLib=()=>{const open=!sb.classList.contains("c");tg.setAttribute("aria-expanded",String(open));document.body.classList.toggle("libopen",open);if(!narrow()){try{localStorage.setItem("qfdLib",open?"1":"0")}catch(e){}}};
+new MutationObserver(syncLib).observe(sb,{attributes:true,attributeFilter:["class"]});syncLib();
+addEventListener("keydown",e=>{if(e.key==="Escape"&&narrow()&&!sb.classList.contains("c"))sb.classList.add("c")});
+const oAdd=addCU;addCU=function(id){const r=oAdd.apply(this,arguments);dirty=true;if(narrow())sb.classList.add("c");vis();return r};
+
+// ---- drop zone for the drawing
+const drop=$("drop"),dropT=$("dropT"),dropS=$("dropS"),DT=dropT?dropT.innerHTML:"",DS=dropS?dropS.textContent:"";
+function showFile(){const f=$("f").files[0];if(!drop)return;drop.classList.toggle("has",!!f);
+ if(f){dropT.innerHTML="<b></b> <u>change</u>";dropT.firstChild.textContent=f.name;dropS.textContent=(f.size<1048576?Math.max(1,Math.round(f.size/1024))+" KB":(f.size/1048576).toFixed(1)+" MB")+" · "+(/\.(dgn|dxf)$/i.test(f.name)?"CAD file (text only)":"PDF")}else{dropT.innerHTML=DT;dropS.textContent=DS}}
+$("f").addEventListener("change",showFile);
+if(drop){["dragenter","dragover"].forEach(t=>drop.addEventListener(t,e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes("Files")){e.preventDefault();drop.classList.add("over")}}));
+ ["dragleave","drop"].forEach(t=>drop.addEventListener(t,()=>drop.classList.remove("over")));
+ drop.addEventListener("drop",e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(!fs||!fs.length)return;e.preventDefault();try{$("f").files=fs}catch(_){return}$("f").dispatchEvent(new Event("change"))})}
+
+// ---- mode switch: each mode shows only its own results
+function vis(){const q=mode==="quote";$("out").hidden=!(q&&(rows.length||nc.length));$("rv").hidden=!(rvShown&&rvOwner===mode);
+ $("staleB").hidden=$("staleB").hidden||!(q?!$("out").hidden:!$("rv").hidden)}
+const oSet=setMode;setMode=function(m){oSet(m);$("mQ").setAttribute("aria-pressed",String(m==="quote"));$("mR").setAttribute("aria-pressed",String(m==="review"));
+ document.querySelectorAll(".ronly").forEach(e=>e.hidden=m!=="review");$("dH").textContent=m==="review"?"Design review":"New quote";$("staleB").hidden=true;$("errP").hidden=true;vis();sumText()};
+$("mQ").setAttribute("aria-pressed","true");$("mR").setAttribute("aria-pressed","false");
+["t1","t2"].forEach((id,i)=>{const b=$(id);b.setAttribute("aria-pressed",String(i===0));b.addEventListener("click",()=>{$("t1").setAttribute("aria-pressed",String(i===0));$("t2").setAttribute("aria-pressed",String(i===1))})});
+
+// ---- one-line job summary (shown while running and after a run)
+function sumText(){const f=$("f").files[0];const p=[f?f.name:"No drawing"];
+ if(mode==="quote"){const d=$("dep").value;p.push(d&&d!=="auto"?d:"nearest depot",($("km").value||"?")+" km round trip",($("sv").value||0)+" switching visit"+($("sv").value==="1"?"":"s"));if($("fq").files[0])p.push("compared with "+$("fq").files[0].name);if($("dtl").checked)p.push("detailed review")}
+ else p.push("design review only");if($("ex").value)p.push("“"+$("ex").value+"”");$("sumT").textContent=p.join(" · ")}
+$("sumE").onclick=()=>{card.classList.remove("collapsed");$("sumL").hidden=true;$("drop").focus&&$("f").focus()};
+
+// ---- run start / cancel
+const oGo=$("go").onclick;$("go").onclick=function(e){runId++;fromQuoteBtn=false;return oGo.call(this,e)};
+const oStart=startProg;startProg=function(cmp){curRun=runId;runShown=false;$("errP").hidden=true;$("staleB").hidden=true;card.classList.remove("collapsed");
+ sumText();$("sumL").hidden=false;$("clr").textContent="Cancel";$("clr").setAttribute("aria-label","Cancel this run");card.setAttribute("aria-busy","true");
+ ["out","rv"].forEach(i=>{if(!$(i).hidden)$(i).classList.add("stale")});oStart(cmp)};
+function cancelRun(){cancelled.add(curRun);runId++;clearInterval(pgT);pgS=0;$("pg").hidden=true;$("go").disabled=!doc;card.removeAttribute("aria-busy");
+ $("clr").textContent="Clear";$("clr").removeAttribute("aria-label");$("sumL").hidden=true;["out","rv"].forEach(i=>$(i).classList.remove("stale"));st("Cancelled. Your drawing and settings are kept.")}
+
+// ---- run end: friendly errors, stale banner, scroll to results
+function friendly(raw){const s=String(raw||"").replace(/^Error:\s*/,"");
+ if(/AI review didn't run/i.test(s))return"The automatic checks finished, but the AI review didn't run.";
+ if(/Upload a drawing|Sign in|sign-in/i.test(s))return s;
+ if(/time ?d? ?out|timeout|deadline/i.test(s))return"The AI didn't answer in time.";
+ if(/network|fetch|connect|offline/i.test(s))return"Couldn't reach the AI service. Check your connection.";
+ if(/not available|access|rate.?limit|quota|429/i.test(s))return"The AI service isn't available right now.";
+ return mode==="review"?"Something went wrong while reviewing the drawing.":"Something went wrong while building the quote."}
+function showErr(raw){const P=$("errP"),q=mode==="quote";P.innerHTML="<b>Couldn't finish</b><p></p><div class='acts'><button type='button' id='erRetry'>Try again</button>"+(q?"<button type='button' class='g' id='erRev'>Run design review only</button>":"")+"</div><details><summary>Details</summary><pre></pre></details>";
+ P.querySelector("p").textContent=friendly(raw)+" Your drawing and settings are kept.";P.querySelector("pre").textContent=String(raw||"");P.hidden=false;
+ $("erRetry").onclick=()=>{P.hidden=true;$("go").click()};if(q)$("erRev").onclick=()=>{P.hidden=true;setMode("review");$("go").click()}}
+const oStop=stopProg;stopProg=function(){const my=curRun;card.removeAttribute("aria-busy");$("clr").textContent="Clear";$("clr").removeAttribute("aria-label");
+ if(cancelled.has(my)){// fallback when a late reply could not be blocked: undo what it drew
+  rows=[];nc=[];try{render();renderNC()}catch(e){}$("out").hidden=true;$("rv").hidden=true;$("pg").hidden=true;card.classList.remove("busy");return}
+ const fail=$("st").className==="err",raw=$("st").textContent;oStop();["out","rv"].forEach(i=>$(i).classList.remove("stale"));
+ if(fail){$("pg").hidden=true;st("");showErr(raw);$("sumL").hidden=true;
+  if(!runShown&&lastOk&&(!$("out").hidden||!$("rv").hidden)){$("staleT").textContent="The results below are from an earlier run ("+fmtClock(lastOk)+"). The latest run didn't finish.";$("staleB").hidden=false}
+  else if(runShown){$("rv").hidden=false}return}
+ lastOk=Date.now();runShown=true;dirty=mode==="quote"&&rows.length>0;
+ if(mode==="quote"){colourCov();updBar()}vis();
+ setTimeout(()=>{if(card.classList.contains("busy")||curRun!==runId)return;$("pg").hidden=true;if(mode==="quote"&&/^Done\./.test($("st").textContent))st("");card.classList.add("collapsed");sumText();$("sumL").hidden=false;const t=mode==="quote"&&!$("out").hidden?$("rbar"):(!$("rv").hidden?$("rv"):null);
+  if(t){t.scrollIntoView({behavior:"smooth",block:"start"});const h=mode==="quote"?$("rbT"):$("rvHead").querySelector("h2");if(h){h.tabIndex=-1;h.focus({preventScroll:true})}}},3200)};
+
+// ---- Clear: Cancel while running; asks once before wiping a quote
+const oClr=$("clr").onclick;$("clr").onclick=function(e){
+ if(card.classList.contains("busy"))return cancelRun();
+ if((rows.length||rvShown)&&Date.now()-clrArm>4000){clrArm=Date.now();$("clr").textContent="Click again to clear all";clearTimeout(clrT);clrT=setTimeout(()=>{$("clr").textContent="Clear"},4000);return}
+ clrArm=0;clearTimeout(clrT);$("clr").textContent="Clear";oClr.call(this,e);rvShown=false;runShown=false;lastOk=0;dirty=false;
+ card.classList.remove("collapsed");["sumL","errP","staleB"].forEach(i=>$(i).hidden=true);showFile();vis();lastQuote()};
+
+// ---- coverage list: expected material-only items are not errors
+const matOnly=id=>/^CN\d/.test(id);
+function colourCov(){$("cov").querySelectorAll("li").forEach(li=>{const t=li.textContent,id=t.split(/ x[\d.]/)[0].trim();
+ if(/no service CU/.test(t)){if(matOnly(id)){li.className="mo";li.textContent=t.replace(/no service CU.*$/,"material only (expected: no service CU)")}else{li.className="err";li.textContent=t.replace(/no service CU.*$/,"no service CU found: check")}}})}
+
+// ---- results bar
+function flagged(){const o=costs(),f=[];o.nr.forEach(id=>f.push(id+": no rate"));
+ (mats||[]).forEach(m=>{const s=(links&&links[m.cu])||[];if(!s.length&&!matOnly(m.cu)&&rows.some(r=>r.cu===m.cu))f.push(m.cu+": no service CU")});
+ (gen||[]).forEach(g=>{if(g.confidence==="low")f.push("Scope step "+g.step+": low confidence")});return f}
+function updBar(){if(!$("rbar"))return;const o=costs(),n=rows.filter(r=>r.cu).length,f=flagged();
+ $("rbT").textContent="Quote · "+PN();$("rbTot").textContent=money(o.tot);$("rbSplit").textContent="Internal "+money(o.ins)+" · External "+money(o.ext);
+ const s=$("rbSub");s.textContent=n+" line"+(n===1?"":"s")+(nc.length?" + "+nc.length+" non-CU":"")+(o.mat?" · "+o.mat+" material (no rate)":"");
+ if(f.length){s.append(" · ");const b=document.createElement("button");b.type="button";b.textContent=f.length+" to check";b.title=f.join("\n");b.onclick=()=>{($("cov").querySelector("li.err")||$("cost")).scrollIntoView({behavior:"smooth",block:"center"})};s.appendChild(b)}
+ $("rbNc").hidden=!nc.some(x=>x.desc);$("rbFn").textContent=FN()+"_CU.txt"}
+$("rbDl").onclick=()=>{$("dl").click();dirty=false};$("rbNc").onclick=()=>$("ncDl").click();$("dl").addEventListener("click",()=>{dirty=false});
+
+// ---- quote table: group subtotals, material tags, labels
+function subtot(){let h=null,sum=0;const put=()=>{if(h){const c=h.querySelector(".gsub");if(c)c.textContent=sum?money(sum):""}};
+ [...$("tb").children].forEach(tr=>{if(tr.classList.contains("grp")){put();h=tr;sum=0;return}if(tr._r){const c=rateOf(tr._r.cu);if(c!=null)sum+=c*Number(tr._r.qty||0)}});put()}
+const oRender=render;render=function(){oRender.apply(this,arguments);
+ [...$("tb").children].forEach(tr=>{const tds=tr.children;
+  if(tds.length===1&&tds[0].colSpan===7){const t=tds[0].textContent;tr.className="grp";tr.innerHTML="<td colspan='4'></td><td class='gsub'></td><td colspan='2'></td>";tr.firstChild.textContent=t;return}
+  const [a,,b,,,,e]=tds;if(!a)return;const ia=a.querySelector("input"),ib=b&&b.querySelector("input"),be=e&&e.querySelector("button");const id=tr._r?tr._r.cu:(ia&&ia.value)||"line";
+  if(ia)ia.setAttribute("aria-label",tr._r?"CU ID":"Non-CU item description");if(ib)ib.setAttribute("aria-label","Quantity for "+id);if(be){be.setAttribute("aria-label","Remove "+id);be.title="Remove line"}
+  if(tr._r)tr.addEventListener("input",()=>{dirty=true;subtot()})});
+ subtot();updBar()};
+const oAmt=amt;amt=function(tr){oAmt(tr);const r=tr._r,c=rateOf(r.cu),m=c==null&&isMat(r);tr.classList.toggle("mat",m);tr.classList.toggle("nr",c==null&&!m&&!!r.cu);
+ if(m){tr.querySelector(".rt").textContent="";tr.querySelector(".am").textContent=""}else if(c==null&&r.cu){tr.querySelector(".rt").textContent="no rate"}};
+const oPv=pv;pv=function(){oPv.apply(this,arguments);subtot();updBar();saveLast()};
+const oNC=renderNC;renderNC=function(){oNC.apply(this,arguments);[...$("nct").children].forEach((tr,i)=>{const L=["Description","Type","Quantity","Unit","Drawing note"];[...tr.children].forEach((td,j)=>{const el=td.firstChild;if(!el)return;if(j<5)el.setAttribute("aria-label",L[j]+" (non-CU item "+(i+1)+")");else el.setAttribute("aria-label","Remove non-CU item "+(i+1))})});try{updBar()}catch(e){}};
+
+// ---- project details card in quote mode
+const oDR=renderDR;renderDR=function(){oDR.apply(this,arguments);const el=$("dr");if(el.hidden)return;const h=el.querySelector("h2");
+ const note=[...el.querySelectorAll("div")].find(d=>/Detailed review not requested/.test(d.textContent));
+ if(h)h.textContent=(note?"Project details":"Drawing review")+" · "+PN();
+ if(note){note.innerHTML="<button type='button' class='g' id='drRun'>Run design review on this drawing</button> <span style='color:var(--mut);font-size:12.5px'>Marks up possible errors on the PDF. Your quote stays as it is.</span>";
+  $("drRun").onclick=()=>{if(!doc){st("Upload a drawing first.",1);return}runId++;fromQuoteBtn=true;runReview()}}};
+const oShow=showReview;showReview=async function(list,src){rvShown=true;runShown=true;rvOwner=src==="review"&&!fromQuoteBtn?"review":"quote";const r=await oShow.apply(this,arguments);
+ $("rv").hidden=rvOwner!==mode;if(fromQuoteBtn&&!$("rv").hidden)$("rv").scrollIntoView({behavior:"smooth",block:"start"});return r};
+
+// ---- design review list: severity words, keyboard
+const oRv=renderRvList;renderRvList=function(){oRv.apply(this,arguments);
+ $("rvList").querySelectorAll("li[data-n]").forEach(li=>{const x=rvF.find(f=>f.n===+li.dataset.n);if(!x)return;li.tabIndex=0;li.setAttribute("role","button");li.setAttribute("aria-label",x.sev+" severity: "+x.note+(x.text?", at "+x.text:""));
+  const m=li.querySelector(".rvmeta:last-child");if(m&&!m.querySelector(".rvsev")){const s=document.createElement("span");s.className="rvsev";s.style.color=SEVH[x.sev];s.textContent=x.sev;m.prepend(s," · ")}
+  const b=li.querySelector("button.rm");if(b){b.setAttribute("aria-label","Drop this finding");b.title="Drop this finding"}});
+ if(!$("rvHint")){const p=document.createElement("div");p.id="rvHint";p.style.cssText="font-size:12px;color:var(--mut);margin:6px 0 0";p.textContent="Click a finding to zoom to it on the drawing.";$("rvSum").after(p)}};
+$("rvList").addEventListener("keydown",e=>{const li=e.target.closest&&e.target.closest("li[data-n]");if(!li||e.target!==li)return;if(e.key==="Enter"||e.key===" "){e.preventDefault();li.click()}});
+
+// ---- unsaved work: warn before leaving, keep the last quote in this browser
+addEventListener("beforeunload",e=>{if(dirty&&rows.length){e.preventDefault();e.returnValue=""}});
+let svT=null;function saveLast(){clearTimeout(svT);svT=setTimeout(()=>{if(!rows.length)return;try{localStorage.setItem("qfdLast",JSON.stringify({name:PN(),rows:rows.map(r=>({cu:r.cu,qty:r.qty,basis:r.basis,scope:r.scope})),nc,t:Date.now()}))}catch(e){}},600)}
+function lastQuote(){const L=$("lastQ");let s=null;try{s=JSON.parse(localStorage.getItem("qfdLast")||"null")}catch(e){}
+ if(!s||!s.rows||!s.rows.length||rows.length){L.hidden=true;return}L.hidden=false;
+ L.innerHTML="<button type='button' id='lastQb'></button> <span></span>";$("lastQb").textContent="Restore your last quote";L.lastChild.textContent="("+s.name+", "+new Date(s.t).toLocaleString([],{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})+", "+s.rows.length+" lines)";
+ $("lastQb").onclick=()=>{rows=s.rows;nc=s.nc||[];name=String(s.name||"quote").toLowerCase();if(mode!=="quote")setMode("quote");$("out").hidden=false;renderNC();render();L.hidden=true;dirty=true;st("Restored your last quote. Upload the drawing again to re-run it.");$("rbar").scrollIntoView({behavior:"smooth",block:"start"})}}
+lastQuote();
 })();
 </script>
 </body></html>
