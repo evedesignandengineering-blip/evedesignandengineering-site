@@ -11,7 +11,7 @@ exports.open = async function (w, h, init) {
   if (!exports.URL) throw new Error('Set PNW_E2E_URL to the page to test, e.g. http://localhost:8766/index.html');
   const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
   const ctx = await b.newContext({ viewport: { width: w || 1440, height: h || 900 } });
-  if (MAP) await ctx.route(/^https?:\/\/(?!localhost)/, (r) => { const u = r.request().url(), k = Object.keys(MAP).find((x) => u.includes(x)); if (k) return r.fulfill({ path: MAP[k], contentType: 'application/javascript' }); const m = u.match(/three@0\.160\.0\/examples\/jsm\/(.*)$/); if (m) return r.fulfill({ path: NM + 'three/examples/jsm/' + m[1], contentType: 'application/javascript' }); return r.abort(); });
+  if (MAP) await ctx.route(/^https?:\/\/(?!localhost)/, (r) => { const u = r.request().url(), k = Object.keys(MAP).find((x) => u.includes(x)); if (k) return r.fulfill({ path: MAP[k], contentType: 'application/javascript' }); if (/leaflet@[\d.]+\/dist\/leaflet\.css/.test(u)) return r.fulfill({ path: NM + 'leaflet/dist/leaflet.css', contentType: 'text/css' }); const m = u.match(/three@0\.160\.0\/examples\/jsm\/(.*)$/); if (m) return r.fulfill({ path: NM + 'three/examples/jsm/' + m[1], contentType: 'application/javascript' }); return r.abort(); });
   if (init) await ctx.addInitScript(init);
   const pg = await ctx.newPage(), logs = [];
   pg.on('pageerror', (e) => logs.push('PAGEERROR ' + e.message)); pg.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ' ' + m.text()); });
