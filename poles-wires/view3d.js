@@ -321,6 +321,7 @@ function update(data) {
 
   // Conductors: one line per phase, between matching attachment points, with sag only when it was calculated.
   const w0 = host.clientWidth || 1, h0 = host.clientHeight || 1;
+  const sagAt = {};
   (data.wires || []).forEach((w) => {
     const a = P(w.from.easting, w.from.northing, w.from.elevation), b = P(w.to.easting, w.to.northing, w.to.elevation), pts = [];
     const vs = [];
@@ -331,8 +332,10 @@ function update(data) {
     const line = new Line2(g, mt); line.computeLineDistances();
     line.userData = { segment: w.segment, pole: w.from.pole, color: COLORS[kind(w)], pts: vs };
     group.add(line); wireLines.push(line); fitObjects.push(line);
-    if (data.showLabels !== false && w.sag && w.phase === 1) label('sag ' + w.sag.toFixed(2) + ' m', vs[12].clone().add(new THREE.Vector3(0, -0.6, 0)), 'l3d sag');
+    if (data.showLabels !== false && w.sag && w.phase === 1) { const k = w.from.pole + '|' + w.to.pole, e = sagAt[k] = sagAt[k] || { t: [], pos: vs[12] }; e.t.push(kind(w).toUpperCase() + ' ' + w.sag.toFixed(2)); if (vs[12].y < e.pos.y) e.pos = vs[12]; }
   });
+  // One sag label per span (HV and LV together), so labels do not overlap.
+  Object.keys(sagAt).forEach((k) => { const e = sagAt[k]; label('sag ' + e.t.join(' · ') + ' m', e.pos.clone().add(new THREE.Vector3(0, -0.6, 0)), 'l3d sag'); });
 
   // Reference grid on the lowest pole base (not part of the fit).
   const ext = poles.reduce((m, p) => Math.max(m, Math.abs(p.easting - origin.e), Math.abs(p.northing - origin.n)), 20);
