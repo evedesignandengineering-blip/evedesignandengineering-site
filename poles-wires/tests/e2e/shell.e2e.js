@@ -15,6 +15,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await pg.click('[data-view="3d"]'); await pg.waitForTimeout(1500);
   ok(await pg.evaluate(() => !!(window.PNW3D && PNW3D.state && PNW3D.state().poles > 0)), '3D draws poles');
   ok(await pg.evaluate(() => !!window.PNW_HVLV), 'separation rule built in');
+  ok(await pg.evaluate(() => ['library', 'dcsh', 'stringing'].every((k) => window.PNW_BUILTIN && window.PNW_BUILTIN[k])), 'PNW library, DCSH register and Part 10 tables built in');
   await pg.evaluate(() => document.getElementById('tbAuto').click());
   await pg.waitForSelector('#adApply, #adProg', { timeout: 15000 }); await pg.waitForSelector('#adApply', { timeout: 60000 });
   ok(/Needs you/.test(await pg.$eval('#genBody', (e) => e.innerText)), 'Auto design review opens (no photos: listed under Needs you)');
