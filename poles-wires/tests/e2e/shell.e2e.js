@@ -4,6 +4,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 (async () => {
   const { b, pg, logs } = await open(1440, 900);
   ok(await pg.$('#rtabs') && await pg.$('.titlebar'), 'CAD shell layout loads');
+  await pg.waitForFunction(() => window.PNW_DCSH_IMG, null, { timeout: 15000 });
+  const img = await pg.evaluate(() => new Promise((r) => { const k = Object.keys(window.PNW_DCSH_IMG), i = new Image(); i.onload = () => r(k.length + ' drawings, ' + i.naturalWidth + ' px'); i.onerror = () => r('error'); i.src = window.PNW_DCSH_IMG[k[0]].src; }));
+  ok(/^1\d drawings, \d{3,} px/.test(img), 'DCSH drawing images load after the page: ' + img);
   await pg.setInputFiles('#fileInput', ['QLINK .xlsx', 'Export (13).xlsx', 'Ground Profile - MP219050.pnwx'].map((f) => D + f));
   await pg.waitForFunction(() => /Imported/.test(document.getElementById('status').textContent), null, { timeout: 30000 });
   await pg.waitForTimeout(800);
