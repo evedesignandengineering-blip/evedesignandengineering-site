@@ -4,15 +4,17 @@ const { open, D } = require('./lib.js');
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 (async () => {
   const { b, pg } = await open(1440, 900);
+  // The Construction section is an accordion: open it only when it is closed (a click on an open one closes it).
+  const openDesign = async () => { if (await pg.$eval('[data-instab="design"]', (e) => e.getAttribute('aria-expanded') !== 'true')) await pg.click('[data-instab="design"]'); await pg.waitForTimeout(200); };
   await pg.setInputFiles('#fileInput', ['QLINK .xlsx', 'gis-conductors/Export 15 - poles.xlsx', 'gis-conductors/Export 13 - LV overhead conductors.xlsx', 'gis-conductors/Export 14 - HV overhead conductors.xlsx', 'Ground Profile - MP219050.pnwx'].map((f) => D + f));
   await pg.waitForFunction(() => /Imported/.test(document.getElementById('status').textContent), null, { timeout: 30000 });
   await pg.waitForTimeout(500);
   await pg.click('[data-tab="poles"]'); await pg.click('#tableWrap tr[data-id="S120776"]'); await pg.waitForTimeout(300);
-  await pg.click('[data-instab="design"]'); await pg.waitForTimeout(200);
+  await openDesign();
   await pg.evaluate(() => { document.querySelector('.addpole').open = true; });
   await pg.fill('#poleAddId', 'P1'); await pg.fill('#poleAddDist', '22'); await pg.fill('#poleAddLen', '11');
   await pg.click('#poleAdd'); await pg.waitForTimeout(800);
-  await pg.click('[data-instab="design"]'); await pg.waitForTimeout(200);
+  await openDesign();
   const add = async (code) => { await pg.click('.combo[data-combo="conAdd"] input'); await pg.keyboard.press('Control+A'); await pg.keyboard.type(code); await pg.keyboard.press('Enter'); await pg.waitForTimeout(300); return pg.$eval('#conAddKb', (e) => e.value); };
   const hv = await add('HV1'); await pg.click('#conAdd'); await pg.waitForTimeout(800);
   const re = await add('RE1');
