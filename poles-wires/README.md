@@ -97,8 +97,10 @@ interpolated from the surveyed poles (no terrain model is loaded). Attribution i
 policies for heavy or commercial use, so a high-traffic deployment should use a keyed tile service. Pages whose content
 policy blocks tile servers show grey tiles with a note.
 
-King bolt defaults use the user's reference register when it dimensions the drawing, else the PNW library. LV under HV
-is flagged because the separation rule (with or without a running earth) is not in the loaded reference data.
+King bolt defaults use the user's reference register when it dimensions the drawing, else the PNW library. An LV
+construction added under HV takes its king bolt from the user's HV/LV/RE separation rule when one is loaded (a private
+`.json` with `hvToRe`, `bare`, `abc` and `noRe` entries, imported like the other reference files); without it the PNW
+library distance is used and the height is flagged. The profile zooms horizontally in and out (to 5× the line length).
 
 ## Known limitations
 
