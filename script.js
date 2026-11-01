@@ -53,18 +53,8 @@ if (contactForm) {
         form.style.display = "none";
         successPanel.classList.add("show");
 
-        window.setTimeout(() => {
-          successPanel.classList.remove("show");
-          form.style.display = "";
-          if (submitButton) {
-            submitButton.disabled = false;
-            if ("value" in submitButton && submitButton.tagName === "INPUT") {
-              submitButton.value = originalButtonText;
-            } else {
-              submitButton.textContent = originalButtonText || "Send";
-            }
-          }
-        }, 2000);
+        successPanel.setAttribute("tabindex", "-1");
+        successPanel.focus({ preventScroll: true });
       } else if (submitButton) {
         submitButton.disabled = false;
         if ("value" in submitButton && submitButton.tagName === "INPUT") {
