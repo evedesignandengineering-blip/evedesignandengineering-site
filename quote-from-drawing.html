@@ -196,7 +196,7 @@ aside.c{visibility:hidden;box-shadow:none!important}aside{transition:margin .2s,
 <div class="mode" role="group" aria-label="What to do"><button class="on" id="mQ" type="button">Generate quote</button><button id="mR" type="button">Design review only</button></div><div id="mHelp">Builds a DQM quote of CU IDs and quantities from the drawing.</div>
 <div id="sumL" hidden><span id="sumT"></span><button class="g" type="button" id="sumE">Edit inputs</button></div>
 <h3 class="step"><span>1</span> Drawing</h3>
-<label class="drop" id="drop" for="f"><input type="file" id="f" class="vh" accept="application/pdf,.pdf,.dgn,.dxf"><span class="drop-i" aria-hidden="true">&#8679;</span><span><span class="drop-t" id="dropT"><b>Drop a PDF, DGN or DXF drawing here</b> or <u>browse</u></span><span class="drop-s" id="dropS">Design drawing (required)</span></span></label>
+<label class="drop" id="drop" for="f"><input type="file" id="f" class="vh" accept="application/pdf,.pdf,.dgn,.dxf,.pptx"><span class="drop-i" aria-hidden="true">&#8679;</span><span><span class="drop-t" id="dropT"><b>Drop a PDF, DGN or DXF drawing here</b> or <u>browse</u></span><span class="drop-s" id="dropS">Design drawing (required)</span></span></label>
 <div id="site" class="qonly" style="margin-top:10px"></div><div id="lastQ" hidden></div>
 <h3 class="step qonly"><span>2</span> Job details</h3>
 <div class="row qonly"><div><label for="dep">Depot</label><select id="dep"></select></div><div><label for="km">Round trip (km)</label><input type="number" id="km" min="0" placeholder="auto"></div><div><label for="sv">Switching visits</label><input type="number" id="sv" value="3" min="0"></div></div>
@@ -414,16 +414,29 @@ $("ncDl").onclick=()=>save(FN()+"_NonCU.txt",ncText());
 // ---- geo
 const hav=(a,b,c,d)=>{const R=6371,r=Math.PI/180,x=Math.sin((c-a)*r/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin((d-b)*r/2)**2;return 2*R*Math.asin(Math.sqrt(x))};
 function parseGeo(t){for(const m of t.matchAll(/GEO\s*REF\s*:/gi)){const g=parseGeoCore(t.slice(m.index,m.index+400));if(g)return g}return parseGeoCore(t)}
-function parseGeoCore(t){let lat,lon;
- const re=/(\d{1,3})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2}(?:\.\d+)?)\s*[^\dA-Za-z\s.,-]{0,2}\s*([NSEW])(?![A-Za-z])/g;
+function parseGeoCore(t){t=t.replace(/[−–‒]/g,"-").replace(/\s+/g," ");
+ const OK=g=>g&&g.lat<-10&&g.lat>-40&&g.lon>110&&g.lon<130?g:null,DG="[\\u00b0\\u00ba\\u02da^*]";
+ // 1) degrees minutes seconds with hemisphere (31°46'04.2"S)
+ let lat,lon;const re=/(\d{1,3})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2})\s*[^\dA-Za-z\s.,-]{1,2}\s*(\d{1,2}(?:\.\d+)?)\s*[^\dA-Za-z\s.,-]{0,2}\s*([NSEW])(?![A-Za-z])/g;
  for(const m of t.matchAll(re)){let v=+m[1]+m[2]/60+m[3]/3600;if("SW".includes(m[4]))v=-v;if("NS".includes(m[4])&&lat==null)lat=v;if("EW".includes(m[4])&&lon==null)lon=v}
- if(lat==null||lon==null){const m=t.match(/(-3\d\.\d{3,})\s*[, ]\s*(1[12]\d\.\d{3,})/);if(m){lat=+m[1];lon=+m[2]}}
- return lat!=null&&lon!=null&&lat<-10&&lat>-40&&lon>110&&lon<130?{lat,lon}:null}
+ let g=lat!=null&&lon!=null?OK({lat,lon}):null;if(g)return g;
+ // 2) labelled decimal degrees (Lat: 31.76783° S / Lon: 115.74120° E, Lat: -31.95004 Long: 116.00081)
+ const hv=(n,h,neg)=>{let v=+n;if(h&&neg.includes(h.toUpperCase()))v=-Math.abs(v);return v};
+ const la=t.match(new RegExp("\\bLAT(?:ITUDE)?\\b\\.?\\s*[:=]?\\s*([NS](?![A-Za-z]))?\\s*(-?\\d{1,2}\\.\\d+)\\s*"+DG+"?\\s*([NS](?![A-Za-z]))?","i")),
+  lo=t.match(new RegExp("\\bLON(?:G(?:ITUDE)?)?\\b\\.?\\s*[:=]?\\s*([EW](?![A-Za-z]))?\\s*(-?\\d{1,3}\\.\\d+)\\s*"+DG+"?\\s*([EW](?![A-Za-z]))?","i"));
+ if(la&&lo){g=OK({lat:hv(la[2],la[3]||la[1],"S"),lon:hv(lo[2],lo[3]||lo[1],"W")});if(g)return g}
+ // 3) unlabelled decimal degrees with hemisphere letters (31.76783° S 115.74120° E)
+ lat=lon=null;for(const m of t.matchAll(new RegExp("(\\d{1,3}\\.\\d{3,})\\s*"+DG+"?\\s*([NSEW])(?![A-Za-z])","g"))){const h=m[2].toUpperCase(),v="SW".includes(h)?-m[1]:+m[1];if("NS".includes(h)&&lat==null)lat=v;if("EW".includes(h)&&lon==null)lon=v}
+ g=lat!=null&&lon!=null?OK({lat,lon}):null;if(g)return g;
+ // 4) signed decimal pair (-31.950040, 116.000810), either order
+ let m=t.match(/(-[1-4]\d\.\d{3,})\s*°?\s*[,; ]\s*(1[1-2]\d\.\d{3,})/);if(m&&(g=OK({lat:+m[1],lon:+m[2]})))return g;
+ m=t.match(/(1[1-2]\d\.\d{3,})\s*°?\s*[,; ]\s*(-[1-4]\d\.\d{3,})/);if(m&&(g=OK({lat:+m[2],lon:+m[1]})))return g;
+ return null}
 function nearest(g){return DEP.map(d=>({n:d[0],k:hav(g.lat,g.lon,d[1],d[2])*ROAD})).sort((a,b)=>a.k-b.k)}
 function setSite(){const S=$("site");S.innerHTML="";const sp=document.createElement("span");
  if(geo){const n=nearest(geo);if(!$("dep").value||$("dep").value==="auto")$("dep").value=n[0].n;const k=nearest(geo).find(x=>x.n===$("dep").value)||n[0];$("km").value=Math.round(2*k.k);
   sp.innerHTML="<span class='chip ok'>Site "+geo.lat.toFixed(5)+", "+geo.lon.toFixed(5)+"</span><span class='chip'>Nearest depot: "+n[0].n+" (~"+Math.round(n[0].k)+" km by road est.)</span>"}
- else{sp.innerHTML="<span class='chip err'>Couldn't read site coordinates. Enter the round-trip km manually.</span><span class='chip'></span>";const g=doc&&doc.text.match(/GEO REF[\s\S]{0,120}/i);sp.lastChild.textContent="Text near GEO REF: "+(g?g[0].replace(/\s+/g," "):"not found")}
+ else{sp.innerHTML="<span class='chip err'>Couldn't read site coordinates. Enter the round-trip km manually.</span><span class='chip'></span>";const g=doc&&(doc.text.match(/GEO REF[\s\S]{0,120}/i)||doc.text.match(/\bLAT(?:ITUDE)?\b[\s\S]{0,120}/i));sp.lastChild.textContent="Text near GEO REF: "+(g?g[0].replace(/\s+/g," "):"not found")}
  S.appendChild(sp)}
 $("dep").innerHTML="<option value='auto'>Nearest (auto)</option>"+DEP.map(d=>"<option>"+d[0]+"</option>").join("");$("dep").onchange=()=>{if(geo){if($("dep").value==="auto")$("dep").value=nearest(geo)[0].n;setSite()}};
 // ---- pdf
@@ -480,11 +493,41 @@ function dgnText(buf){const u8=new Uint8Array(buf),out=[];
  if(!out.length)throw new Error("No readable text found in this DGN. Export it as DXF or PDF instead.");
  const seen=new Set(),IMP=/CU\s*[:\-]|DCSH|SCOPE|INSTALL|REMOVE|RELOCAT|CABLE|PILLAR|POLE|TRENCH|DRILL|CONDUIT|POLYPIPE|POLY PIPE|DECOMM|GEO|LAT|LONG|\d+\s*[\^\u00b0]\s*\d+|MP\d{5,}|TERMINAT|JOINT|SWITCH|TRANSFORMER|STREET|\bST\b|ROAD/i;
  return out.filter(x=>{if(!/CU\s*[:\-]/i.test(x)){if(seen.has(x))return false;seen.add(x)}return IMP.test(x)||(x.match(/[A-Za-z]{3,}/g)||[]).length>=2}).join("\n")}
+// ---- zipped drawing reader (text + largest picture, embedded PDF if any)
+function unzip(buf){const u8=new Uint8Array(buf),dv=new DataView(buf);let e=-1;
+ for(let i=u8.length-22;i>=Math.max(0,u8.length-65558);i--)if(dv.getUint32(i,true)===0x06054b50){e=i;break}
+ if(e<0)throw new Error("This file could not be opened.");
+ const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const out={};
+ for(let k=0;k<n&&p+46<=u8.length;k++){if(dv.getUint32(p,true)!==0x02014b50)break;
+  const meth=dv.getUint16(p+10,true),cs=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+  const name=new TextDecoder().decode(u8.subarray(p+46,p+46+nl));
+  out[name]=()=>{const ln=dv.getUint16(lo+26,true),lx=dv.getUint16(lo+28,true),d=u8.subarray(lo+30+ln+lx,lo+30+ln+lx+cs);return meth===0?d.slice():pako.inflateRaw(d)};
+  p+=46+nl+xl+cl}
+ return out}
+const xmlDec=s=>s.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&#x([0-9a-f]+);/gi,(_,h)=>String.fromCodePoint(parseInt(h,16))).replace(/&#(\d+);/g,(_,d)=>String.fromCodePoint(+d)).replace(/&amp;/g,"&");
+function slideXmlText(x){const out=[];for(const p of x.split(/<\/a:p>/)){const t=[...p.matchAll(/<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>/g)].map(m=>xmlDec(m[1])).join("");if(t.trim())out.push(t.trim())}return out.join("\n")}
+async function toJpeg(blob,max){const im=await createImageBitmap(blob);const k=Math.min(1,max/Math.max(im.width,im.height)),cv=document.createElement("canvas");cv.width=Math.round(im.width*k);cv.height=Math.round(im.height*k);const c=cv.getContext("2d");c.fillStyle="#fff";c.fillRect(0,0,cv.width,cv.height);c.drawImage(im,0,0,cv.width,cv.height);return new Promise(r=>cv.toBlob(r,"image/jpeg",.8))}
+async function readDeck(f){if(typeof pako==="undefined")throw new Error("Decompression library failed to load.");
+ const z=unzip(await f.arrayBuffer()),dec=new TextDecoder(),num=s=>+(s.match(/(\d+)\.\w+$/)||[0,0])[1];
+ const slides=Object.keys(z).filter(k=>/^ppt\/slides\/slide\d+\.xml$/i.test(k)).sort((a,b)=>num(a)-num(b));
+ if(!slides.length)throw new Error("No drawing found in this file.");
+ let text="";slides.forEach((k,i)=>{let t=slideXmlText(dec.decode(z[k]()));
+  const rel=z["ppt/slides/_rels/"+k.split("/").pop()+".rels"];
+  if(rel)for(const m of dec.decode(rel()).matchAll(/Target="\.\.\/(diagrams\/data\d+\.xml|charts\/chart\d+\.xml)"/g)){const d=z["ppt/"+m[1]];if(d)t+="\n"+slideXmlText(dec.decode(d()))}
+  text+="\n--- page "+(i+1)+" ---\n"+t});
+ // an embedded PDF drawing gives full page text, positions and markups
+ const pk=Object.keys(z).filter(k=>/^ppt\/embeddings\/.*\.pdf$/i.test(k));
+ for(const k of pk){try{const b=z[k]();const pf=new File([b],f.name.replace(/\.[^.]+$/,"")+".pdf",{type:"application/pdf"});const r=await readPdf(pf);r.text+="\n"+text;return r}catch(e){}}
+ // otherwise the largest picture on the slides is the drawing image
+ let img=null;const media=Object.keys(z).filter(k=>/^ppt\/media\/.*\.(png|jpe?g|gif|bmp|webp)$/i.test(k)).map(k=>({k,d:z[k]()})).sort((a,b)=>b.d.length-a.d.length);
+ for(const m of media){try{const ext=m.k.split(".").pop().toLowerCase();img=await toJpeg(new Blob([m.d],{type:"image/"+(ext==="jpg"?"jpeg":ext)}),2200);break}catch(e){}}
+ if(!text.replace(/--- page \d+ ---/g,"").trim()&&!img)throw new Error("No readable text found in this file.");
+ return{text,img}}
 async function readCad(f){const n=f.name.toLowerCase();let text;
  if(n.endsWith(".dxf"))text=dxfText(await f.text());else text=dgnText(await f.arrayBuffer());
  return{text:"\n--- "+f.name+" (CAD text only: no drawing image; scale-based measuring not available) ---\n"+text,img:null}}
-$("f").onchange=async()=>{const f=$("f").files[0];$("go").disabled=true;if(!f)return;const cad=/\.(dgn|dxf)$/i.test(f.name);st(cad?"Reading CAD file…":"Reading PDF…");
- try{doc=cad?await readCad(f):await readPdf(f);geo=parseGeo(doc.text);$("dep").value="auto";setSite();st("Drawing read"+(cad?" (text only from CAD file)":"")+(mode==="review"?". Run the design review.":". Review distance and generate."));$("go").disabled=false}catch(e){st("Could not read drawing: "+(e.message||e),1)}};
+$("f").onchange=async()=>{const f=$("f").files[0];$("go").disabled=true;if(!f)return;const cad=/\.(dgn|dxf)$/i.test(f.name),dk=/\.(pptx|ppsx|potx)$/i.test(f.name);st(cad?"Reading CAD file…":dk?"Reading drawing…":"Reading PDF…");
+ try{doc=cad?await readCad(f):dk?await readDeck(f):await readPdf(f);geo=parseGeo(doc.text);$("dep").value="auto";setSite();st("Drawing read"+(cad?" (text only from CAD file)":"")+(mode==="review"?". Run the design review.":". Review distance and generate."));$("go").disabled=false}catch(e){st("Could not read drawing: "+(e.message||e),1)}};
 function parseMats(t){t=t.replace(/[\u00d7\u2715]/g,"x").replace(/\s+/g," ");const o={},re=/CU\s*(?:'?S)?\s*[:\-]([\s\S]*?)(?=DCSH|CU\s*(?:'?S)?\s*[:\-]|$)/gi;let m;
  const ID="([A-Z]{1,4}\\d{1,3}[A-Za-z0-9_\\/.\\-]*?)";
  const tr=new RegExp(ID+"\\s*[xX*]\\s*(\\d+(?:\\.\\d+)?)\\s*m?(?![A-Za-z0-9])","g");
@@ -891,7 +934,7 @@ const oAdd=addCU;addCU=function(id){const r=oAdd.apply(this,arguments);dirty=tru
 // ---- drop zone for the drawing
 const drop=$("drop"),dropT=$("dropT"),dropS=$("dropS"),DT=dropT?dropT.innerHTML:"",DS=dropS?dropS.textContent:"";
 function showFile(){const f=$("f").files[0];if(!drop)return;drop.classList.toggle("has",!!f);
- if(f){dropT.innerHTML="<b></b> <u>change</u>";dropT.firstChild.textContent=f.name;dropS.textContent=(f.size<1048576?Math.max(1,Math.round(f.size/1024))+" KB":(f.size/1048576).toFixed(1)+" MB")+" · "+(/\.(dgn|dxf)$/i.test(f.name)?"CAD file (text only)":"PDF")}else{dropT.innerHTML=DT;dropS.textContent=DS}}
+ if(f){dropT.innerHTML="<b></b> <u>change</u>";dropT.firstChild.textContent=f.name;dropS.textContent=(f.size<1048576?Math.max(1,Math.round(f.size/1024))+" KB":(f.size/1048576).toFixed(1)+" MB")+" · "+(/\.(dgn|dxf)$/i.test(f.name)?"CAD file (text only)":/\.pdf$/i.test(f.name)?"PDF":"Drawing")}else{dropT.innerHTML=DT;dropS.textContent=DS}}
 $("f").addEventListener("change",showFile);
 if(drop){["dragenter","dragover"].forEach(t=>drop.addEventListener(t,e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes("Files")){e.preventDefault();drop.classList.add("over")}}));
  ["dragleave","drop"].forEach(t=>drop.addEventListener(t,()=>drop.classList.remove("over")));
