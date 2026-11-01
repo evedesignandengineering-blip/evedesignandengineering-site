@@ -53,6 +53,25 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
       <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
       <button type="submit">Sign in</button>
       <button type="button" class="ghost" id="forgot">Forgot your password?</button>
+      <button type="button" class="ghost" id="toUp">New here? Request access</button>
+    </form>
+    <form id="vSignup" hidden>
+      <p>Create an account and tell us how you'll use LVDesign Web. An EVE administrator reviews each request.</p>
+      <label for="uName">Full name</label><input id="uName" autocomplete="name" maxlength="120" required>
+      <label for="uCo">Company</label><input id="uCo" autocomplete="organization" maxlength="120" required>
+      <label for="uEm">Work email</label><input id="uEm" type="email" autocomplete="email" required>
+      <label for="uPw">Password</label><input id="uPw" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="uWhy">What will you use it for? (optional)</label><input id="uWhy" maxlength="600">
+      <button type="submit">Request access</button>
+      <button type="button" class="ghost" id="toIn">Already have an account? Sign in</button>
+    </form>
+    <form id="vRequest" hidden>
+      <p>This account doesn't have access to LVDesign Web yet. Send a request to an EVE administrator.</p>
+      <label for="rName">Full name</label><input id="rName" autocomplete="name" maxlength="120" required>
+      <label for="rCo">Company</label><input id="rCo" autocomplete="organization" maxlength="120" required>
+      <label for="rWhy">What will you use it for? (optional)</label><input id="rWhy" maxlength="600">
+      <button type="submit">Request access</button>
+      <button type="button" class="ghost" id="signout3">Sign in with another account</button>
     </form>
     <form id="vSetpw" hidden>
       <p>Choose a password for <b id="pwEmail"></b>.</p>
@@ -66,14 +85,14 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
     </div>
     <div id="status" class="status" role="status"></div>
   </section>
-  <div class="foot"><span>Access is by invitation only.</span><a href="/tools.html">← Back to tools</a></div>
+  <div class="foot"><span>Access is approved by EVE Design &amp; Engineering.</span><a href="/tools.html">← Back to tools</a></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function () {
   var VERSION = '202611012233-2b753226', ENC = 'app-202611012233-2b753226.bin';
   var $ = function (id) { return document.getElementById(id); };
-  var views = ['vBusy', 'vSignin', 'vSetpw', 'vDenied'];
+  var views = ['vBusy', 'vSignin', 'vSignup', 'vRequest', 'vSetpw', 'vDenied'];
   function show(v, msg, cls) { views.forEach(function (x) { $(x).hidden = x !== v; }); var s = $('status'); s.textContent = msg || ''; s.className = 'status' + (cls ? ' ' + cls : ''); }
   function busy(t) { $('busyTxt').textContent = t; show('vBusy'); }
   var hosts = ['evedesignandengineering.com', 'www.evedesignandengineering.com'];
@@ -85,6 +104,7 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
   async function unlock(session) {
     busy('Opening LVDesign Web…');
     var r = await sb.rpc('lvd_get_key', { p_version: VERSION });
+    if (r.error && /does not have access/i.test(r.error.message || '')) return noAccess(session);
     if (r.error) { show('vDenied'); $('deniedTxt').textContent = r.error.message || 'This account cannot open LVDesign Web.'; return; }
     try {
       var res = await fetch(ENC, { cache: 'force-cache' }); if (!res.ok) throw new Error('download ' + res.status);
@@ -96,6 +116,22 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
       html = html.replace('<head>', '<head><script>window.__LVD_LICENSEE=' + JSON.stringify(who).replace(/</g, '\\u003c') + ';<\/script>');
       document.open(); document.write(html); document.close();
     } catch (e) { show('vDenied'); $('deniedTxt').textContent = 'LVDesign Web could not be opened (' + e.message + '). Reload the page to try again.'; }
+  }
+  function denied(t) { show('vDenied'); $('deniedTxt').textContent = t; $('signout2').textContent = 'Sign in with another account'; }
+  function showStatus(st) {
+    if (st === 'pending') denied("Your request is waiting for approval. You'll be able to open LVDesign Web here once an EVE administrator approves it.");
+    else if (st === 'denied') denied('Your request for access was not approved. Contact EVE Design & Engineering if you think this is a mistake.');
+    else if (st === 'removed') denied('Your access to LVDesign Web has been removed. Contact EVE Design & Engineering if you need it again.');
+    else denied('This account does not have access to LVDesign Web. Contact EVE Design & Engineering.');
+  }
+  // signed in but no access: show the request's status, file the request made at sign-up, or offer the request form
+  async function noAccess(session) {
+    var a = await sb.from('lvd_access').select('status').eq('user_id', session.user.id).maybeSingle();
+    if (a.data && a.data.status && a.data.status !== 'approved') return showStatus(a.data.status);
+    if (a.data) return showStatus('');
+    var m = session.user.user_metadata || {};
+    if (m.lvd_request) { busy('Sending your request…'); var q = await sb.rpc('lvd_request', { p_name: m.name || '', p_company: m.company || '', p_reason: m.lvd_reason || '' }); return q.error ? denied('Could not send your request: ' + q.error.message) : showStatus(q.data); }
+    $('rName').value = m.name || ''; $('rCo').value = m.company || ''; show('vRequest');
   }
   async function start() {
     busy('Checking your sign-in…');
@@ -125,7 +161,25 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
     history.replaceState(null, '', location.pathname); linkType = '';
     var g = await sb.auth.getSession(); unlock(g.data.session);
   });
+  $('toUp').addEventListener('click', function () { $('uEm').value = $('email').value; show('vSignup'); $('uName').focus(); });
+  $('toIn').addEventListener('click', function () { show('vSignin'); });
+  $('vSignup').addEventListener('submit', async function (e) {
+    e.preventDefault(); busy('Sending your request…');
+    var v = function (id) { return $(id).value.trim(); };
+    var r = await sb.auth.signUp({ email: v('uEm').toLowerCase(), password: $('uPw').value, options: { emailRedirectTo: location.origin + '/lvdesign/', data: { name: v('uName'), company: v('uCo'), lvd_reason: v('uWhy'), lvd_request: true } } });
+    if (r.error) { show('vSignup', 'Could not create the account: ' + r.error.message, 'bad'); return; }
+    if (r.data.session) return unlock(r.data.session);
+    denied("Check your email and click the confirmation link, then sign in here. If you already have an EVE account, just sign in with it. An EVE administrator will review your request, and you can open LVDesign Web once it's approved.");
+    $('signout2').textContent = 'Back to sign in';
+  });
+  $('vRequest').addEventListener('submit', async function (e) {
+    e.preventDefault(); busy('Sending your request…');
+    var q = await sb.rpc('lvd_request', { p_name: $('rName').value.trim(), p_company: $('rCo').value.trim(), p_reason: $('rWhy').value.trim() });
+    if (q.error) { show('vRequest', 'Could not send your request: ' + q.error.message, 'bad'); return; }
+    showStatus(q.data);
+  });
   $('signout2').addEventListener('click', async function () { await sb.auth.signOut(); show('vSignin'); });
+  $('signout3').addEventListener('click', async function () { await sb.auth.signOut(); show('vSignin'); });
   start();
 })();
 </script>
