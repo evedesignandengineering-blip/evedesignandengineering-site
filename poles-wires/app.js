@@ -409,7 +409,7 @@
   function lvRule(id, cons, i) {
     var c = cons[i]; if (i === 0 || circuitClass(c.code) !== 'lv') return null;
     var hv = cons.slice(0, i).filter(function (x) { return circuitClass(x.code) === 'hv'; })[0]; if (!hv) return null;
-    var re = cons.filter(function (x) { return /^RE/i.test(x.code || ''); })[0], R = window.PNW_HVLV, out = { re: !!re };
+    var re = cons.filter(function (x) { return /^RE/i.test(x.code || ''); })[0], R = hvlvRule(), out = { re: !!re };
     if (!R) { out.why = 'The HV to LV separation rule is not loaded on this page.'; return out; }
     var d = M.dcshFor(dcshReg(), hv.code)[0], rule = d && R.hvToRe[d.drawing];
     if (!rule) { out.why = 'No separation rule for ' + (d ? d.drawing : hv.code) + ' yet.'; return out; }
@@ -427,9 +427,17 @@
     out.src = 'DCSH ' + parts.join('; ') + ': ' + mm + ' mm below the ' + hv.code + ' king bolt' + (re ? '' : ' (no RE)');
     return out;
   }
+  function hvlvRule() { var f = S.files.filter(function (x) { return x.role === 'hvlv' && x.status === 'ok'; }).pop(); return (f && (f.rule || (f.rule = JSON.parse(f.text)))) || window.PNW_HVLV || null; }
+  // Default king bolt for a construction added below the ones on the pole: LV under HV follows the separation rule when it applies.
+  function kbFor(id, code, hag, cons) {
+    var list = (cons || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; }), low = list.length ? list[list.length - 1].kingbolt : null;
+    var r = lvRule(id, list.concat([{ code: code, kingbolt: null }]), list.length);
+    if (r && r.value != null && (low == null || r.value < low)) return { value: r.value, below: low != null ? Math.round((low - r.value) * 1000) / 1000 : null, source: r.src };
+    return kbDefault(code, hag, low);
+  }
   function lvRuleHint(id, cons, i, u) {
     var r = lvRule(id, cons, i), c = cons[i]; if (!r || r.value == null) return '';
-    return Math.abs(r.value - (c.kingbolt || 0)) > 0.0005 ? '<p class="hint">' + esc(r.src) + ': <b>' + r.value + ' m</b>. <button class="btn small" data-cdef="' + u + '" data-v="' + r.value + '" data-ref="' + esc(r.src) + '">Use</button></p>' : '<p class="hint ok">LV height matches ' + esc(r.src) + '.</p>';
+    return Math.abs(r.value - (c.kingbolt || 0)) > 0.0005 ? '' : '<p class="hint ok">LV height matches ' + esc(r.src) + '.</p>'; // a different height is offered by the default hint above
   }
   function tagS(t) { return '<span class="tag src">' + t + '</span>'; }
   function fact(k, v, cls, title) { return '<div class="fact ' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : esc(v)) + '</b></div>'; }
@@ -779,7 +787,7 @@
   }
 
   /* ---------- design: PNW project, library, DCSH register and stringing tables ---------- */
-  var TEXT_ROLES = { pnwx: 'PNW project (.pnwx)', library: 'PNW library tables', dcsh: 'DCSH standards register', stringing: 'DCSH Part 10 stringing tables' };
+  var TEXT_ROLES = { pnwx: 'PNW project (.pnwx)', library: 'PNW library tables', dcsh: 'DCSH standards register', hvlv: 'HV/LV/RE separation rule', stringing: 'DCSH Part 10 stringing tables' };
   var textCache = {}, regCache = null, mounted3d = false, lastSnap = null, restoring = false;
   function cached(f, fn) { var k = f.name + '|' + f.text.length; return textCache[k] || (textCache[k] = fn(f.text)); }
   function txtIssue(name, level, message) { return { level: level, code: 'text', message: name + ': ' + message, file: name }; }
@@ -790,6 +798,10 @@
     if (ext === 'pnwx' || /^\s*<(profile_project|tipload_project)[\s>]/.test(text)) {
       var p = M.readPnwx(text);
       return Object.assign(base, { role: 'pnwx', kind: p.kind, summary: p.kind === 'profile' ? p.poles.length + ' poles, ' + p.constructions.length + ' constructions, ' + p.segments.length + ' strain sections' : 'tipload project (' + (p.attrs.poletype || 'pole') + ')' });
+    }
+    if (ext === 'json' && /"hvToRe"/.test(text)) {
+      var hv = null; try { hv = JSON.parse(text); } catch (e) { /* reported below */ }
+      if (hv && hv.hvToRe && hv.noRe) return Object.assign(base, { role: 'hvlv', rule: hv, summary: Object.keys(hv.hvToRe).length + ' HV drawings in the separation rule' });
     }
     if (ext === 'json') {
       var r = M.parseDcshRegister(text);
@@ -1475,7 +1487,7 @@
     var h = '<div class="con-title">Design <span class="pill info">' + esc(linked.name) + '</span></div>' + poleBlock(id, row, pt) + '<div class="con-title" style="margin-top:10px">Constructions (' + cons.length + ')</div>';
     if (!cons.length) h += '<p class="hint">No constructions on ' + esc(id) + ' yet. Add one below.</p>';
     cons.forEach(function (c, i) {
-      var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), above = i > 0 ? cons[i - 1].kingbolt : null, def = kbDefault(c.code, hag, above);
+      var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), above = i > 0 ? cons[i - 1].kingbolt : null, def = kbFor(id, c.code, hag, cons.slice(0, i));
       var carries = project.segPoles.filter(function (s) { return s.id === id && s.constr === c.descr; }).map(function (s) { return s.strsection; });
       var src = lastSource(id, c.descr, 'King bolt height'), d = M.dcshFor(dcshReg(), c.code)[0], cmp = d ? M.compareDcsh(d, c, i === 0 ? hag : null) : null;
       var u = esc(c.unique);
@@ -1503,7 +1515,7 @@
     var x = conContext(id), out = { msgs: [], ok: false, def: null, lay: null, lc: null, dc: null };
     if (!d.code) { out.msgs.push({ level: 'info', text: 'Choose a construction code. Codes on the neighbouring poles are listed first.' }); return out; }
     out.lc = M.libraryConstruction(lib, d.code); out.lay = knownLayout(d.code); out.dc = M.dcshFor(dcshReg(), d.code)[0] || null;
-    out.def = kbDefault(d.code, x.hag, x.lowest);
+    out.def = kbFor(id, d.code, x.hag, x.cons);
     if (!out.lc) out.msgs.push({ level: 'warning', text: esc(d.code) + ' is not in the PNW library tables, so there is no default height or voltage. Check the code.' });
     if (!out.lay) out.msgs.push({ level: 'warning', text: 'No attachment offsets are known for ' + esc(d.code) + ' (no dimensioned DCSH drawing and not in your projects). It will be added without attachment points and needs engineering review.' });
     var kb = PNW.num(d.kb);
@@ -1535,7 +1547,7 @@
     return '<div class="con-title">Add a construction to ' + esc(id) + '</div>' + conFilterChips() +
       '<div class="row2"><div class="field"><label>Construction code</label>' + combo('conAdd', { value: conDraft.code, placeholder: 'Search code or description…', aria: 'Construction code to add', free: true, groups: function () { return constructionGroups(id, conFilter); }, onPick: function (v) {
         conDraft.code = v;
-        if (!conDraft.kbUser) { var x = conContext(id), df = kbDefault(v, x.hag, x.lowest); conDraft.kb = df ? String(df.value) : ''; }
+        if (!conDraft.kbUser) { var x = conContext(id), df = kbFor(id, v, x.hag, x.cons); conDraft.kb = df ? String(df.value) : ''; }
         refreshConAdd();
       } }) + '</div>' +
       '<div class="field"><label for="conAddKb">King bolt above ground (m)</label><input id="conAddKb" inputmode="decimal" value="' + esc(conDraft.kb) + '" placeholder="library default"></div></div>' +
@@ -1617,7 +1629,7 @@
     if (b.dataset.arm != null) { var ak = b.dataset.arm.split('|'); editAttachments(id, ak[0], function (list) { var a = list.splice(+ak[1], 1)[0]; return ['Attachment ' + a.order, a.x + ', ' + a.y, 'removed']; }); return; }
     if (b.dataset.gotab) { openTab(b.dataset.gotab); return; }
     if (b.dataset.chip) { var cp = b.dataset.chip.split(':'); conFilter[cp[0]] = cp[1]; refreshConAdd(); return; }
-    if (b.id === 'conKbDefault') { var cx = conContext(id), df = kbDefault(conDraft.code, cx.hag, cx.lowest); conDraft.kb = df ? String(df.value) : ''; conDraft.kbUser = false; refreshConAdd(); return; }
+    if (b.id === 'conKbDefault') { var cx = conContext(id), df = kbFor(id, conDraft.code, cx.hag, cx.cons); conDraft.kb = df ? String(df.value) : ''; conDraft.kbUser = false; refreshConAdd(); return; }
     if (b.dataset.secshow) { select(id, { segment: b.dataset.secshow }); return; }
     if (b.dataset.pdel != null) { commit(function (p) { M.removePole(p, b.dataset.pdel); return [logEntry(b.dataset.pdel, '', 'Pole', b.dataset.pdel, 'removed', 'manual')]; }); return; }
     if (b.id === 'poleAdd') {
@@ -1807,7 +1819,7 @@
     if ((((dm && dm.byPole[id]) || []).some(function (c) { return String(c.code).toUpperCase() === m.code.toUpperCase(); }))) { setStatus(m.code + ' is already on ' + id + '; one construction carries the whole circuit.', 'bad'); return; }
     if (target !== 'new') { mark(); changeCode(id, target, m.code, 'AI suggestion', ref); return; }
     var cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, c) { return (c.kingbolt || 0) - (a.kingbolt || 0); }), row = project.poles.filter(function (x) { return x.ID === id; })[0];
-    var d = kbDefault(m.code, PNW.num(row.HeightAG), cons.length ? cons[cons.length - 1].kingbolt : null);
+    var d = kbFor(id, m.code, PNW.num(row.HeightAG), cons);
     if (!d) { setStatus('No library default height for ' + m.code + '. Add it with the form below and type the king bolt height.', 'bad'); return; }
     var lay = knownLayout(m.code), lc = M.libraryConstruction(lib, m.code);
     mark();
@@ -1907,7 +1919,7 @@
     var lo = Math.min.apply(null, poles.map(function (p) { return p.ground - (p.sunk || 0); })), hi = Math.max.apply(null, poles.map(function (p) { return p.ground + (p.height || 0); }).concat(clr.map(function (g) { return g.z + g.c1; })));
     var y0 = Math.floor(lo - 0.5), y1 = Math.ceil(hi + 1);
     // Horizontal zoom (PV.hz, 1 = whole line) and pan (PV.x0, chainage at the left edge) are independent of the vertical scale.
-    PV.x1 = x1; PV.hz = Math.max(1, Math.min(PV.hz, Math.max(1, x1 / 5))); var span = x1 / PV.hz; PV.x0 = Math.max(0, Math.min(PV.x0, x1 - span)); PV.plotW = W - m.l - m.r; PV.ml = m.l;
+    PV.x1 = x1; PV.hz = Math.max(PV_MIN, Math.min(PV.hz, Math.max(1, x1 / 5))); var span = x1 / PV.hz; PV.x0 = Math.max(Math.min(0, x1 - span), Math.min(PV.x0, Math.max(0, x1 - span))); PV.plotW = W - m.l - m.r; PV.ml = m.l;
     var X = function (v) { return m.l + (v - PV.x0) / span * (W - m.l - m.r); }, Y = function (v) { return H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b); };
     var g = '', step = niceStep(y1 - y0, 5), xs = niceStep(span, 8);
     for (var v = Math.ceil(y0 / step) * step; v <= y1; v += step) g += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#e6ebf0"/><text x="' + (m.l - 6) + '" y="' + (Y(v) + 3) + '" text-anchor="end" class="ax">' + +v.toFixed(2) + '</text>';
@@ -1938,22 +1950,22 @@
       '<span class="pv-scale" id="pvScale" title="Horizontal scale only; the vertical scale does not change. Ctrl + wheel zooms horizontally."></span>' +
       '<button class="ibtn" data-pvz="out" title="Zoom out horizontally" aria-label="Zoom out horizontally">−</button><button class="ibtn" data-pvz="in" title="Zoom in horizontally" aria-label="Zoom in horizontally">+</button><button class="ibtn" data-pvz="fit" title="Whole line" aria-label="Show the whole line">⤢</button></div>';
     $('pvPlot').innerHTML = leg + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Line profile">' + g + '</g></svg>';
-    var sl = $('pvSlide'); sl.disabled = !(PV.hz > 1); if (document.activeElement !== sl) sl.value = x1 > span ? Math.round(PV.x0 / (x1 - span) * 1000) : 0;
-    $('pvScale').textContent = 'H ×' + PV.hz.toFixed(1) + ' · ≈1:' + ratio.toLocaleString('en-AU') + ' · ' + fmt(PV.x0, 0) + '–' + fmt(PV.x0 + span, 0) + ' m';
+    var sl = $('pvSlide'), lo = Math.min(0, x1 - span), hi = Math.max(0, x1 - span); sl.disabled = !(hi - lo > 1e-6); if (document.activeElement !== sl) sl.value = hi > lo ? Math.round((PV.x0 - lo) / (hi - lo) * 1000) : 0;
+    $('pvScale').textContent = 'H ×' + PV.hz.toFixed(PV.hz < 1 ? 2 : 1) + ' · ≈1:' + ratio.toLocaleString('en-AU') + ' · ' + fmt(PV.x0, 0) + '–' + fmt(PV.x0 + span, 0) + ' m';
   }
-  var PV = { hz: 1, x0: 0, x1: 1, plotW: 1, ml: 0 };
+  var PV = { hz: 1, x0: 0, x1: 1, plotW: 1, ml: 0 }, PV_MIN = 0.2; // zoom out to 5× the line length
   function pvZoom(k, atX) { // atX: chainage kept under the cursor
     var span = PV.x1 / PV.hz, c = atX != null ? atX : PV.x0 + span / 2, f = (c - PV.x0) / span;
-    PV.hz = Math.max(1, Math.min(PV.hz * k, Math.max(1, PV.x1 / 5))); var ns = PV.x1 / PV.hz; PV.x0 = c - f * ns; renderProfileView();
+    PV.hz = Math.max(PV_MIN, Math.min(PV.hz * k, Math.max(1, PV.x1 / 5))); var ns = PV.x1 / PV.hz; PV.x0 = c - f * ns; renderProfileView();
   }
   $('profileView').addEventListener('wheel', function (e) {
     if (!$('profileView').querySelector('svg')) return;
     e.preventDefault();
     var span = PV.x1 / PV.hz, d = e.deltaY || e.deltaX;
     if (e.ctrlKey) { var r = $('profileView').querySelector('svg').getBoundingClientRect(); pvZoom(d < 0 ? 1.25 : 0.8, PV.x0 + (e.clientX - r.left - PV.ml) / PV.plotW * span); }
-    else if (PV.hz > 1) { PV.x0 += Math.sign(d) * span * 0.1; renderProfileView(); }
+    else if (Math.abs(PV.hz - 1) > 1e-6) { PV.x0 += Math.sign(d) * span * 0.1; renderProfileView(); }
   }, { passive: false });
-  $('profileView').addEventListener('input', function (e) { if (e.target.id !== 'pvSlide') return; var span = PV.x1 / PV.hz; PV.x0 = e.target.value / 1000 * (PV.x1 - span); renderProfileView(); });
+  $('profileView').addEventListener('input', function (e) { if (e.target.id !== 'pvSlide') return; var span = PV.x1 / PV.hz, lo = Math.min(0, PV.x1 - span), hi = Math.max(0, PV.x1 - span); PV.x0 = lo + e.target.value / 1000 * (hi - lo); renderProfileView(); });
   $('profileView').addEventListener('click', function (e) { var b = e.target.closest('[data-pvz]'); if (!b) return; if (b.dataset.pvz === 'fit') { PV.hz = 1; PV.x0 = 0; renderProfileView(); } else pvZoom(b.dataset.pvz === 'in' ? 1.5 : 1 / 1.5); });
   $('profileView').addEventListener('click', function (e) { var t = e.target.closest('[data-pick]'); if (t) select(t.dataset.pick); });
   Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) { b.onclick = function () { setView(b.dataset.view); }; });
