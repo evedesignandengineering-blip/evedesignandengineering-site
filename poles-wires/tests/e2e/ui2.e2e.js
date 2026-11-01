@@ -52,9 +52,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await pg.keyboard.press('Escape'); await pg.waitForTimeout(200);
   ok(await pg.$eval('#ctPanel', (e) => e.hidden), 'Esc closes the conductor tool');
   await pg.evaluate(() => { document.querySelector('[data-tab="poles"]').click(); }); await pg.click('#tableWrap tr[data-id="S119850"]'); await pg.click('[data-instab="design"]'); await pg.waitForTimeout(300);
-  const ins = await pg.$eval('#selected', (e) => ({ bub: [...e.querySelectorAll('.wbub')].map((b) => b.title).join(' | '), row3: !!e.querySelector('.row3') }));
+  const ins = await pg.$eval('#selected', (e) => ({ bub: [...e.querySelectorAll('.wbub')].map((b) => b.title).join(' | '), hint: [...e.querySelectorAll('.hint')].map((h) => h.textContent).join(' | '), row3: !!e.querySelector('.row3') }));
   ok(ins.row3, 'pole type, length and depth on one row');
-  ok(/running earth \(RE\)[^|]*separation rule/i.test(ins.bub), 'LV under HV flagged with the RE status and the missing clearance rule');
+  ok(/no RE\)[^|]*7\.87 m/.test(ins.hint) && !/separation rule/i.test(ins.bub), 'LV under HV offered the separation rule height (no RE), no flag');
   await pg.click('[data-view="profile"]'); await pg.waitForTimeout(300);
   // profile horizontal zoom and slider
   await pg.click('[data-pvz="in"]'); await pg.click('[data-pvz="in"]'); await pg.waitForTimeout(200);

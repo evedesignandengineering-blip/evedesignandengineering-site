@@ -420,18 +420,31 @@
     else if (/^AB/i.test(c.code || '')) { mm = rule.mm + R.abc.mm; parts = [rule.ref, R.abc.ref]; }
     else {
       var t = reCondText(id, re), k = Object.keys(R.bare).filter(function (x) { return new RegExp(R.bare[x].match, 'i').test(t); })[0];
-      if (!k) { out.why = 'Running earth conductor ' + (t || '(not strung)') + ' is not one the rule covers for bare LV.'; return out; }
+      if (!k) { out.why = t ? 'Running earth conductor ' + t + ' is not one the rule covers for bare LV.' : 'String the running earth first: the bare LV distance below it depends on its conductor (SCAC/SCGZ or AAAC).'; return out; }
       mm = rule.mm + R.bare[k].mm; parts = [rule.ref, R.bare[k].ref];
     }
     out.value = Math.round((hv.kingbolt - mm / 1000) * 1000) / 1000;
     out.src = 'DCSH ' + parts.join('; ') + ': ' + mm + ' mm below the ' + hv.code + ' king bolt' + (re ? '' : ' (no RE)');
     return out;
   }
-  function hvlvRule() { var f = S.files.filter(function (x) { return x.role === 'hvlv' && x.status === 'ok'; }).pop(); return (f && (f.rule || (f.rule = JSON.parse(f.text)))) || window.PNW_HVLV || null; }
+  var HVLV_KEY = 'eve-pnw-hvlv-rule';
+  function hvlvRule() {
+    var f = S.files.filter(function (x) { return x.role === 'hvlv' && x.status === 'ok'; }).pop();
+    if (f) { if (!f.rule) { f.rule = JSON.parse(f.text); try { localStorage.setItem(HVLV_KEY, f.text); } catch (e) { /* storage off: rule lasts this session */ } } return f.rule; }
+    if (window.PNW_HVLV) return window.PNW_HVLV;
+    try { var t = localStorage.getItem(HVLV_KEY); if (t) return (window.PNW_HVLV = JSON.parse(t)); } catch (e) { /* none stored */ }
+    return null;
+  }
   // Default king bolt for a construction added below the ones on the pole: LV under HV follows the separation rule when it applies.
+  // Running earth under HV: the HV drawing's distance from its reference point. With no HV there is no rule (flagged).
+  function reRule(id, cons) {
+    var hv = cons.filter(function (x) { return circuitClass(x.code) === 'hv'; })[0], R = hvlvRule(); if (!hv || !R || hv.kingbolt == null) return null;
+    var d = M.dcshFor(dcshReg(), hv.code)[0], rule = d && R.hvToRe[d.drawing]; if (!rule) return null;
+    return { value: Math.round((hv.kingbolt - rule.mm / 1000) * 1000) / 1000, src: 'DCSH ' + rule.ref + ': ' + rule.mm + ' mm below the ' + hv.code + ' king bolt' };
+  }
   function kbFor(id, code, hag, cons) {
     var list = (cons || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; }), low = list.length ? list[list.length - 1].kingbolt : null;
-    var r = lvRule(id, list.concat([{ code: code, kingbolt: null }]), list.length);
+    var r = circuitClass(code) === 'earth' ? reRule(id, list) : lvRule(id, list.concat([{ code: code, kingbolt: null }]), list.length);
     if (r && r.value != null && (low == null || r.value < low)) return { value: r.value, below: low != null ? Math.round((low - r.value) * 1000) / 1000 : null, source: r.src };
     return kbDefault(code, hag, low);
   }
