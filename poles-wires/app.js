@@ -11,12 +11,13 @@
   var S = blank(), buffers = {}, merged = { poles: {}, issues: [] }, built = null, allIssues = [], flags = {};
   var M = window.PNWModel, lib = null, project = null, linked = null, dm = null, undoStack = [], redoStack = [];
   var sortCol = 'order', sortDesc = false, tab = 'poles';
-  function blank() { return { zone: 50, settings: Object.assign({}, DEFAULT_SETTINGS), files: [], profiles: [newProfile('Profile 1')], active: 0, selected: null, labels: true, generated: false, view: 'plan', sag: false, design: blankDesign(), tipload: null }; }
+  function blank() { return { zone: 50, settings: Object.assign({}, DEFAULT_SETTINGS), files: [], profiles: [newProfile('Profile 1')], active: 0, selected: null, labels: true, generated: false, view: 'plan', sag: false, design: blankDesign(), tipload: null, photos: {} }; }
   function blankDesign() { return { link: null, xml: null, register: {}, log: [] }; }
   function newProfile(name) { return { name: name, poleIds: [], lengths: {}, comments: {}, segments: [] }; }
   function prof() { return S.profiles[S.active]; }
 
   function save() {
+    markDirty(true);
     try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { setStatus('Could not save the project in this browser (' + e.message + '). Your work stays until you close the page.', 'bad'); }
   }
   function load() {
@@ -31,7 +32,7 @@
   function setStatus(t, cls) { var n = $('status'); n.textContent = t; n.className = 'status' + (cls ? ' ' + cls : ''); }
 
   /* ---------- layout: project panel | viewport + table dock | inspector, each resizable and collapsible ---------- */
-  var UI_KEY = 'eve-poles-wires-ui-v1', U = { lw: Math.round(Math.min(300, window.innerWidth * 0.2)), rw: Math.round(Math.min(390, window.innerWidth * 0.27)), dh: Math.round(Math.min(250, window.innerHeight * 0.28)), left: true, right: true, dock: true, dockMin: false, insTab: 'design', tab: 'poles' };
+  var UI_KEY = 'eve-poles-wires-ui-v1', U = { lw: Math.round(Math.min(300, window.innerWidth * 0.2)), rw: Math.round(Math.min(390, window.innerWidth * 0.27)), dh: Math.round(Math.min(230, window.innerHeight * 0.23)), left: false, right: true, dock: true, dockMin: false, insTab: 'design', tab: 'spans' };
   try { Object.assign(U, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch (e) { /* storage blocked: defaults */ }
   function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify(U)); } catch (e) { /* ignore */ } }
   var LIMITS = { lw: [220, 560], rw: [300, 680], dh: [120, 2000] };
@@ -45,7 +46,7 @@
     var ws = $('workspace'), c = $('center');
     // The workspace fills the window below the toolbar; the page itself never scrolls sideways.
     var top = ws.getBoundingClientRect().top + window.scrollY;
-    ws.style.setProperty('--wsh', Math.max(540, window.innerHeight - top - 10) + 'px');
+    ws.style.setProperty('--wsh', Math.max(540, window.innerHeight - top - 46) + 'px');
     clampUi();
     ws.style.setProperty('--lw', U.lw + 'px'); ws.style.setProperty('--rw', U.rw + 'px'); c.style.setProperty('--dh', U.dh + 'px');
     ws.classList.toggle('no-left', !U.left); ws.classList.toggle('no-right', !U.right);
@@ -103,7 +104,8 @@
   $('basemap').onchange = function () { if (activeBase) map.removeLayer(activeBase); activeBase = bases[this.value] ? bases[this.value].addTo(map) : null; };
   var lyGis = L.layerGroup().addTo(map), lyAlign = L.layerGroup().addTo(map), lySpan = L.layerGroup().addTo(map), lySurvey = L.layerGroup().addTo(map), lyExtent = L.layerGroup(), lySel = L.layerGroup().addTo(map);
   var markers = {};
-  map.on('click', function () { select(null); });
+  var pickMode0 = null;
+  map.on('click', function (e) { if (typeof pickMode === 'function') { var cb = pickMode; pickMode = null; document.body.classList.remove('pickmode'); cb(e && e.latlng); return; } planMapClick(e && e.latlng); });
 
   function toLatLng(e, n) {
     if (e == null || n == null || !isFinite(e) || !isFinite(n)) return null;
@@ -123,14 +125,14 @@
       if (p.gis && p.gis.lat != null) {
         var g = L.latLng(p.gis.lat, p.gis.lng);
         L.marker(g, { icon: L.divIcon({ className: '', html: '<div style="width:12px;height:12px;border:2px dashed #7a8a9c;border-radius:2px"></div>', iconSize: [12, 12] }), keyboard: false })
-          .bindTooltip(esc(id) + ' · GIS position (approximate)').on('click', function (e) { L.DomEvent.stopPropagation(e); select(id); }).addTo(lyGis);
+          .bindTooltip(esc(id) + ' · GIS position (approximate)').on('click', function (e) { plClick(id, e); }).addTo(lyGis);
         if (ll) L.polyline([g, ll], { color: '#7a8a9c', weight: 1, dashArray: '3 3' }).addTo(lyGis);
         if (!ll) pts.push(g);
       }
       if (!ll) return;
       pts.push(ll);
       var m = L.circleMarker(ll, { radius: 7, weight: 3, color: lvl === 'error' ? '#b42318' : '#2f6ea4', fillColor: inProf[id] ? '#2f6ea4' : '#fff', fillOpacity: 1 })
-        .on('click', function (e) { L.DomEvent.stopPropagation(e); select(id); }).addTo(lySurvey);
+        .on('click', function (e) { plClick(id, e); }).addTo(lySurvey);
       if (S.labels) m.bindTooltip(esc(id), { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' });
       else m.bindTooltip(esc(id));
       markers[id] = m;
@@ -140,7 +142,8 @@
       for (var i = 1; i < line.length; i++) {
         if (!line[i - 1] || !line[i]) continue;
         var seg = L.polyline([line[i - 1], line[i]], { color: '#0f766e', weight: 3, opacity: .85 }).addTo(lyAlign);
-        seg.bindTooltip('Span ' + esc(built.rows[i - 1].id) + ' → ' + esc(built.rows[i].id) + ': ' + fmt(built.rows[i].span, 2) + ' m (derived from survey E/N)');
+        seg.bindTooltip('Span ' + esc(built.rows[i - 1].id) + ' → ' + esc(built.rows[i].id) + ': ' + fmt(built.rows[i].span, 2) + ' m (derived from survey E/N). Click to select the span.');
+        (function (a, b) { seg.on('click', function (e) { plSpan(a, b, e); }); })(built.rows[i - 1].id, built.rows[i].id);
         L.tooltip({ permanent: true, direction: 'center', className: 'span-label' }).setLatLng(L.latLng((line[i - 1].lat + line[i].lat) / 2, (line[i - 1].lng + line[i].lng) / 2)).setContent(fmt(built.rows[i].span, 2) + ' m').addTo(lySpan);
       }
     }
@@ -151,7 +154,7 @@
         if (!ll[i]) return; pts.push(ll[i]);
         if (x.common[p.id]) { if (markers[x.common[p.id].id]) markers[x.common[p.id].id].setStyle({ color: '#7c3aed' }); return; }
         if (merged.poles[p.id] && markers[p.id]) return;
-        var m = L.circleMarker(ll[i], { radius: 7, weight: 3, color: '#7c3aed', fillColor: '#ede9fe', fillOpacity: 1 }).on('click', function (e) { L.DomEvent.stopPropagation(e); select(p.id); }).addTo(lySurvey);
+        var m = L.circleMarker(ll[i], { radius: 7, weight: 3, color: '#7c3aed', fillColor: '#ede9fe', fillOpacity: 1 }).on('click', function (e) { plClick(p.id, e); }).addTo(lySurvey);
         m.bindTooltip(esc(p.id) + (S.labels ? '' : ' · ' + esc(x.title)), S.labels ? { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' } : {});
         markers[p.id] = m;
       });
@@ -169,9 +172,16 @@
   function fit() { var b = bounds(); if (b.isValid()) map.fitBounds(b.pad(0.2), { maxZoom: 19 }); }
   function highlight() {
     lySel.clearLayers();
+    if (S.selSpan && !S.selected) {
+      var sa = poleXY(S.selSpan.a), sb = poleXY(S.selSpan.b), la = sa && toLatLng(sa.e, sa.n), lb = sb && toLatLng(sb.e, sb.n);
+      if (la && lb) L.polyline([la, lb], { color: '#f59e0b', weight: 7, opacity: .7, interactive: false }).addTo(lySel);
+      return;
+    }
+    (S.multi || []).forEach(function (k) { var q = merged.poles[k], l2 = q && (poleLatLng(q) || (q.gis && q.gis.lat != null ? L.latLng(q.gis.lat, q.gis.lng) : null)); if (l2 && k !== S.selected) L.circleMarker(l2, { radius: 12, weight: 3, color: '#f59e0b', fill: false, interactive: false }).addTo(lySel); });
     var id = S.selected; if (!id || !merged.poles[id]) return;
     var p = merged.poles[id], ll = poleLatLng(p) || (p.gis && p.gis.lat != null ? L.latLng(p.gis.lat, p.gis.lng) : null);
     if (ll) L.circleMarker(ll, { radius: 14, weight: 3, color: '#f59e0b', fill: false, interactive: false }).addTo(lySel);
+    if (ll && L.divIcon && S.view === 'plan') L.marker(ll, { icon: L.divIcon({ className: 'selpop-wrap', html: '<button class="selpop" data-ctx="profile"><b>' + esc(id) + '</b>Open Profile →</button>', iconSize: [0, 0] }), interactive: true, keyboard: false, zIndexOffset: 1000 }).addTo(lySel);
     if (built) {
       var k = built.rows.findIndex(function (r) { return r.id === id; });
       [k - 1, k + 1].forEach(function (j) {
@@ -218,6 +228,7 @@
       recompute();
       if (!hadPoles) { if (project) useProject(true); else seedProfile(); }
       recompute(); fit();
+      if (results.some(function (r) { return r.status === 'error' || r.role === 'unknown'; })) openFilesDlg();
       setStatus('Imported ' + results.length + ' file' + (results.length > 1 ? 's' : '') + (replaced ? ' (' + replaced + ' replaced)' : '') + '. ' + summaryText(), 'good');
     });
   }
@@ -244,6 +255,7 @@
 
   /* ---------- recompute and render ---------- */
   function recompute() {
+    calcAt = new Date();
     syncDesign(); autoTensionSync();
     var ok = S.files.filter(function (f) { return f.status === 'ok' && !TEXT_ROLES[f.role]; });
     merged = PNW.buildPoles(ok.concat(projectSurvey(ok)));
@@ -266,6 +278,8 @@
 
   function renderFiles() {
     $('fileCount').textContent = S.files.length ? S.files.length + ' file' + (S.files.length > 1 ? 's' : '') : '';
+    $('fileCountPill').hidden = !S.files.length; $('fileCountPill').textContent = S.files.length;
+    $('mImportedSub').textContent = S.files.length ? S.files.length + ' file' + (S.files.length > 1 ? 's' : '') + ' · ' + Object.keys(merged.poles || {}).length + ' poles · roles and columns' : 'Nothing imported yet';
     $('files').innerHTML = S.files.map(function (f, i) {
       var errs = (f.issues || []).filter(function (x) { return x.level === 'error'; }).length, warns = (f.issues || []).filter(function (x) { return x.level === 'warning'; }).length;
       var st = f.status === 'reading' ? '<span class="pill info">Reading…</span>' : f.status === 'error' ? '<span class="pill bad">Failed</span>' : errs ? '<span class="pill bad">' + errs + ' error' + (errs > 1 ? 's' : '') + '</span>' : warns ? '<span class="pill warn">' + warns + ' warning' + (warns > 1 ? 's' : '') + '</span>' : f.role === 'unknown' ? '<span class="pill warn">Choose role</span>' : '<span class="pill ok">OK</span>';
@@ -276,9 +290,10 @@
       return '<div class="file"><div class="fn">' + esc(f.name) + '</div><div class="meta">' + (f.name.split('.').pop() || '').toUpperCase() + ' · ' + (f.size / 1024).toFixed(1) + ' KB · ' + count + (f.sheetUsed ? ' · sheet ' + esc(f.sheetUsed) + ', header row ' + f.headerRow : '') + '</div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">' + st + '<span class="meta">' + conf + '</span></div>' +
         (TEXT_ROLES[f.role] ? '<div class="meta"><b>' + TEXT_ROLES[f.role] + '</b>' + (f.role === 'pnwx' && f.kind === 'profile' ? (S.design.link === f.name ? ' · <span class="pill info">linked design</span>' : (xLines.some(function (x) { return x.name === f.name; }) ? ' · <span class="pill info" style="background:#ede9fe;color:#5b21b6" title="Shares ' + esc(Object.keys(xLines.filter(function (x) { return x.name === f.name; })[0].common).join(', ')) + ' with the design; drawn with it in plan and 3D">intersecting line</span>' : '') + ' · <button class="btn small" data-link="' + i + '">Use as design</button>') : '') + '</div>' :
-        '<select data-role="' + i + '" aria-label="Role of ' + esc(f.name) + '">' + opts + '</select>') +
-        '<details><summary>Sheets and headers</summary><div class="heads">' + heads + '</div></details>' +
-        '<div class="acts"><button class="btn small" data-replace="' + i + '">Replace…</button><button class="btn small" data-remove="' + i + '">Remove</button></div></div>';
+        (f.manual ? '<div class="meta">Poles you created in <b>Design → New pole</b>. Edit or delete them from the pole\'s inspector.</div>' : '<select data-role="' + i + '" aria-label="Role of ' + esc(f.name) + '">' + opts + '</select>')) +
+        ((f.issues || []).length ? '<details><summary>' + (f.issues || []).length + ' message' + ((f.issues || []).length > 1 ? 's' : '') + ' from this file</summary><ul class="msgs">' + (f.issues || []).slice(0, 8).map(function (x) { return '<li class="' + esc(x.level) + '">' + esc(x.message) + '</li>'; }).join('') + ((f.issues || []).length > 8 ? '<li class="info">…and ' + ((f.issues || []).length - 8) + ' more (see the Issues tab)</li>' : '') + '</ul></details>' : '') +
+        '<details><summary>Data mapping: sheets and headers</summary><div class="heads">' + heads + '</div></details>' +
+        '<div class="acts">' + (f.manual ? '' : '<button class="btn small" data-replace="' + i + '">Replace…</button>') + '<button class="btn small" data-remove="' + i + '">Remove</button></div></div>';
     }).join('') + builtinNote();
   }
   function builtinNote() {
@@ -305,7 +320,7 @@
       var r = rows.filter(function (x) { return x.id === id; })[0] || {}, pole = merged.poles[id], ex = pole ? PNW.existingLength(pole) : { value: null };
       var edited = p.lengths[id] != null, lvl = levelFor(id);
       var sub = r.chainage != null ? 'ch ' + fmt(r.chainage, 2) + ' m' + (r.span != null ? ' · span ' + fmt(r.span, 2) : '') : (pole && pole.survey ? '' : 'not surveyed');
-      return '<li class="' + (S.selected === id ? 'sel' : '') + '"><span class="n">' + (i + 1) + '</span><span class="id" data-pick="' + esc(id) + '">' + esc(id) + (lvl ? ' <span class="pill ' + (lvl === 'error' ? 'bad' : 'warn') + '">' + lvl + '</span>' : '') + '<small>' + sub + '</small></span>' +
+      return '<li class="' + (isSel(id) ? 'sel' : '') + '"><span class="n">' + (i + 1) + '</span><span class="id" data-pick="' + esc(id) + '">' + esc(id) + (lvl ? ' <span class="pill ' + (lvl === 'error' ? 'bad' : 'warn') + '">' + lvl + '</span>' : '') + '<small>' + sub + '</small></span>' +
         '<input data-len="' + esc(id) + '" class="' + (edited ? 'edited' : '') + '" value="' + fmt(edited ? p.lengths[id] : ex.value) + '" inputmode="decimal" aria-label="Pole length for ' + esc(id) + ' in metres" title="' + (edited ? 'Edited. Existing: ' + fmt(ex.value) + ' m (' + (ex.source || 'none') + '). Clear to revert.' : 'Existing length from ' + (ex.source || 'no source') + '. Type to change.') + '">' +
         '<span class="mini"><button data-up="' + i + '" title="Move up" aria-label="Move up">↑</button><button data-down="' + i + '" title="Move down" aria-label="Move down">↓</button><button data-del="' + i + '" title="Remove from profile" aria-label="Remove">✕</button></span></li>';
     }).join('');
@@ -313,7 +328,7 @@
   $('alignList').addEventListener('click', function (e) {
     var t = e.target.closest('[data-up],[data-down],[data-del],[data-pick]'); if (!t) return;
     var ids = prof().poleIds;
-    if (t.dataset.pick) { select(t.dataset.pick); zoomTo(t.dataset.pick); return; }
+    if (t.dataset.pick) { select(t.dataset.pick, addInfo(e)); zoomTo(t.dataset.pick); return; }
     if (t.dataset.del != null) ids.splice(+t.dataset.del, 1);
     if (t.dataset.up != null && +t.dataset.up > 0) { var i = +t.dataset.up; ids.splice(i - 1, 0, ids.splice(i, 1)[0]); }
     if (t.dataset.down != null && +t.dataset.down < ids.length - 1) { var j = +t.dataset.down; ids.splice(j + 1, 0, ids.splice(j, 1)[0]); }
@@ -370,21 +385,27 @@
   // info.segment: a wire was clicked in 3D (or a row in the conductor schedule), so its strain section is selected too.
   function select(id, info) {
     if (CT.on && id && !(info && info.segment !== undefined)) { ctAdd(id); return; }
+    if (info && info.add && id) { var mm = S.multi && S.multi.length > 1 ? S.multi.slice() : (S.selected ? [S.selected] : []), kx = mm.indexOf(id); if (kx >= 0) mm.splice(kx, 1); else mm.push(id); S.multi = mm.length > 1 ? mm : []; id = mm.length ? (kx >= 0 ? mm[mm.length - 1] : id) : null; S.selSpan = null; }
+    else if (!(info && info.keepMulti)) S.multi = [];
     S.selected = id; flags.inspected = true;
-    if (info && info.segment !== undefined) { S.selSection = info.segment || null; if (info.segment) U.insTab = 'conductors'; }
+    if (!(info && info.span)) S.selSpan = null;
+    if (info && info.segment !== undefined) { S.selSection = info.segment || null; if (info.segment) U.insTab = 'cond'; }
     else if (!id) S.selSection = null;
     if (id && !U.right) { U.right = true; applyLayout(); }
     renderSelected(); highlight(); renderProfile(); renderSteps();
-    Array.prototype.forEach.call(document.querySelectorAll('#tableWrap tr[data-id]'), function (tr) { tr.classList.toggle('sel', !!id && tr.dataset.id === id); });
+    Array.prototype.forEach.call(document.querySelectorAll('#tableWrap tr[data-id]'), function (tr) { tr.classList.toggle('sel', isSel(tr.dataset.id)); });
     Array.prototype.forEach.call(document.querySelectorAll('#tableWrap tr[data-sec]'), function (tr) { tr.classList.toggle('sel', tr.dataset.sec === S.selSection); });
     if (window.PNW3D && mounted3d) { window.PNW3D.select(id); window.PNW3D.selectSection(S.selSection); }
-    if (S.view === 'profile' || S.view === 'split') renderProfileView();
+    if (S.view === 'profile' || S.view === 'split') { if (id) pvEnsure(id); renderProfileView(); }
+    renderExtras(true);
+    if (id) panPlanTo(poleLL(id));
   }
   // Shows a pole in whatever view is open: the map pans to it, the 3D camera frames it.
   function showPole(id) {
     if (!id) return;
     if ((S.view === '3d' || S.view === 'split') && window.PNW3D && mounted3d) { if (!window.PNW3D.focus(id)) setStatus(id + ' is not drawn in 3D (no coordinates or ground level).', 'bad'); }
     else if (S.view === 'plan') zoomTo(id);
+    else if (S.view === 'profile') { pvFocus(id); renderProfileView(); }
   }
   // King bolt default: the DCSH drawing's distance below the tip for the top construction, else the PNW library default.
   function kbDefault(code, hag, above) {
@@ -427,6 +448,7 @@
     out.src = 'DCSH ' + parts.join('; ') + ': ' + mm + ' mm below the ' + hv.code + ' king bolt' + (re ? '' : ' (no RE)');
     return out;
   }
+  // Default king bolt for a construction added below the ones on the pole: LV under HV follows the separation rule when it applies.
   var HVLV_KEY = 'eve-pnw-hvlv-rule';
   function hvlvRule() {
     var f = S.files.filter(function (x) { return x.role === 'hvlv' && x.status === 'ok'; }).pop();
@@ -455,9 +477,12 @@
   function tagS(t) { return '<span class="tag src">' + t + '</span>'; }
   function fact(k, v, cls, title) { return '<div class="fact ' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : esc(v)) + '</b></div>'; }
   var INS_TABS = [['design', 'Constructions'], ['conductors', 'Conductors'], ['photo', '✨ AI photo'], ['checks', 'Checks'], ['pole', 'Pole details']];
-  function renderSelected() {
+  function renderSelected() { renderSelectedInner(); renderCtx(); postSelected(); }
+  function renderSelectedInner() {
+    if (S.multi && S.multi.length > 1) { $('insTitle').textContent = S.multi.length + ' poles selected'; $('insZoom').hidden = true; $('insClear').hidden = false; $('selected').innerHTML = multiPane(); return; }
+    if (S.selSpan && !S.selected) { $('insTitle').textContent = 'Span ' + S.selSpan.a + ' → ' + S.selSpan.b; $('insZoom').hidden = false; $('insClear').hidden = false; $('selected').innerHTML = spanPane(); return; }
     var id = S.selected, p = id && merged.poles[id];
-    $('insTitle').textContent = p ? 'Pole ' + id : 'Project summary';
+    $('insTitle').textContent = p ? 'Pole Details' : 'Project summary';
     $('insZoom').hidden = $('insClear').hidden = !p;
     var xp = !p && id ? xPole(id) : null;
     if (xp) { $('insTitle').textContent = 'Pole ' + id; $('insZoom').hidden = $('insClear').hidden = false; $('selected').innerHTML = xPolePane(id, xp); return; }
@@ -472,17 +497,25 @@
       '</div>';
     var facts = '<div class="facts">' + fact('Chainage (m)', fmt(ch, 2)) + fact('Pole length (m)', fmt(L), L == null ? 'warn' : '', L == null ? 'No pole length from any source' : '') + fact('Above ground (m)', fmt(hag)) +
       fact('Setting depth (m)', fmt(sunk)) + fact('Ground level (m)', fmt(gl, 2), gl == null ? 'warn' : '', gl == null ? 'No LiDAR elevation' : 'LiDAR') + fact('Span back (m)', r && r.span != null ? fmt(r.span, 2) : '') +
-      (project ? fact('Constructions', cons.length, prow && !cons.length ? 'warn' : '') + fact('Strain sections', secs.length) + fact('Attachment points', cons.reduce(function (n, c) { return n + c.attachments.length; }, 0)) : '') + '</div>';
-    var tab = U.insTab || 'design';
-    h += '<div class="instabs" role="tablist" aria-label="Pole details">' + INS_TABS.map(function (t) {
-      var badge = t[0] === 'checks' && (ne || nw) ? ' <span class="pill ' + (ne ? 'bad' : 'warn') + '">' + (ne + nw) + '</span>' : t[0] === 'design' && project ? ' <span class="pill mute">' + cons.length + '</span>' : t[0] === 'conductors' && project ? ' <span class="pill mute">' + secs.length + '</span>' : '';
-      return '<button role="tab" data-instab="' + t[0] + '" aria-selected="' + (t[0] === tab) + '" class="' + (t[0] === tab ? 'on' : '') + '">' + t[1] + badge + '</button>';
-    }).join('') + '</div><div class="inspane" role="tabpanel">';
-    if (tab === 'pole') h += facts + polePane(id, p, r, inProf, ex);
-    else if (tab === 'design') h += designPanel(id);
-    else if (tab === 'conductors') h += project ? (prow ? sectionsOnPole(id) : '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>') : startDesignHint();
-    else if (tab === 'photo') h += project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : '<p class="hint"><b>AI photo match</b> looks at a photo of the pole and ranks the PNW library constructions (with their DCSH drawings) that fit. ' + (project ? esc(id) + ' is not in the linked PNW project; pick a pole that is.' : 'It works on a design, so link a PNW project first.') + '</p>' + (project ? '' : startDesignHint());
-    else h += iss.length ? '<ul class="msgs">' + iss.map(function (i) { return '<li class="' + i.level + '">' + esc(i.message) + '</li>'; }).join('') + '</ul>' : '<ul class="msgs"><li class="ok">No issues recorded for ' + esc(id) + '.</li></ul>';
+      (project ? fact('Constructions', cons.length, prow && !cons.length ? 'warn' : '') + fact('Strain sections', secs.length) + fact('Attachment points', cons.reduce(function (n, c) { return n + c.attachments.length; }, 0)) : '') + '</div></div>';
+    var tab = U.insTab || 'pole';
+    h += xBanner(id);
+    if (tab === 'cond' && !S.selSection) tab = 'pole';
+    var paneOf = function (tab) {
+      var h = '';
+      if (tab === 'cond') return conductorPane(S.selSection);
+      if (tab === 'equip') return project && prow ? extrasHtml(id, prow) : (project ? '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>' : startDesignHint());
+      if (tab === 'attach') return attachPane(id);
+      if (tab === 'load') return loadPane(id);
+        if (tab === 'pole') h += polePane(id, p, r, inProf, ex);
+      else if (tab === 'design') h += designPanel(id);
+      else if (tab === 'conductors') h += project ? (prow ? sectionsOnPole(id) : '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>') : startDesignHint();
+      else if (tab === 'photo') h += project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : '<p class="hint"><b>AI photo match</b> looks at a photo of the pole and ranks the PNW library constructions (with their DCSH drawings) that fit. ' + (project ? esc(id) + ' is not in the linked PNW project; pick a pole that is.' : 'It works on a design, so link a PNW project first.') + '</p>' + (project ? '' : startDesignHint());
+      else h += iss.length ? '<ul class="msgs">' + iss.map(function (i) { return '<li class="' + i.level + '">' + esc(i.message) + '</li>'; }).join('') + '</ul>' : '<ul class="msgs"><li class="ok">No issues recorded for ' + esc(id) + '.</li></ul>';
+      return h;
+    };
+    var badges = {}; [['pole'], ['design'], ['conductors'], ['checks']].forEach(function (t) { var badge = t[0] === 'checks' && (ne || nw) ? ' <span class="pill ' + (ne ? 'bad' : 'warn') + '">' + (ne + nw) + '</span>' : t[0] === 'design' && project ? ' <span class="pill mute">' + cons.length + '</span>' : t[0] === 'conductors' && project ? ' <span class="pill mute">' + secs.length + '</span>' : ''; if (t[0] === 'conductors' || t[0] === 'checks' || t[0] === 'design') badges[t[0]] = badge; });
+    h += accHtml(paneOf, badges) + qaList(id);
     $('selected').innerHTML = h + '</div>';
     if ($('selAdd')) $('selAdd').onclick = function () { var ids = prof().poleIds; ids.push(id); prof().poleIds = PNW.autoOrder(merged.poles, ids); S.generated = false; recompute(); setStatus(id + ' added and the profile re-ordered along the line. Use ↑ ↓ to adjust.', 'good'); };
     if ($('selRemove')) $('selRemove').onclick = function () { prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; }); S.generated = false; recompute(); };
@@ -568,8 +601,12 @@
     S.design.log = liveLog().concat([logEntry(S.selected, k[0] === 'stays' ? 'Stay' : 'Transformer', k[2], before, v, 'manual', '')]);
     recompute();
   });
+  function xBanner(id) {
+    var xp = xPole(id); if (!xp) return '';
+    return '<div class="con"><div class="con-title">Intersecting line</div><p class="meta">' + esc(id) + ' is on ' + esc(xp.line.title) + ', which meets the design at ' + esc(Object.keys(xp.line.common).map(function (k) { return xp.line.common[k].id; }).join(', ')) + '.</p><div class="btnrow"><button class="btn small primary" data-xuse="' + esc(xp.line.name) + '">Edit this line as the design</button></div></div>';
+  }
   function polePane(id, p, r, inProf, ex) {
-    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button>' + (streetViewUrl(id) ? '<a class="btn small" data-instab="photo" href="' + streetViewUrl(id) + '" target="_blank" rel="noopener" title="Opens Street View at this pole; snip it and paste it (Ctrl+V) into the AI photo tab">📷 Street View snip → AI</a>' : '') + '</div>' + tipSummaryHtml(id) + '<table class="props">';
+    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + (p.survey && p.survey.kind === 'Manual' ? '<button class="btn small" data-ctx="editpole" title="Change the position, ground level or length of this pole, or delete it">✎ Edit pole…</button>' : '') + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button>' + (streetViewUrl(id) ? '<button class="btn small" data-ctx="street" title="Street View inside the app: capture the pole and send it straight to the AI photo analysis">🛣 Street View → AI</button>' : '') + '</div>' + tipSummaryHtml(id) + '<table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
     if (p.survey) { var sk = p.survey.kind || 'LiDAR'; sec('Survey'); row('Easting', fmt(p.survey.easting), tagS(sk)); row('Northing', fmt(p.survey.northing), tagS(sk)); row('Elevation', fmt(p.survey.elevation), tagS(sk)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Bays', p.survey.bays); row('Bay angles', p.survey.bayAngles.join(', ')); row('Equipment no', p.survey.equipNo); row('Surveyed', p.survey.surveyed); row('Source', p.survey.src.file + ' row ' + p.survey.src.row); }
@@ -610,7 +647,7 @@
   $('selected').addEventListener('click', function (e) {
     var t = e.target.closest('[data-instab],[data-act],[data-xuse]'); if (!t) return;
     if (t.dataset.xuse) { linkDesign(t.dataset.xuse); select(S.selected); setStatus('Editing ' + t.dataset.xuse + '. The previous design is shown as an intersecting line.', 'good'); return; }
-    if (t.dataset.instab) { U.insTab = t.dataset.instab; saveUi(); renderSelected(); return; }
+    if (t.dataset.instab) { var kk = t.dataset.instab, g0 = GROUPS.filter(function (x) { return x[0] === (U.insGroup || 'config'); })[0] || GROUPS[0]; if (t.classList.contains('acch')) { var o0 = accOpenNow(kk, g0); (U.accOpen = U.accOpen || {})[kk] = !o0; if (!o0) { U.insTab = kk; lastReq = kk; } else if (U.insTab === kk) { U.insTab = ''; lastReq = ''; } } else openSection(kk); saveUi(); renderSelected(); return; }
     if (t.dataset.act === 'import') $('fileInput').click();
     if (t.dataset.act === 'export') { recompute(); openReview(); }
   });
@@ -633,6 +670,10 @@
     ['status', 'Status', function (p) { return levelFor(p.id) || 'ok'; }]
   ];
   function renderTable() {
+    if (tab === 'spans') { $('tableWrap').innerHTML = spanTable(); return; }
+    if (tab === 'transformers' || tab === 'stays') { $('tableWrap').innerHTML = equipTable(tab); return; }
+    if (tab === 'calc') { $('tableWrap').innerHTML = calcTable(); return; }
+    if (tab === 'tipsum') { $('tableWrap').innerHTML = tipsumTable(); return; }
     if (tab === 'issues') return renderIssueTable();
     if (tab === 'register') return renderRegister();
     if (tab === 'log') return renderLog();
@@ -651,7 +692,7 @@
     if (!list.length) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">' + (Object.keys(merged.poles).length ? 'No poles match the search or filter.' : 'Imported records appear here.') + '</p>'; return; }
     var h = '<table class="grid"><thead><tr>' + COLS.map(function (c) { return '<th data-sort="' + c[0] + '" class="' + (c[0] === sortCol ? 'sorted' + (sortDesc ? ' desc' : '') : '') + '">' + c[1] + '</th>'; }).join('') + '</tr></thead><tbody>';
     list.forEach(function (p) {
-      h += '<tr data-id="' + esc(p.id) + '" class="' + (S.selected === p.id ? 'sel' : '') + '">' + COLS.map(function (c) {
+      h += '<tr data-id="' + esc(p.id) + '" class="' + (isSel(p.id) ? 'sel' : '') + '">' + COLS.map(function (c) {
         var v = c[2](p), miss = (c[0] === 'easting' || c[0] === 'northing' || c[0] === 'elevation') && (v == null || isNaN(v));
         if (c[0] === 'status') return '<td><span class="pill ' + (v === 'error' ? 'bad' : v === 'warning' ? 'warn' : 'ok') + '">' + v + '</span></td>';
         return '<td class="' + (c[3] ? 'num' : '') + (miss ? ' miss' : '') + '">' + (miss ? 'missing' : esc(fmt(v))) + '</td>';
@@ -670,7 +711,7 @@
   }
   $('tableWrap').addEventListener('click', function (e) {
     var th = e.target.closest('th[data-sort]'); if (th) { if (sortCol === th.dataset.sort) sortDesc = !sortDesc; else { sortCol = th.dataset.sort; sortDesc = false; } renderTable(); return; }
-    var tr = e.target.closest('tr[data-id]'); if (tr && tr.dataset.id && tab !== 'register' && tab !== 'sections' && !e.target.closest('input,select,button,.combo')) { select(tr.dataset.id); showPole(tr.dataset.id); }
+    var tr = e.target.closest('tr[data-id]'); if (tr && tr.dataset.id && tab !== 'register' && tab !== 'sections' && !e.target.closest('input,select,button,.combo')) { select(tr.dataset.id, addInfo(e)); showPole(tr.dataset.id); }
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tabs [data-tab]'), function (b) { b.onclick = function () { setTab(b.dataset.tab); }; });
   var SEARCH_HINT = { poles: 'Search pole, equipment no…', sections: 'Search section, pole, conductor…', heights: 'Search pole or construction…', register: 'Search code, description, DCSH…', issues: 'Search issues…', log: 'Search…' };
@@ -678,6 +719,7 @@
     tab = t; U.tab = t; saveUi();
     Array.prototype.forEach.call(document.querySelectorAll('.tabs [data-tab]'), function (b) { var on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
     $('filter').hidden = t !== 'poles'; $('search').placeholder = SEARCH_HINT[t] || 'Search…'; renderTable();
+    if (typeof syncTabMore === 'function' && $('tabMore')) syncTabMore();
   }
   // Opens a table tab and makes sure the dock is showing.
   function openTab(t) { if (!U.dock || U.dockMin) { U.dock = true; U.dockMin = false; applyLayout(); } setTab(t); }
@@ -847,7 +889,18 @@
     $('useProj').hidden = !project;
   }
   function projectXml() { return S.design.xml || (linked ? linked.text : ''); }
-  function linkDesign(name) { S.design = Object.assign(blankDesign(), { register: S.design.register, link: name }); recompute(); useProject(false); }
+  // Switching which line is the design keeps the edits made to the old one (written back to its file) and the pole extras,
+  // and gives the new line its own profile instead of overwriting the one being worked on.
+  function linkDesign(name) {
+    var old = S.design;
+    if (linked && old.xml) { var lf = S.files.filter(function (f) { return f.name === linked.name; })[0]; if (lf) lf.text = old.xml; xCache = {}; textCache = {}; regCache = null; }
+    S.design = Object.assign(blankDesign(), { register: old.register, link: name, log: old.log || [], extras: old.extras, poleTypes: old.poleTypes, tables: old.tables });
+    recompute();
+    var title = ((project && (project.attrs.title || name)) || name).replace(/^Ground Profile - /i, '').replace(/\.pnwx$/i, ''), idx = S.profiles.findIndex(function (q) { return q.name === title; });
+    if (idx < 0 && S.profiles.length === 1 && !S.profiles[0].poleIds.length) idx = 0;
+    if (idx < 0) { S.profiles.push(newProfile(title)); idx = S.profiles.length - 1; }
+    S.active = idx; useProject(false);
+  }
   // Poles of the linked project that have no LiDAR row still appear, using the project's own coordinates and ground levels.
   function projectSurvey(ok) {
     if (!project) return [];
@@ -1514,7 +1567,6 @@
       h += c.attachments.length ? '<p class="meta">Height above ground: <b>' + (c.kingbolt != null ? c.attachments.map(function (a) { return fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; }).join(' / ') + ' m' : '–') + '</b> · ' + c.attachments.length + ' conductor' + (c.attachments.length === 1 ? '' : 's') + '</p><details class="offs"><summary>Edit attachment offsets</summary><table class="att"><tr><th>#</th><th>x (m)</th><th>y (m)</th><th class="num">Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' x"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' y"></td><td class="num">' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '" title="Remove this attachment point">×</button>') + '</td></tr>'; }).join('') + '</table></details>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
       h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + ', so points and the construction cannot be removed here.</span>' : '<button class="btn small" data-aadd="' + u + '">Add attachment point</button><button class="btn small danger" data-cdel="' + u + '">Remove construction</button>') + '</div></div>';
     });
-    h += extrasHtml(id, row) + tipSummaryHtml(id);
     h += '<div class="con add" id="conAddBox">' + conAddHtml(id) + '</div>';
     return h;
   }
@@ -1723,8 +1775,8 @@
     var r = aiResults[id] || {}, h = '<div class="con ai' + (r.min ? ' min' : '') + '"><div class="ai-tools">' + (r.resp || r.error ? '<button class="btn small" data-aimin title="' + (r.min ? 'Show the AI results' : 'Minimise') + '">' + (r.min ? '▸' : '▾') + '</button><button class="btn small" data-aiclose title="Close and clear the AI results">✕</button>' : '') + '</div><div class="con-title" title="The photo is resized in your browser and sent once to ' + (IN_CLAUDE ? 'Claude on your account' : 'EVE\'s AI service') + '; it is not stored. Nothing changes until you approve a suggestion, and approvals are logged as AI suggestions.">✨ Analyse pole photo with AI</div>';
     if (r.min) return h + '<p class="meta">' + (r.groups ? r.groups.map(function (g) { return CLASS_LABEL[g.cls] + ': ' + (r.approved && r.approved[g.cls] ? r.approved[g.cls] + ' approved' : g.items[0] ? g.items[0].code : '–'); }).join(' · ') : '') + '</p></div>';
     var sv = streetViewUrl(id);
-    h += '<div class="btnrow"><label class="btn small"><input type="file" id="aiPhoto" accept="image/jpeg,image/png,image/webp" hidden>' + (r.photo ? 'Another photo…' : 'Choose a photo…') + '</label>' + (sv ? '<a class="btn small" href="' + sv + '" target="_blank" rel="noopener" title="Opens Google Street View at this pole in a new tab. Snip the pole (Windows: Win+Shift+S) and paste it here with Ctrl+V.">Street View ↗</a>' : '') + '</div>' +
-      '<div class="ai-paste" tabindex="0" title="Paste a snip with Ctrl+V, or drop an image here">Paste a Street View snip here (Ctrl+V) or drop an image</div>';
+    h += '<div class="btnrow"><label class="btn small"><input type="file" id="aiPhoto" accept="image/jpeg,image/png,image/webp" hidden>' + (r.photo ? 'Another photo…' : 'Choose a photo…') + '</label>' + (sv ? '<button class="btn small" data-ctx="street" title="Street View inside the app, with capture straight into this analysis">🛣 Street View</button>' : '') + '<button class="btn small" data-ctx="photos" title="Add several photos and match them to poles">Import photos…</button>' + '</div>' +
+      '<div class="ai-paste" tabindex="0" title="Paste a snip with Ctrl+V, or drop an image here">Paste a snip here (Ctrl+V) or drop an image. It is attached to ' + esc(id) + ' and analysed at once.</div>' + photoListHtml(id, r);
     if (r.thumb) h += '<img class="ai-thumb" src="' + r.thumb + '" alt="Photo of ' + esc(id) + '">';
     if (r.loading) h += '<p class="status">Looking at ' + esc(r.photo) + '…</p>';
     if (r.error) h += '<p class="hint warn">' + esc(r.error) + '</p>';
@@ -1749,6 +1801,7 @@
         h += '</div>';
       });
       if (!x.matches.length) h += '<p class="hint">No code from your PNW library fits what the AI could see.</p>';
+      h += aiCompareHtml(id, r, cons);
     }
     return h + '</div>';
   }
@@ -1760,9 +1813,9 @@
   // A snip pasted (Ctrl+V) or dropped while the AI photo tab is open is analysed like a chosen photo.
   function aiImageFrom(items) { for (var i = 0; i < (items ? items.length : 0); i++) { var it = items[i], f = it.getAsFile ? (it.kind === 'file' ? it.getAsFile() : null) : it; if (f && /^image\//.test(f.type)) return f; } return null; }
   document.addEventListener('paste', function (e) {
-    if (U.insTab !== 'photo' || !S.selected || !project || !$('aiPhoto')) return;
+    if (!S.selected || !merged.poles[S.selected] || !((U.accOpen && U.accOpen.photo && $('aiPhoto')) || !$('svPanel').hidden)) return;
     var f = aiImageFrom(e.clipboardData && e.clipboardData.items); if (!f) return;
-    e.preventDefault(); runAi(S.selected, new File([f], 'Street View snip ' + S.selected + '.png', { type: f.type }));
+    e.preventDefault(); submitPhoto(S.selected, new File([f], 'Street View snip ' + S.selected + '.png', { type: f.type }), { source: 'Street View snip (pasted)' });
   });
   $('selected').addEventListener('dragover', function (e) { if (e.target.closest('.ai-paste')) { e.preventDefault(); e.stopPropagation(); } });
   $('selected').addEventListener('drop', function (e) { var z = e.target.closest('.ai-paste'); if (!z) return; e.preventDefault(); e.stopPropagation(); var f = aiImageFrom(e.dataTransfer && e.dataTransfer.files); if (f) runAi(S.selected, f); });
@@ -1785,19 +1838,203 @@
     });
   }
   var sampleP = IN_CLAUDE && window.claude && window.claude.use ? window.claude.use('sample') : null;
-  function aiPrompt(id, existing) {
+  function aiPrompt(id, existing) { // photo estimates only: heights and dimensions are never asked of the AI
     return 'You help an Australian power distribution designer. Look at the attached photo of pole ' + id + '. Identify the overhead line hardware you can see and rank which of these Poles n Wires construction codes describe each circuit level (HV, LV, running earth).\n' +
       'A construction code covers a whole circuit, not one conductor: one HV1 carries all three HV phases and one LV1 carries all four LV conductors (R W B N). Return at most 3 alternative codes per circuit level, ranked, and never repeat a code for each conductor. In components, count the conductors on each level (name "conductors", level HV, LV or earth).\n' +
       'Rules: only use codes from the list; if nothing fits a level, return no match for it. Describe only visible hardware (crossarms, insulator type: pin, post, disc/strain, reel; conductors per level; terminations; angle or straight; stays; pole top plant). Confidence 0 to 1, below 0.5 when the photo does not show the hardware clearly. Do not estimate dimensions, heights or pole strength.\n' +
+      'Also report what you can see of stays (count), a pole-mounted transformer (present or not) and the conductors on each level; for conductors only name a code from the conductor list below, or null. If a pole number is legible, report it. List anything you cannot tell (field checks). Never present a guess as measured.\n' +
       'Constructions currently on the pole in the PNW project: ' + (existing.join(', ') || 'none') + '.\n' +
+      'Candidate conductor codes (code | name | material): ' + aiConductors(id).map(function (c) { return c.code + ' | ' + c.name + ' | ' + c.material; }).join('; ') + '\n' +
       'Candidate codes (code | description | DCSH | phases):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || ''); }).join('\n') +
-      '\nReturn JSON only: {"photo_quality":string,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"cautions":[string]}';
+      '\nReturn JSON only: {"photo_quality":string,"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
   }
-  function runAiClaude(id, file) {
-    var r = aiResults[id] = { photo: file.name, loading: true }; renderSelected();
+  /* ---- Auto design: profile from QLINK, constructions from pole photos (or a Street View image aimed at the pole when there is
+     no photo), strain sections from strain/termination constructions, conductor from the photo or the GIS feeder, tension by
+     ruling span, LV heights by the separation rule. Everything is proposed on one review screen; nothing changes until Apply. ---- */
+  var AD = { busy: false, plan: null };
+  function bearingTo(a, b) {
+    var r = Math.PI / 180, y = Math.sin((b.lng - a.lng) * r) * Math.cos(b.lat * r), x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lng - a.lng) * r);
+    return (Math.atan2(y, x) / r + 360) % 360;
+  }
+  // Street View image of the pole: nearest outdoor panorama within 50 m, turned toward the pole, pitched to take in its top.
+  function svImageFor(id) {
+    var key = gmKey(), ll = poleLL(id); if (!key || !ll) return Promise.resolve(null);
+    return loadGmaps(key).then(function (gm) {
+      return new Promise(function (res) {
+        new gm.StreetViewService().getPanorama({ location: new gm.LatLng(ll.lat, ll.lng), radius: 50, source: 'outdoor' }, function (data, status) {
+          if (status !== 'OK' || !data) return res(null);
+          var at = { lat: data.location.latLng.lat(), lng: data.location.latLng.lng() }, dist = Math.max(3, L.latLng(at.lat, at.lng).distanceTo(ll));
+          var row = project && project.poles.filter(function (r) { return r.ID === id; })[0], hag = row ? PNW.num(row.HeightAG) || 9 : 9;
+          var pitch = Math.max(0, Math.min(40, Math.atan2(hag * 0.6 - 2.5, dist) * 180 / Math.PI)), heading = bearingTo(at, ll);
+          var url = 'https://maps.googleapis.com/maps/api/streetview?size=1280x960&pano=' + encodeURIComponent(data.location.pano) + '&heading=' + heading.toFixed(1) + '&pitch=' + pitch.toFixed(1) + '&fov=70&key=' + encodeURIComponent(key);
+          fetch(url, { mode: 'cors' }).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) {
+            res(b ? { file: new File([b], 'Street View ' + id + ' (auto).jpg', { type: 'image/jpeg' }), meta: { source: 'Street View (auto, ' + Math.round(dist) + ' m away' + (data.imageDate ? ', ' + data.imageDate : '') + ')', pov: { heading: Math.round(heading), pitch: Math.round(pitch), fov: 70, pano: data.location.pano } } } : null);
+          }, function () { res(null); });
+        });
+      });
+    }, function () { return null; });
+  }
+  function aiWait(id) { return new Promise(function (res) { (function t() { var r = aiResults[id]; if (!r || !r.loading) return res(r || null); setTimeout(t, 250); })(); }); }
+  // The AI result for one pole: reuse an earlier analysis, else the newest attached photo, else Street View.
+  function aiFor(id) {
+    var r = aiResults[id]; if (r && r.resp) return Promise.resolve(r);
+    var ph = photosOf(id), rec = ph[ph.length - 1];
+    var viaPhoto = rec ? photoData(rec).then(function (d) { if (!d) return false; runAi(id, new File([b64Blob(d)], rec.name, { type: 'image/jpeg' }), { noAttach: true, photoId: rec.id, source: rec.source }); return true; }) : Promise.resolve(false);
+    return viaPhoto.then(function (ok) {
+      if (ok) return aiWait(id);
+      return svImageFor(id).then(function (sv) { if (!sv) return null; runAi(id, sv.file, sv.meta); return aiWait(id); });
+    });
+  }
+  function aiCls(level) { return /earth|^re/i.test(level) ? 'earth' : /hv/i.test(level) ? 'hv' : /lv/i.test(level) ? 'lv' : null; }
+  var AD_ORDER = { hv: 0, earth: 1, lv: 2 };
+  function adPlan() {
+    var ids = project.poles.map(function (r) { return r.ID; }), plan = { poles: [], sections: [], missing: [], notes: [] };
+    ids.forEach(function (id) {
+      var r = aiResults[id], resp = r && r.resp, have = {}, P = { id: id, src: r && r.source, thumb: r && r.thumb, picks: [] };
+      ((dm && dm.byPole[id]) || []).forEach(function (c) { have[circuitClass(c.code)] = c.code; });
+      P.have = have;
+      if (!resp) { plan.missing.push(id + ': ' + ((r && r.error) || (photosOf(id).length ? 'the photo could not be read' : gmKey() ? 'no photo and no Street View within 50 m' : 'no photo (add a Google Maps key to use Street View)'))); plan.poles.push(P); return; }
+      var best = {};
+      resp.matches.slice().sort(function (a, b) { return a.rank - b.rank || b.confidence - a.confidence; }).forEach(function (m) { var k = circuitClass(m.code); if (AD_ORDER[k] != null && !best[k]) best[k] = m; });
+      Object.keys(best).sort(function (a, b) { return AD_ORDER[a] - AD_ORDER[b]; }).forEach(function (k) {
+        var m = best[k]; if (have[k]) return;
+        P.picks.push({ cls: k, code: m.code, conf: m.confidence, on: m.confidence >= 0.5, why: m.reasons[0] || '', ref: 'Photo ' + r.photo + ', ' + m.level + ' rank ' + m.rank + ', ' + Math.round(m.confidence * 100) + '% (' + resp.model + ')' });
+      });
+      var o = resp.obs || {};
+      if (o.stays && o.stays.count) plan.notes.push(id + ': ' + o.stays.count + ' stay' + (o.stays.count > 1 ? 's' : '') + ' seen (' + Math.round(o.stays.confidence * 100) + '%). Add in Equipment if correct.');
+      if (o.transformer && o.transformer.present) plan.notes.push(id + ': transformer seen (' + Math.round(o.transformer.confidence * 100) + '%). Add in Equipment if correct.');
+      P.obs = o; plan.poles.push(P);
+    });
+    adSections(plan); return plan;
+  }
+  // Sections per circuit, from the ticked proposals plus what is already on the poles: a run of consecutive poles carrying the
+  // circuit, cut at every strain, termination or tee-off construction. Sections already strung are left alone.
+  function adSections(plan) {
+    var strung = {}; project.segPoles.forEach(function (s) { var c = ((dm && dm.byPole[s.id]) || []).filter(function (x) { return x.descr === s.constr; })[0]; if (c) strung[s.id + '|' + circuitClass(c.code)] = 1; });
+    plan.sections = [];
+    ['hv', 'earth', 'lv'].forEach(function (k) {
+      var run = [];
+      var flush = function () {
+        if (run.length < 2) { run = []; return; }
+        var cut = [0]; for (var i = 1; i < run.length - 1; i++) if (/termination|strain|tee-off/.test(run[i].arr)) cut.push(i); cut.push(run.length - 1);
+        for (var j = 1; j < cut.length; j++) { var mem = run.slice(cut[j - 1], cut[j] + 1); if (!mem.every(function (m) { return strung[m.id + '|' + k]; })) plan.sections.push(adSection(plan, k, mem)); }
+        run = [];
+      };
+      plan.poles.forEach(function (P) {
+        var pk = P.picks.filter(function (x) { return x.cls === k && x.on; })[0], code = P.have[k] || (pk && pk.code);
+        if (!code) { flush(); return; }
+        var lc = M.libraryConstruction(lib, code);
+        run.push({ id: P.id, code: code, arr: arrangementOf(lc && lc.description), P: P });
+      });
+      flush();
+    });
+  }
+  function adSection(plan, k, mem) {
+    var S1 = { cls: k, ids: mem.map(function (m) { return m.id; }), codes: mem.map(function (m) { return m.code; }), on: true, flags: [] }, votes = {};
+    mem.forEach(function (m) { ((m.P.obs && m.P.obs.conductors) || []).forEach(function (c) { if (c.code && aiCls(c.level) === k) votes[c.code] = (votes[c.code] || 0) + (c.confidence || 0.1); }); });
+    var vc = Object.keys(votes).sort(function (a, b) { return votes[b] - votes[a]; })[0];
+    if (vc) { S1.cond = vc; S1.csrc = 'photo (' + Object.keys(votes).length + ' type' + (Object.keys(votes).length > 1 ? 's' : '') + ' seen)'; }
+    else if (k !== 'earth') {
+      var g = gisConductorsAt(mem[0].id, k.toUpperCase()).filter(function (t) { return t.lib; }).sort(function (a, b) { return b.length - a.length; })[0];
+      if (g) { S1.cond = g.lib.code; S1.csrc = 'GIS ' + g.description + ' on ' + g.feeder; }
+    }
+    if (!S1.cond) { S1.flags.push('No conductor from the photos or the GIS export'); S1.on = false; }
+    var noAtt = mem.filter(function (m) { return !knownLayout(m.code); }).map(function (m) { return m.id + ' ' + m.code; });
+    if (noAtt.length) { S1.flags.push('No attachment offsets for ' + noAtt.join(', ')); S1.on = false; }
+    if (S1.cond) {
+      var rs = M.rulingSpan(spansOf(S1.ids)), at = autoTension(S1.cond, rs), ts = at ? null : tensionSuggestions(S1.cond);
+      S1.rs = rs;
+      if (at) { S1.tension = at.value; S1.units = at.units; S1.table = at.table; S1.tsrc = at.note; S1.auto = true; }
+      else if (ts.length === 1) { S1.tension = ts[0].value; S1.units = ts[0].units; S1.table = ts[0].table; S1.tsrc = ts[0].note; }
+      else { S1.flags.push(ts.length ? ts.length + ' possible tensions, pick one after' : 'No tension table for ' + S1.cond); S1.on = false; }
+    }
+    return S1;
+  }
+  function adHtml(plan) {
+    var pct = function (v) { return Math.round(v * 100) + '%'; }, h = '<p class="hint">Review the proposals. Untick anything that is wrong, then Apply. Each change is logged with its source, and AI picks stay flagged until checked in the field.</p>';
+    h += '<h4>Constructions</h4><table class="grid"><thead><tr><th></th><th>Pole</th><th>Construction</th><th class="num">AI</th><th>Seen in</th><th>Why</th></tr></thead><tbody>';
+    var n = 0;
+    plan.poles.forEach(function (P, i) { P.picks.forEach(function (x, j) { n++; h += '<tr' + (x.conf < 0.5 ? ' class="warn"' : '') + '><td><input type="checkbox" data-adc="' + i + '-' + j + '"' + (x.on ? ' checked' : '') + ' aria-label="Use ' + esc(x.code) + ' on ' + esc(P.id) + '"></td><td>' + esc(P.id) + '</td><td><b>' + esc(x.code) + '</b> <small class="meta">' + x.cls.toUpperCase() + '</small></td><td class="num">' + pct(x.conf) + '</td><td>' + (P.thumb ? '<img src="' + P.thumb + '" alt="" style="height:28px;vertical-align:middle;border-radius:3px"> ' : '') + esc((P.src || '').replace(/ \(.*/, '')) + '</td><td><small>' + esc(x.why) + '</small></td></tr>'; }); });
+    if (!n) h += '<tr><td colspan="6" class="meta">No new constructions to propose.</td></tr>';
+    h += '</tbody></table><h4>Strain sections</h4><table class="grid"><thead><tr><th></th><th>Circuit</th><th>Poles</th><th>Conductor</th><th>Tension</th><th class="num">Ruling span</th><th>Notes</th></tr></thead><tbody>';
+    plan.sections.forEach(function (s, i) { h += '<tr' + (s.flags.length ? ' class="warn"' : '') + '><td><input type="checkbox" data-ads="' + i + '"' + (s.on ? ' checked' : '') + (s.cond && s.tension ? '' : ' disabled') + ' aria-label="String section ' + (i + 1) + '"></td><td>' + s.cls.toUpperCase() + '</td><td>' + esc(s.ids[0] + ' → ' + s.ids[s.ids.length - 1]) + ' <small class="meta">(' + s.ids.length + ')</small></td><td>' + (s.cond ? '<b>' + esc(s.cond) + '</b> <small class="meta">' + esc(s.csrc) + '</small>' : '–') + '</td><td>' + (s.tension ? esc(s.tension + ' ' + s.units) + (s.auto ? ' <small class="meta">auto</small>' : '') : '–') + '</td><td class="num">' + (s.rs ? s.rs.toFixed(1) + ' m' : '–') + '</td><td><small>' + esc(s.flags.join('; ') || s.tsrc || '') + '</small></td></tr>'; });
+    if (!plan.sections.length) h += '<tr><td colspan="7" class="meta">No sections to string.</td></tr>';
+    h += '</tbody></table>';
+    if (plan.missing.length) h += '<h4>Needs you</h4><ul class="hint">' + plan.missing.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>';
+    if (plan.notes.length) h += '<h4>Seen, not added</h4><ul class="hint">' + plan.notes.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>';
+    return h + '<p class="hint">After Apply, LV king bolts under HV are set by the separation rule where it applies.</p><div class="btnrow"><button class="btn primary" id="adApply">Apply ticked</button><button class="btn" id="adCancel">Cancel</button></div>';
+  }
+  function adShow() {
+    openGen('🪄 Auto design · review', adHtml(AD.plan));
+    var body = $('genBody');
+    body.onchange = function (e) {
+      var t = e.target; if (t.dataset.adc) { var q = t.dataset.adc.split('-'); AD.plan.poles[+q[0]].picks[+q[1]].on = t.checked; adSections(AD.plan); adShow(); }
+      else if (t.dataset.ads) AD.plan.sections[+t.dataset.ads].on = t.checked;
+    };
+    $('adCancel').onclick = closeGen; $('adApply').onclick = adApply;
+  }
+  function adApply() {
+    var plan = AD.plan, nc = 0, ns = 0, nl = 0, fails = [];
+    closeGen();
+    commit(function (p) {
+      var out = [];
+      plan.poles.forEach(function (P) {
+        var row = project.poles.filter(function (x) { return x.ID === P.id; })[0], hag = PNW.num(row.HeightAG);
+        var cur = ((dm && dm.byPole[P.id]) || []).slice();
+        P.picks.filter(function (x) { return x.on; }).forEach(function (x) {
+          var d = kbFor(P.id, x.code, hag, cur); if (!d) { fails.push(P.id + ' ' + x.code + ': no default king bolt height'); return; }
+          var lay = knownLayout(x.code), lc = M.libraryConstruction(lib, x.code);
+          var nr = M.addConstruction(p, P.id, { code: x.code, kingbolt: d.value, voltage: lc && lc.voltageLL != null ? lc.voltageLL : 0, attachments: lay ? lay.attachments : [], isNew: true });
+          out.push(logEntry(P.id, nr.descr, 'Construction', '', 'added at ' + d.value + ' m', 'AI suggestion', 'Auto design; ' + x.ref + '; king bolt from ' + d.source + (lay ? '; offsets from ' + lay.source : ''))); cur.push({ code: x.code, kingbolt: d.value }); nc++;
+        });
+      });
+      return out;
+    });
+    var secs = plan.sections.filter(function (s) { return s.on && s.cond && s.tension; }), names = [];
+    if (secs.length) commit(function (p) {
+      var out = [];
+      secs.forEach(function (s) {
+        var poles = s.ids.map(function (id) { var c = ((dm.byPole[id]) || []).filter(function (x) { return circuitClass(x.code) === s.cls; }).sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })[0]; return c && { id: id, unique: c.unique, descr: c.descr }; });
+        if (poles.some(function (m) { return !m; })) { fails.push(s.cls.toUpperCase() + ' ' + s.ids[0] + '→' + s.ids[s.ids.length - 1] + ': a pole lost its construction'); return; }
+        try {
+          var name = M.addSection(p, { conductor: conductorFor(s.cond), tension: s.tension, units: s.units, poles: poles.map(function (m) { return { id: m.id, unique: m.unique }; }) });
+          if (s.table) (S.design.tables = S.design.tables || {})[name] = s.table;
+          if (s.auto) (S.design.tensionAuto = S.design.tensionAuto || {})[name] = true;
+          names.push(name); ns++;
+          out.push(logEntry(s.ids[0] + '→' + s.ids[s.ids.length - 1], name, 'Strain section', '', s.cond + ' at ' + s.tension + ' ' + s.units + ' on ' + poles.map(function (m) { return m.id + ' ' + m.descr; }).join(', '), 'calculated', 'Auto design; conductor from ' + s.csrc + '; tension from ' + s.tsrc));
+        } catch (e) { fails.push(s.cls.toUpperCase() + ' ' + s.ids[0] + '→' + s.ids[s.ids.length - 1] + ': ' + e.message); }
+      });
+      return out;
+    });
+    var ups = [];
+    project.poles.forEach(function (r) {
+      var cons = ((dm.byPole[r.ID]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
+      cons.forEach(function (c, i) { var x = lvRule(r.ID, cons, i); if (x && x.value != null && Math.abs(x.value - (c.kingbolt || 0)) > 0.0005 && plan.poles.some(function (P) { return P.id === r.ID && P.picks.some(function (k) { return k.on && k.code === c.code; }); })) ups.push({ id: r.ID, c: c, v: x.value, src: x.src }); });
+    });
+    if (ups.length) commit(function (p) { return ups.map(function (u) { M.updateConstruction(p, u.c.unique, { kingbolt: u.v }); nl++; return logEntry(u.id, u.c.descr, 'King bolt', u.c.kingbolt + ' m', u.v + ' m', 'calculated', 'Auto design; ' + u.src); }); });
+    setStatus('Auto design applied: ' + nc + ' construction' + (nc === 1 ? '' : 's') + ', ' + ns + ' strain section' + (ns === 1 ? '' : 's') + (nl ? ', ' + nl + ' LV height' + (nl === 1 ? '' : 's') + ' by the separation rule' : '') + '.' + (fails.length ? ' Not done: ' + fails.join('; ') + '.' : ''), fails.length ? 'bad' : 'good');
+  }
+  function autoDesign() {
+    if (AD.busy) return;
+    if (!Object.keys(merged.poles).some(function (id) { return merged.poles[id].survey; })) { setStatus('Load the QLINK LiDAR export first. Auto design takes the poles and ground levels from it.', 'bad'); return; }
+    if (!prof().poleIds.length) { seedProfile(); S.generated = false; recompute(); }
+    if (!project) startDesign();
+    if (!project) return;
+    var ids = project.poles.map(function (r) { return r.ID; }), i = 0;
+    AD.busy = true;
+    openGen('🪄 Auto design', '<p class="hint" id="adProg">Reading pole photos…</p><div class="btnrow"><button class="btn" id="adStop">Stop and review what is done</button></div>', { noFocus: true });
+    var stop = false; $('adStop').onclick = function () { stop = true; };
+    (function next() {
+      if (stop || i >= ids.length) { AD.busy = false; AD.plan = adPlan(); adShow(); return; }
+      var id = ids[i++], el = $('adProg'); if (el) el.textContent = 'Pole ' + i + ' of ' + ids.length + ': ' + id + (aiResults[id] && aiResults[id].resp ? ' (already analysed)' : photosOf(id).length ? ' (photo)' : gmKey() ? ' (Street View)' : '');
+      aiFor(id).then(next, next);
+    })();
+  }
+  function runAiClaude(id, file, meta) {
+    var r = aiResults[id] = { photo: file.name, loading: true, source: (meta && meta.source) || 'photo' }; renderSelected();
     var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
     Promise.all([sampleP || Promise.resolve(null), shrink(file)]).then(function (x) {
-      var sample = x[0], img = x[1]; r.thumb = img.thumb; r.view = img.view; renderSelected();
+      var sample = x[0], img = x[1]; r.thumb = img.thumb; r.view = img.view; if (!(meta && meta.noAttach)) r.photoId = attachPhoto(id, file.name, img, meta).id; else if (meta && meta.photoId) r.photoId = meta.photoId; renderSelected();
       if (!sample) throw new Error('Asking Claude is not available in this view of the page.');
       var bytes = atob(img.data), arr = new Uint8Array(bytes.length); for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
       return sample.json(aiPrompt(id, existing), { images: [new Blob([arr], { type: 'image/jpeg' })], modelTier: 'default' });
@@ -1806,27 +2043,29 @@
       var conf = function (v) { return Math.max(0, Math.min(1, Number(v) || 0)); }, all = Array.isArray(j.matches) ? j.matches : [];
       var matches = all.filter(function (m) { return valid[String(m.code || '').toUpperCase()]; }).map(function (m) { return { level: String(m.level || ''), code: valid[String(m.code).toUpperCase()], rank: Number(m.rank) || 99, confidence: conf(m.confidence), reasons: (m.reasons || []).map(String).slice(0, 5) }; });
       r.resp = { model: 'Claude', photo_quality: String(j.photo_quality || ''), components: (j.components || []).map(function (c) { return { name: String(c.name || ''), level: String(c.level || ''), count: Number(c.count) || null, confidence: conf(c.confidence) }; }),
-        matches: matches, cautions: (j.cautions || []).map(String).concat(all.length > matches.length ? [(all.length - matches.length) + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []) };
+        matches: matches, cautions: (j.cautions || []).map(String).concat(all.length > matches.length ? [(all.length - matches.length) + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []),
+        obs: aiObservations(j) };
     }).catch(function (e) { r.error = e && e.code === 'not_granted' ? 'Claude was not allowed to look at the photo. Allow it when asked to use this.' : e && e.code === 'rate_limited' ? 'Too many requests at once. Wait a moment and try again.' : (e && e.message) || String(e); })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
-  function runAi(id, file) {
-    if (IN_CLAUDE) return runAiClaude(id, file);
-    var r = aiResults[id] = { photo: file.name, loading: true }; renderSelected();
+  function runAi(id, file, meta) {
+    if (IN_CLAUDE) return runAiClaude(id, file, meta);
+    var r = aiResults[id] = { photo: file.name, loading: true, source: (meta && meta.source) || 'photo' }; renderSelected();
     shrink(file).then(function (img) {
-      r.thumb = img.thumb; r.view = img.view; renderSelected();
+      r.thumb = img.thumb; r.view = img.view; if (!(meta && meta.noAttach)) r.photoId = attachPhoto(id, file.name, img, meta).id; else if (meta && meta.photoId) r.photoId = meta.photoId; renderSelected();
       var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
       return fetch(AI_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + AI_KEY }, body: JSON.stringify({ mime: 'image/jpeg', image: img.data, pole: id, existing: existing, candidates: aiCandidates() }) });
     }).then(function (res) {
       if (res.status === 404) throw new Error('The AI photo service is not switched on yet (the pnw-pole-photo-ai function is not deployed).');
       return res.json().then(function (j) { if (!res.ok || !j.ok) throw new Error(j.error || 'AI request failed (' + res.status + ').'); return j; });
-    }).then(function (j) { r.resp = j; }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
+    }).then(function (j) { r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
   $('selected').addEventListener('change', function (e) { if (e.target.id === 'aiPhoto' && e.target.files[0]) runAi(S.selected, e.target.files[0]); });
   $('selected').addEventListener('click', function (e) {
     var b = e.target.closest('[data-aiok]'); if (!b) return;
     var id = S.selected, r = aiResults[id], gi = b.dataset.aiok.split('-'), g = r.groups[+gi[0]], m = g.items[+gi[1]];
+    if (m.confidence < 0.5 && !b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Low confidence: click again to approve'; b.classList.add('danger'); setStatus('The AI is under 50% sure of ' + m.code + ' for ' + id + '. Approve only if you can confirm it from the photo or the field.', 'bad'); return; }
     var target = document.querySelector('[data-aitarget="' + b.dataset.aiok + '"]').value, ref = 'Photo ' + r.photo + ', ' + m.level + ' rank ' + m.rank + ', ' + Math.round(m.confidence * 100) + '% (' + r.resp.model + ')';
     var mark = function () { (r.approved || (r.approved = {}))[g.cls] = m.code; };
     if ((((dm && dm.byPole[id]) || []).some(function (c) { return String(c.code).toUpperCase() === m.code.toUpperCase(); }))) { setStatus(m.code + ' is already on ' + id + '; one construction carries the whole circuit.', 'bad'); return; }
@@ -1853,6 +2092,7 @@
   }
   function renderViews() {
     var v = S.view;
+    renderExtras();
     if (v === '3d' || v === 'split') { if (!mounted3d) mount3d(); else update3d(); }
     if (v === 'profile' || v === 'split') renderProfileView();
     var notes = [];
@@ -1915,6 +2155,36 @@
   }
   var WCOL = { hv: '#c2410c', lv: '#2f6ea4', earth: '#64748b', other: '#0f766e' };
   function wireKind(w) { return /^RE/i.test(w.code || '') ? 'earth' : w.voltage == null ? 'other' : w.voltage > 1 ? 'hv' : 'lv'; }
+  /* profile view: zoom (wheel, buttons, keys), pan (drag), fit, pole and span selection */
+  var pv = { x0: null, x1: null, geom: null };
+  function lineRows() {
+    if (dm && dm.allPoles.length) return dm.allPoles.filter(function (p) { return p.chainage != null && p.ground != null; });
+    return built ? built.rows.filter(function (r) { return r.chainage != null && isFinite(r.elevation); }).map(function (r) { return { id: r.id, chainage: r.chainage, ground: r.elevation, height: r.height, sunk: r.sunk }; }) : [];
+  }
+  function lineIds() { return dm && dm.allPoles.length ? dm.allPoles.map(function (p) { return p.id; }) : prof().poleIds.slice(); }
+  function pvFull() { var r = lineRows(), g = dm && project ? project.ground.map(function (q) { return PNW.num(q.Chainage); }).filter(isFinite) : []; var x1 = Math.max.apply(null, r.map(function (p) { return p.chainage; }).concat(g)); return { x0: 0, x1: isFinite(x1) && x1 > 0 ? x1 : 1 }; }
+  function pvRange() { var f = pvFull(), a = pv.x0 == null ? f.x0 : pv.x0, b = pv.x1 == null ? f.x1 : pv.x1; if (b - a < 4) { var c = (a + b) / 2; a = c - 2; b = c + 2; } return { x0: a, x1: b, full: f }; }
+  function pvSet(a, b) {
+    var f = pvFull(), w = Math.max(4, b - a), span = f.x1 - f.x0, pad = span * 0.04;
+    var full = span + 2 * pad, c = (a + b) / 2; w = Math.min(w, full * 5);
+    if (w > full + 1e-6) { c = Math.max(f.x0, Math.min(f.x1, c)); pv.x0 = c - w / 2; pv.x1 = c + w / 2; return; }
+    a = c - w / 2; b = c + w / 2; if (a < f.x0 - pad) { a = f.x0 - pad; b = a + w; } if (b > f.x1 + pad) { b = f.x1 + pad; a = b - w; }
+    if (b - a >= full - 1e-6) { pv.x0 = pv.x1 = null; } else { pv.x0 = a; pv.x1 = b; }
+  }
+  function pvZoom(k, at) { var r = pvRange(), c = at == null ? (r.x0 + r.x1) / 2 : at, w = (r.x1 - r.x0) * k; pvSet(c - (c - r.x0) * k, c + (r.x1 - c) * k); renderProfileView(); }
+  function pvFit() { pv.x0 = pv.x1 = null; renderProfileView(); }
+  function chainOfPole(id) { var q = lineRows().filter(function (p) { return p.id === id; })[0]; return q ? q.chainage : null; }
+  // Zoom to a pole and its two spans.
+  function pvFocus(id) {
+    var rows = lineRows(), i = rows.findIndex(function (p) { return p.id === id; }); if (i < 0) return;
+    var a = rows[Math.max(0, i - 1)].chainage, b = rows[Math.min(rows.length - 1, i + 1)].chainage, m = Math.max(5, (b - a) * 0.15); pvSet(a - m, b + m);
+  }
+  // Keep a selected pole inside the visible window without changing the zoom.
+  function pvEnsure(id) {
+    if (pv.x0 == null) return; var c = chainOfPole(id); if (c == null) return;
+    var r = pvRange(), w = r.x1 - r.x0, m = w * 0.08;
+    if (c < r.x0 + m || c > r.x1 - m) pvSet(c - w / 2, c + w / 2);
+  }
   function renderProfileView() {
     var box = $('profileView'), cs = getComputedStyle(box), W = Math.max(box.clientWidth - 16, 300), H = Math.max(box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 58, 140), m = { l: 52, r: 20, t: 14, b: 30 };
     var poles, ground, clr = [];
@@ -1926,61 +2196,91 @@
       poles = built.rows.filter(function (r) { return r.chainage != null && isFinite(r.elevation); }).map(function (r) { return { id: r.id, chainage: r.chainage, ground: r.elevation, height: r.height, sunk: r.sunk }; });
       ground = poles.map(function (p) { return { c: p.chainage, z: p.ground }; });
     } else poles = [];
-    if (poles.length < 2) { box.innerHTML = '<p class="v3msg">Build a profile with at least two surveyed poles, or drop a PNW project, to see the profile.</p>'; return; }
+    if (poles.length < 2) {
+      var only = prof().poleIds.length === 1 ? ' ' + esc(prof().poleIds[0]) + ' is the first pole of ' + esc(prof().name || 'this profile') + '. Select the next poles on the plan and choose <b>Add to profile</b>.' : '';
+      box.innerHTML = '<p class="v3msg">Build a profile with at least two surveyed poles, or drop a PNW project, to see the profile.' + only + '</p>'; pv.geom = null; return;
+    }
     var chainOf = {}; poles.forEach(function (p) { chainOf[p.id] = p.chainage; });
-    var x1 = Math.max.apply(null, poles.map(function (p) { return p.chainage; }).concat(ground.map(function (g) { return g.c; }))) || 1;
-    var lo = Math.min.apply(null, poles.map(function (p) { return p.ground - (p.sunk || 0); })), hi = Math.max.apply(null, poles.map(function (p) { return p.ground + (p.height || 0); }).concat(clr.map(function (g) { return g.z + g.c1; })));
+    var R = pvRange(), x0 = R.x0, x1 = R.x1, inWin = function (c) { return c >= x0 - (x1 - x0) * 0.02 && c <= x1 + (x1 - x0) * 0.02; };
+    // vertical range follows what is visible (poles in the window, ground within it)
+    var vis = poles.filter(function (p) { return inWin(p.chainage); }), gv = ground.filter(function (q) { return q.c >= x0 - 1e-9 && q.c <= x1 + 1e-9; });
+    if (!vis.length) vis = poles;
+    if (pv.x0 != null && ground.length > 1) { var zAt = function (c) { for (var i = 1; i < ground.length; i++) if (ground[i].c >= c) { var a = ground[i - 1], b = ground[i], t = b.c === a.c ? 0 : (c - a.c) / (b.c - a.c); return a.z + (b.z - a.z) * Math.max(0, Math.min(1, t)); } return ground[ground.length - 1].z; }; gv = gv.concat([{ c: x0, z: zAt(x0) }, { c: x1, z: zAt(x1) }]); }
+    var lo = Math.min.apply(null, vis.map(function (p) { return p.ground - (p.sunk || 0); }).concat(gv.map(function (g) { return g.z; }))), hi = Math.max.apply(null, vis.map(function (p) { return p.ground + (p.height || 0); }).concat(clr.filter(function (g) { return inWin(g.c); }).map(function (g) { return g.z + g.c1; })));
     var y0 = Math.floor(lo - 0.5), y1 = Math.ceil(hi + 1);
-    // Horizontal zoom (PV.hz, 1 = whole line) and pan (PV.x0, chainage at the left edge) are independent of the vertical scale.
-    PV.x1 = x1; PV.hz = Math.max(PV_MIN, Math.min(PV.hz, Math.max(1, x1 / 5))); var span = x1 / PV.hz; PV.x0 = Math.max(Math.min(0, x1 - span), Math.min(PV.x0, Math.max(0, x1 - span))); PV.plotW = W - m.l - m.r; PV.ml = m.l;
-    var X = function (v) { return m.l + (v - PV.x0) / span * (W - m.l - m.r); }, Y = function (v) { return H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b); };
-    var g = '', step = niceStep(y1 - y0, 5), xs = niceStep(span, 8);
+    var pw = W - m.l - m.r, X = function (v) { return m.l + (v - x0) / (x1 - x0) * pw; }, Y = function (v) { return H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b); };
+    pv.geom = { l: m.l, w: pw, x0: x0, x1: x1 };
+    var g = '', step = niceStep(y1 - y0, 5), xs = niceStep(x1 - x0, 8);
     for (var v = Math.ceil(y0 / step) * step; v <= y1; v += step) g += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#e6ebf0"/><text x="' + (m.l - 6) + '" y="' + (Y(v) + 3) + '" text-anchor="end" class="ax">' + +v.toFixed(2) + '</text>';
-    for (var c = Math.ceil(PV.x0 / xs) * xs; c <= PV.x0 + span + 1e-9; c += xs) g += '<text x="' + X(c) + '" y="' + (H - m.b + 14) + '" text-anchor="middle" class="ax">' + +c.toFixed(1) + '</text>';
-    g += '<clipPath id="pvClip"><rect x="' + m.l + '" y="0" width="' + (W - m.l - m.r) + '" height="' + H + '"/></clipPath><g clip-path="url(#pvClip)">';
-    g += '<path d="' + ground.map(function (q, i) { return (i ? 'L' : 'M') + X(q.c).toFixed(1) + ' ' + Y(q.z).toFixed(1); }).join(' ') + '" fill="none" stroke="#2f6ea4" stroke-width="2"/>';
-    if (clr.length > 1) g += '<path d="' + clr.map(function (q, i) { return (i ? 'L' : 'M') + X(q.c).toFixed(1) + ' ' + Y(q.z + q.c1).toFixed(1); }).join(' ') + '" fill="none" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="6 4"/>';
+    for (var c = Math.ceil(x0 / xs) * xs; c <= x1 + 1e-9; c += xs) g += '<text x="' + X(c) + '" y="' + (H - m.b + 14) + '" text-anchor="middle" class="ax">' + +c.toFixed(1) + '</text>';
+    var d = '<g clip-path="url(#pvclip)">';
+    // selected span band, then span hit areas (under the pole hit areas)
+    var ids = poles.map(function (p) { return p.id; });
+    if (S.selSpan && chainOf[S.selSpan.a] != null && chainOf[S.selSpan.b] != null) { var sa = X(chainOf[S.selSpan.a]), sb = X(chainOf[S.selSpan.b]); d += '<rect x="' + Math.min(sa, sb) + '" y="' + m.t + '" width="' + Math.abs(sb - sa) + '" height="' + (H - m.t - m.b) + '" fill="#f59e0b" opacity=".13"/>'; }
+    if (pvShow().ground) d += '<path d="' + ground.map(function (q, i) { return (i ? 'L' : 'M') + X(q.c).toFixed(1) + ' ' + Y(q.z).toFixed(1); }).join(' ') + '" fill="none" stroke="#2f6ea4" stroke-width="2"/>';
+    if (clr.length > 1 && pvShow().clr) d += '<path d="' + clr.map(function (q, i) { return (i ? 'L' : 'M') + X(q.c).toFixed(1) + ' ' + Y(q.z + q.c1).toFixed(1); }).join(' ') + '" fill="none" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="6 4"/>';
     poles.forEach(function (p) {
-      var sel = p.id === S.selected, x = X(p.chainage);
-      if (p.sunk) g += '<line x1="' + x + '" x2="' + x + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground - p.sunk) + '" stroke="#5b4636" stroke-width="3" stroke-dasharray="3 3" opacity=".6"/>';
-      if (p.height) g += '<line x1="' + x + '" x2="' + x + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground + p.height) + '" stroke="' + (sel ? '#f59e0b' : '#8b6b4a') + '" stroke-width="' + (sel ? 5 : 3) + '"/>';
-      g += '<text x="' + x + '" y="' + (Y(p.ground + (p.height || 0)) - 6) + '" text-anchor="middle" class="pl' + (sel ? ' sel' : '') + '">' + esc(p.id) + '</text>';
+      var sel = isSel(p.id), x = X(p.chainage);
+      if (x < m.l - 40 || x > W - m.r + 40) return;
+      if (p.sunk) d += '<line x1="' + x + '" x2="' + x + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground - p.sunk) + '" stroke="#5b4636" stroke-width="3" stroke-dasharray="3 3" opacity=".6"/>';
+      if (p.height) d += '<line x1="' + x + '" x2="' + x + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground + p.height) + '" stroke="' + (sel ? '#f59e0b' : '#8b6b4a') + '" stroke-width="' + (sel ? 5 : 3) + '"/>';
+      d += '<text x="' + x + '" y="' + (Y(p.ground + (p.height || 0)) - 6) + '" text-anchor="middle" class="pl' + (sel ? ' sel' : '') + '">' + esc(p.id) + '</text>';
     });
     if (dm) {
       dm.wires.forEach(function (w) {
-        var a = chainOf[w.from.pole], b = chainOf[w.to.pole]; if (a == null || b == null) return;
+        var wk = wireKind(w); if (wk !== 'other' && pvShow()[wk] === false) return;
+        var a = chainOf[w.from.pole], b = chainOf[w.to.pole]; if (a == null || b == null || Math.max(a, b) < x0 || Math.min(a, b) > x1) return;
         var pts = []; for (var k = 0; k <= 20; k++) { var t = k / 20, z = w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0); pts.push(X(a + (b - a) * t).toFixed(1) + ' ' + Y(z).toFixed(1)); }
-        g += '<path d="M' + pts.join(' L') + '" fill="none" stroke="' + WCOL[wireKind(w)] + '" stroke-width="1.4"><title>' + esc(w.segment + ' ' + w.conductor + ' phase ' + w.phase + ' · ' + w.from.pole + ' → ' + w.to.pole + ' · span ' + w.span.toFixed(2) + ' m · sag ' + (w.sag != null ? w.sag.toFixed(2) + ' m (' + w.sagSource + ')' : 'not shown')) + '</title></path>';
+        d += '<path d="M' + pts.join(' L') + '" fill="none" stroke="' + WCOL[wireKind(w)] + '" stroke-width="1.4"><title>' + esc(w.segment + ' ' + w.conductor + ' phase ' + w.phase + ' · ' + w.from.pole + ' → ' + w.to.pole + ' · span ' + w.span.toFixed(2) + ' m · sag ' + (w.sag != null ? w.sag.toFixed(2) + ' m (' + w.sagSource + ')' : 'not shown')) + '</title></path>';
       });
-      dm.points.forEach(function (q) { var c0 = chainOf[q.pole]; if (c0 == null) return; g += '<circle cx="' + X(c0) + '" cy="' + Y(q.elevation) + '" r="2.6" fill="#fff" stroke="#172638" stroke-width="1.2"><title>' + esc(q.pole + ' ' + q.construction + ' #' + q.order + ': ' + q.heightAG + ' m above ground (king bolt ' + q.provenance.kingbolt + ' + y ' + q.provenance.y + ')') + '</title></circle>'; });
+      if (pvShow().att) dm.points.forEach(function (q) { var c0 = chainOf[q.pole]; if (c0 == null || c0 < x0 || c0 > x1) return; d += '<circle cx="' + X(c0) + '" cy="' + Y(q.elevation) + '" r="2.6" fill="#fff" stroke="#172638" stroke-width="1.2"><title>' + esc(q.pole + ' ' + q.construction + ' #' + q.order + ': ' + q.heightAG + ' m above ground (king bolt ' + q.provenance.kingbolt + ' + y ' + q.provenance.y + ')') + '</title></circle>'; });
     }
-    if (CT.on && dm) g += ctProfile(chainOf, X, Y);
-    poles.forEach(function (p) { g += '<rect class="hit' + (CT.on ? ' ct' : '') + '" data-pick="' + esc(p.id) + '" x="' + (X(p.chainage) - 12) + '" y="' + m.t + '" width="24" height="' + (H - m.t - m.b) + '" fill="transparent"/>'; });
+    for (var i = 1; i < ids.length; i++) d += '<rect class="hit span" data-span="' + esc(ids[i - 1]) + '|' + esc(ids[i]) + '" x="' + X(chainOf[ids[i - 1]]) + '" y="' + m.t + '" width="' + Math.max(0, X(chainOf[ids[i]]) - X(chainOf[ids[i - 1]])) + '" height="' + (H - m.t - m.b) + '" fill="transparent"><title>Span ' + esc(ids[i - 1]) + ' → ' + esc(ids[i]) + ': click to select</title></rect>';
+    if (CT.on && dm) d += ctProfile(chainOf, X, Y);
+    poles.forEach(function (p) { d += '<rect class="hit' + (CT.on ? ' ct' : '') + '" data-pick="' + esc(p.id) + '" x="' + (X(p.chainage) - 12) + '" y="' + m.t + '" width="24" height="' + (H - m.t - m.b) + '" fill="transparent"/>'; });
+    d += '</g>';
+    g = '<defs><clipPath id="pvclip"><rect x="' + m.l + '" y="0" width="' + pw + '" height="' + H + '"/></clipPath></defs>' + g + d;
+    g += '<text x="' + (m.l + pw / 2) + '" y="' + (H - 2) + '" text-anchor="middle" class="ax">Chainage (m)</text>';
     var leg = '<div class="chart-legend pv-legend"><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#2f6ea4" stroke-width="2"/></svg>Ground</span>' + (clr.length > 1 ? '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="6 4"/></svg>Clearance 1 line from the project (reference only)</span>' : '') +
-      '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#5b4636" stroke-width="3" stroke-dasharray="3 3" opacity=".6"/></svg>Embedment</span>' + (dm ? '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.hv + '" stroke-width="2"/></svg>HV</span><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.lv + '" stroke-width="2"/></svg>LV</span><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.earth + '" stroke-width="2"/></svg>Running earth</span>' : '') + '<span class="muted">Chainage (m) vs elevation (m), vertical scale exaggerated</span></div>';
-    var mpp = span / (W - m.l - m.r), ratio = Math.round(mpp / 0.000264583 / 10) * 10; // metres per screen pixel at 96 dpi
+      '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#5b4636" stroke-width="3" stroke-dasharray="3 3" opacity=".6"/></svg>Embedment</span>' + (dm ? '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.hv + '" stroke-width="2"/></svg>HV</span><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.lv + '" stroke-width="2"/></svg>LV</span><span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="' + WCOL.earth + '" stroke-width="2"/></svg>Running earth</span>' : '') + '<span class="muted">Wheel zooms, drag pans, double-click fits · ← → change pole · vertical scale exaggerated</span></div>';
     if (!$('pvPlot')) box.innerHTML = '<div id="pvPlot"></div><div class="pv-nav"><input type="range" id="pvSlide" min="0" max="1000" step="1" aria-label="Pan along the profile" title="Drag to move along the line (or use the mouse wheel)">' +
       '<span class="pv-scale" id="pvScale" title="Horizontal scale only; the vertical scale does not change. Ctrl + wheel zooms horizontally."></span>' +
       '<button class="ibtn" data-pvz="out" title="Zoom out horizontally" aria-label="Zoom out horizontally">−</button><button class="ibtn" data-pvz="in" title="Zoom in horizontally" aria-label="Zoom in horizontally">+</button><button class="ibtn" data-pvz="fit" title="Whole line" aria-label="Show the whole line">⤢</button></div>';
-    $('pvPlot').innerHTML = leg + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Line profile">' + g + '</g></svg>';
-    var sl = $('pvSlide'), lo = Math.min(0, x1 - span), hi = Math.max(0, x1 - span); sl.disabled = !(hi - lo > 1e-6); if (document.activeElement !== sl) sl.value = hi > lo ? Math.round((PV.x0 - lo) / (hi - lo) * 1000) : 0;
-    $('pvScale').textContent = 'H ×' + PV.hz.toFixed(PV.hz < 1 ? 2 : 1) + ' · ≈1:' + ratio.toLocaleString('en-AU') + ' · ' + fmt(PV.x0, 0) + '–' + fmt(PV.x0 + span, 0) + ' m';
+    $('pvPlot').innerHTML = leg + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Line profile" style="touch-action:none">' + g + '</svg>';
+    var fr = R.full, fw = fr.x1 - fr.x0, ww = x1 - x0, sl = $('pvSlide'), mpp = ww / pw, ratio = Math.round(mpp / 0.000264583 / 10) * 10;
+    sl.disabled = !(fw - ww > 1e-6); if (document.activeElement !== sl) sl.value = fw - ww > 1e-6 ? Math.round(Math.max(0, Math.min(1, (x0 - fr.x0) / (fw - ww))) * 1000) : 0;
+    $('pvScale').textContent = 'H ×' + (fw / ww).toFixed(fw / ww < 1 ? 2 : 1) + ' · ≈1:' + ratio.toLocaleString('en-AU') + ' · ' + fmt(Math.max(fr.x0, x0), 0) + '–' + fmt(Math.min(fr.x1, x1), 0) + ' m';
   }
-  var PV = { hz: 1, x0: 0, x1: 1, plotW: 1, ml: 0 }, PV_MIN = 0.2; // zoom out to 5× the line length
-  function pvZoom(k, atX) { // atX: chainage kept under the cursor
-    var span = PV.x1 / PV.hz, c = atX != null ? atX : PV.x0 + span / 2, f = (c - PV.x0) / span;
-    PV.hz = Math.max(PV_MIN, Math.min(PV.hz * k, Math.max(1, PV.x1 / 5))); var ns = PV.x1 / PV.hz; PV.x0 = c - f * ns; renderProfileView();
-  }
-  $('profileView').addEventListener('wheel', function (e) {
-    if (!$('profileView').querySelector('svg')) return;
-    e.preventDefault();
-    var span = PV.x1 / PV.hz, d = e.deltaY || e.deltaX;
-    if (e.ctrlKey) { var r = $('profileView').querySelector('svg').getBoundingClientRect(); pvZoom(d < 0 ? 1.25 : 0.8, PV.x0 + (e.clientX - r.left - PV.ml) / PV.plotW * span); }
-    else if (Math.abs(PV.hz - 1) > 1e-6) { PV.x0 += Math.sign(d) * span * 0.1; renderProfileView(); }
-  }, { passive: false });
-  $('profileView').addEventListener('input', function (e) { if (e.target.id !== 'pvSlide') return; var span = PV.x1 / PV.hz, lo = Math.min(0, PV.x1 - span), hi = Math.max(0, PV.x1 - span); PV.x0 = lo + e.target.value / 1000 * (hi - lo); renderProfileView(); });
-  $('profileView').addEventListener('click', function (e) { var b = e.target.closest('[data-pvz]'); if (!b) return; if (b.dataset.pvz === 'fit') { PV.hz = 1; PV.x0 = 0; renderProfileView(); } else pvZoom(b.dataset.pvz === 'in' ? 1.5 : 1 / 1.5); });
-  $('profileView').addEventListener('click', function (e) { var t = e.target.closest('[data-pick]'); if (t) select(t.dataset.pick); });
+  (function () {
+    var box = $('profileView'), drag = null, moved = false, raf = 0;
+    box.tabIndex = 0;
+    function chainAt(e) { var g = pv.geom, svg = box.querySelector('svg'); if (!g || !svg) return null; var r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * (svg.viewBox.baseVal.width || r.width); return g.x0 + (x - g.l) / g.w * (g.x1 - g.x0); }
+    // Wheel moves along the line; Ctrl + wheel changes the horizontal scale only.
+    box.addEventListener('wheel', function (e) { if (!pv.geom || e.target.closest('.pv-nav')) return; e.preventDefault(); if (e.ctrlKey) { pvZoom(Math.exp(e.deltaY * 0.0016), chainAt(e)); return; } var r = pvRange(), w = r.x1 - r.x0, dc = Math.sign(e.deltaY || e.deltaX) * w * 0.1; pvSet(r.x0 + dc, r.x1 + dc); renderProfileView(); }, { passive: false });
+    box.addEventListener('input', function (e) { if (e.target.id !== 'pvSlide') return; var r = pvRange(), f = r.full, w = r.x1 - r.x0, a = f.x0 + e.target.value / 1000 * Math.max(0, f.x1 - f.x0 - w); pvSet(a, a + w); renderProfileView(); });
+    box.addEventListener('click', function (e) { var b = e.target.closest('[data-pvz]'); if (!b) return; e.stopPropagation(); if (b.dataset.pvz === 'fit') pvFit(); else pvZoom(b.dataset.pvz === 'in' ? 1 / 1.5 : 1.5); });
+    box.addEventListener('pointerdown', function (e) { if (e.button !== 0 || !pv.geom || e.target.closest('.pv-nav')) return; drag = { x: e.clientX, x0: pv.geom.x0, x1: pv.geom.x1 }; moved = false; });
+    window.addEventListener('pointermove', function (e) {
+      if (!drag) return; var dx = e.clientX - drag.x; if (Math.abs(dx) > 4) { moved = true; box.classList.add('pan'); }
+      if (!moved) return; var svg = box.querySelector('svg'), sc = svg ? (svg.viewBox.baseVal.width || 1) / svg.getBoundingClientRect().width : 1, dc = dx * sc / pv.geom.w * (drag.x1 - drag.x0);
+      pvSet(drag.x0 - dc, drag.x1 - dc); if (!raf) raf = requestAnimationFrame(function () { raf = 0; renderProfileView(); });
+    });
+    window.addEventListener('pointerup', function () { drag = null; box.classList.remove('pan'); setTimeout(function () { moved = false; }, 0); });
+    box.addEventListener('click', function (e) {
+      if (moved) { e.stopPropagation(); return; }
+      var t = e.target.closest('[data-pick]'); if (t) { select(t.dataset.pick, addInfo(e)); return; }
+      var sp = e.target.closest('[data-span]'); if (sp) { var k = sp.dataset.span.split('|'); selectSpan(k[0], k[1]); }
+    });
+    box.addEventListener('dblclick', function (e) { if (e.target.closest('[data-pick]')) { pvFocus(e.target.closest('[data-pick]').dataset.pick); renderProfileView(); } else pvFit(); });
+    box.addEventListener('keydown', function (e) {
+      var k = e.key, ids = lineIds(), i = ids.indexOf(S.selected);
+      if (k === 'ArrowRight' || k === 'ArrowLeft') { e.preventDefault(); var j = i < 0 ? (k === 'ArrowRight' ? 0 : ids.length - 1) : i + (k === 'ArrowRight' ? 1 : -1); if (ids[j]) select(ids[j]); }
+      else if (k === 'Home' && ids.length) { e.preventDefault(); select(ids[0]); } else if (k === 'End' && ids.length) { e.preventDefault(); select(ids[ids.length - 1]); }
+      else if (k === '+' || k === '=') pvZoom(0.7); else if (k === '-' || k === '_') pvZoom(1 / 0.7);
+      else if (k === '0' || k === 'f' || k === 'F') pvFit(); else if (k === 'z' || k === 'Z') { if (S.selected) { pvFocus(S.selected); renderProfileView(); } }
+      else if (k === 'ArrowUp' || k === 'ArrowDown') { /* leave page scroll alone */ }
+    });
+  })();
   Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) { b.onclick = function () { setView(b.dataset.view); }; });
   function cam(fn) { if (!window.PNW3D || !mounted3d) { setStatus('Open the 3D view first.'); return false; } return fn(window.PNW3D); }
   $('v3fit').onclick = function () { cam(function (v) { v.fit(); }); };
@@ -2003,11 +2303,11 @@
       var j = JSON.parse(t, function (k, v) { return k === 'date' && typeof v === 'string' ? new Date(v) : v; });
       if (!j || j.app !== 'eve-poles-wires' || !j.state || !Array.isArray(j.state.files)) throw new Error('not a Poles & Wires project file');
       S = Object.assign(blank(), j.state); S.settings = Object.assign({}, DEFAULT_SETTINGS, j.state.settings); S.design = Object.assign(blankDesign(), j.state.design);
-      buffers = {}; undoStack = []; redoStack = []; lastSnap = null; aiResults = {}; syncInputs(); recompute(); fit(); setView(S.view, true);
+      buffers = {}; undoStack = []; redoStack = []; lastSnap = null; aiResults = {}; syncInputs(); recompute(); fit(); setView(S.view, true); markDirty(false);
       setStatus('Opened ' + file.name + '. ' + summaryText(), 'good');
     }).catch(function (e) { setStatus(file.name + ' could not be opened: ' + e.message, 'bad'); });
   }
-  $('tbSave').onclick = saveProjectFile;
+  $('tbSave').onclick = function () { saveProjectFile(); markDirty(false); };
   $('tbOpen').onclick = function () { $('projInput').click(); };
   $('projInput').onchange = function () { if (this.files[0]) openProjectFile(this.files[0]); this.value = ''; };
   $('tbUndo').onclick = function () { restore(undoStack, redoStack); setStatus('Undone.'); };
@@ -2023,7 +2323,7 @@
   var drop = $('drop');
   ['dragenter', 'dragover'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) { e.preventDefault(); drop.classList.add('over'); } }); });
   ['dragleave', 'drop'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (ev === 'drop' || !e.relatedTarget) drop.classList.remove('over'); }); });
-  document.addEventListener('drop', function (e) { if (!e.dataTransfer || !e.dataTransfer.files.length) return; e.preventDefault(); $('secFiles').open = true; addFiles(e.dataTransfer.files); });
+  document.addEventListener('drop', function (e) { if (!e.dataTransfer || !e.dataTransfer.files.length) return; e.preventDefault(); addFiles(e.dataTransfer.files); });
   $('pickBtn').onclick = $('tbUpload').onclick = function () { replaceIdx = null; $('fileInput').click(); };
   $('fileInput').onchange = function () {
     var fl = this.files;
@@ -2033,10 +2333,10 @@
     replaceIdx = null; addFiles(fl); this.value = '';
   };
   // Fit project works in whichever view is open: the map extent, or the 3D camera on the whole line.
-  $('tbFit').onclick = function () { if ((S.view === '3d' || S.view === 'split') && window.PNW3D && mounted3d) window.PNW3D.fit(); else if (S.view === 'plan') fit(); else renderProfileView(); };
+  $('tbFit').onclick = function () { if ((S.view === '3d' || S.view === 'split') && window.PNW3D && mounted3d) window.PNW3D.fit(); else if (S.view === 'plan') fit(); else pvFit(); };
   $('tbLayers').onclick = function (e) {
     var pop = $('layersPop'), open = pop.hidden; pop.hidden = !open; this.setAttribute('aria-expanded', open);
-    if (open) { var r = this.getBoundingClientRect(), t = this.closest('.toolbar').getBoundingClientRect(); pop.style.left = Math.max(0, Math.min(r.left - t.left, t.width - 320)) + 'px'; pop.style.top = (r.bottom - t.top + 6) + 'px'; if (S.view !== 'plan') setStatus('Layers apply to the plan view.'); }
+    if (open) { var r = $('mView').getBoundingClientRect(), t = $('mView').closest('.toolbar').getBoundingClientRect(); pop.style.left = Math.max(0, Math.min(r.left - t.left, t.width - 320)) + 'px'; pop.style.top = (r.bottom - t.top + 6) + 'px'; if (S.view !== 'plan') setStatus('Layers apply to the plan view.'); }
     e.stopPropagation();
   };
   document.addEventListener('click', function (e) { var pop = $('layersPop'); if (!pop.hidden && !pop.contains(e.target)) { pop.hidden = true; $('tbLayers').setAttribute('aria-expanded', 'false'); } });
@@ -2186,6 +2486,7 @@
   function tipPoleHtml(id) {
     var r = tipCalc(id); if (!r) return '<p class="hint">Pick a pole.</p>';
     var inp = r.input, P = inp.pole, res = r.results, h = '';
+    if (!/^tip:/.test(id) && unverifiedFor(id)) h += '<div class="verifybar"><b>Provisional: ' + unverifiedFor(id) + ' photo-derived input' + (unverifiedFor(id) > 1 ? 's' : '') + ' on this pole ' + (unverifiedFor(id) > 1 ? 'are' : 'is') + ' not field-verified.</b> Heights and offsets come from the library and DCSH rules, not from measurement. Mark them verified in the pole\'s AI photo tab once checked on site.</div>';
     h += '<div class="tip-head"><h3 class="sub">' + esc(tipName(id)) + '</h3><span class="meta">' + esc(P.type || 'no pole type') + ' · ' + f2(P.height) + ' m above ground' + (P.diamAvg ? ' · average diameter ' + P.diamAvg + ' mm' : '') + (P.strength ? ' · strength ' + P.strength + '/' + (P.strengthVert || '–') + ' kN' : '') + '</span>' + (inp.file ? '<span class="pill info">calculated from the PNW file as saved</span>' : '<button class="btn small" data-tipgo="' + esc(id) + '">Show pole</button>') + '</div>';
     if (!res.length) h += '<p class="status bad">No load combinations ticked.</p>';
     else {
@@ -2372,7 +2673,7 @@
   function tipSummaryHtml(id) {
     if (!project || !dm || !tipSet().cases.length || tipPoles().indexOf(id) < 0) return '';
     var r = tipCalc(id); if (!r || !r.results.length) return '';
-    return '<div class="con tip-sum"><div class="con-title">Tipload</div>' + r.results.map(function (x, i) { return '<div><span class="sw" style="background:' + TIP_COL[i % TIP_COL.length] + '"></span>' + esc(x.name) + ': <b>' + f2(x.load) + ' kN</b> @ ' + f2(x.dir, 0) + '°' + (x.pctHor != null ? ' · ' + f2(x.pctHor, 0) + '%' : '') + ' ' + tipBadge(x) + '</div>'; }).join('') + '<div class="btnrow"><button class="btn small" data-tipopen="' + esc(id) + '">Open tipload</button></div></div>';
+    return '<div class="con tip-sum"><div class="con-title">Tipload' + (unverifiedFor(id) ? ' <span class="pill unv" title="Includes photo-derived changes that have not been verified in the field">provisional</span>' : '') + '</div>' + r.results.map(function (x, i) { return '<div><span class="sw" style="background:' + TIP_COL[i % TIP_COL.length] + '"></span>' + esc(x.name) + ': <b>' + f2(x.load) + ' kN</b> @ ' + f2(x.dir, 0) + '°' + (x.pctHor != null ? ' · ' + f2(x.pctHor, 0) + '%' : '') + ' ' + tipBadge(x) + '</div>'; }).join('') + '<div class="btnrow"><button class="btn small" data-tipopen="' + esc(id) + '">Open tipload</button></div></div>';
   }
   $('selected').addEventListener('click', function (e) { var b = e.target.closest('[data-tipopen]'); if (b) openTip(b.dataset.tipopen); });
 
@@ -2410,24 +2711,20 @@
     if (e.key !== 'Escape' || e.defaultPrevented) return;
     if (CT.on) { ctToggle(false); return; }
     if (!$('layersPop').hidden) { $('layersPop').hidden = true; return; }
-    if (!$('review').hidden || !$('tipDlg').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (!$('review').hidden || !$('tipDlg').hidden || !$('genDlg').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
     if (S.selected || S.selSection) select(null);
   });
-  // Asks again on the button itself: browser confirm() dialogs are blocked when the page runs inside Claude.
-  var resetArmed = null;
+  // New project asks in a dialog: browser confirm() dialogs are blocked when the page runs inside Claude.
   $('tbReset').onclick = function () {
-    var lbl = $('tbReset').querySelector('.lbl');
     if (!S.files.length && !prof().poleIds.length && !S.design.xml) { setStatus('Nothing to clear: this is already a new project.'); return; }
-    if (!resetArmed) {
-      lbl.textContent = 'Click again to clear'; $('tbReset').classList.add('danger');
-      setStatus('Click "New project" again within 5 seconds to remove the imported files, profiles and design from this browser. Save first if you want to keep them.', 'bad');
-      resetArmed = setTimeout(function () { resetArmed = null; lbl.textContent = 'New project'; $('tbReset').classList.remove('danger'); }, 5000);
-      return;
-    }
-    clearTimeout(resetArmed); resetArmed = null; lbl.textContent = 'New project'; $('tbReset').classList.remove('danger');
-    try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
-    S = blank(); buffers = {}; flags = {}; aiResults = {}; secForm = { tension: '', units: '%CBL' }; conDraft = { pole: null, code: '', kb: '', kbUser: false }; S.selSection = null; undoStack = []; redoStack = []; lastSnap = null;
-    syncInputs(); recompute(); setView('plan', true); setStatus('New project. Saved data removed from this browser.', 'good');
+    openGen('Start a new project?', '<p>This removes the imported files, profiles, design and change log from this browser. <b>Save the project first</b> (Files → Save project) if you want to keep them.</p><div class="btnrow"><button class="btn danger" id="resetOk">Clear everything</button><button class="btn" id="resetNo">Cancel</button></div>', { narrow: true });
+    $('resetNo').onclick = function () { closeGen(); };
+    $('resetOk').onclick = function () {
+      closeGen();
+      try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+      S = blank(); buffers = {}; flags = {}; aiResults = {}; secForm = { tension: '', units: '%CBL' }; conDraft = { pole: null, code: '', kb: '', kbUser: false }; S.selSection = null; undoStack = []; redoStack = []; lastSnap = null; pv.x0 = pv.x1 = null;
+      syncInputs(); recompute(); setView('plan', true); setStatus('New project. Saved data removed from this browser.', 'good');
+    };
   };
   [['lySurvey', lySurvey], ['lyGis', lyGis], ['lyAlign', lyAlign], ['lySpanLbl', lySpan], ['lyExtent', lyExtent]].forEach(function (x) {
     $(x[0]).onchange = function () { if (this.checked) x[1].addTo(map); else map.removeLayer(x[1]); };
@@ -2436,11 +2733,1195 @@
   $('zone').onchange = function () { S.zone = +this.value; recompute(); fit(); };
   [['createdBy', 'createdBy'], ['optionSet', 'optionSet'], ['clr1', 'clr1'], ['clr2', 'clr2']].forEach(function (x) { $(x[0]).onchange = function () { S.settings[x[1]] = this.value.trim(); save(); }; });
 
+  /* ---------- workspace: menus, dialogs, contextual bar, profile navigation, manual poles and spans ---------- */
+  var genRestore = [];
+  function openGen(title, content, opts) {
+    opts = opts || {}; closeGen();
+    $('genTitle').textContent = title;
+    var body = $('genBody'); body.innerHTML = '';
+    if (typeof content === 'string') body.innerHTML = content; else if (content && content.nodeType) body.appendChild(content);
+    $('genDlg').querySelector('.dlg-card').className = 'dlg-card gen' + (opts.narrow ? ' narrow' : '');
+    $('genDlg').hidden = false;
+    if (opts.onClose) genRestore.push(opts.onClose);
+    setTimeout(function () { var f = body.querySelector('[autofocus],input:not([type=hidden]):not([type=file]),select,button'); if (f && !opts.noFocus) f.focus(); }, 30);
+  }
+  function closeGen() { var r = genRestore; genRestore = []; r.forEach(function (fn) { try { fn(); } catch (e) { /* ignore */ } }); $('genDlg').hidden = true; $('genBody').innerHTML = ''; }
+  $('genClose').onclick = closeGen;
+  $('genDlg').addEventListener('mousedown', function (e) { if (e.target === $('genDlg')) closeGen(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('genDlg').hidden) { e.preventDefault(); closeGen(); } });
+
+  // Files → Imported files: the drop zone and the file list live here, not in the side panel.
+  function openFilesDlg() {
+    var holder = $('filesHolder'), body = document.createElement('div'); body.className = 'filelist';
+    body.appendChild($('drop')); body.appendChild($('files'));
+    var bar = document.createElement('div'); bar.className = 'btnrow'; bar.innerHTML = '<button class="btn primary" id="fdImport">Import files…</button><button class="btn" id="fdPhotos">Import pole photos…</button>';
+    body.insertBefore(bar, body.firstChild);
+    openGen('Imported files and data mapping', body, { onClose: function () { holder.appendChild($('drop')); holder.appendChild($('files')); } });
+    $('fdImport').onclick = function () { replaceIdx = null; $('fileInput').click(); };
+    $('fdPhotos').onclick = function () { closeGen(); openPhotoDlg(); };
+    renderFiles();
+  }
+  $('mImported').onclick = openFilesDlg;
+  $('mExpTip').onclick = function () { openTip(S.selected && tipPoles().indexOf(S.selected) >= 0 ? S.selected : null); };
+  $('mExpLog').onclick = function () { if (!liveLog().length) { setStatus('No design changes recorded yet.', 'bad'); return; } exportLog(); };
+
+  // Menus
+  function closeMenus(keep) { Array.prototype.forEach.call(document.querySelectorAll('.menu'), function (m) { if (m === keep) return; m.querySelector('.mpop').hidden = true; m.querySelector('.mbtn').setAttribute('aria-expanded', 'false'); }); }
+  Array.prototype.forEach.call(document.querySelectorAll('.menu'), function (m) {
+    var b = m.querySelector('.mbtn'), pop = m.querySelector('.mpop');
+    b.onclick = function (e) { if (e) e.stopPropagation(); var open = pop.hidden; closeMenus(m); pop.hidden = !open; b.setAttribute('aria-expanded', String(open)); };
+    b.onmouseenter = function () { var any = Array.prototype.some.call(document.querySelectorAll('.mpop'), function (x) { return !x.hidden; }); if (any && pop.hidden) b.onclick(); };
+    pop.addEventListener('click', function (e) { if (e.target.closest('.mi')) closeMenus(); });
+    m.addEventListener('keydown', function (e) {
+      var items = Array.prototype.slice.call(pop.querySelectorAll('.mi:not(:disabled)')), i = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown' && !pop.hidden) { e.preventDefault(); (items[i + 1] || items[0]).focus(); }
+      else if (e.key === 'ArrowUp' && !pop.hidden) { e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
+      else if ((e.key === 'ArrowDown' || e.key === 'Enter') && pop.hidden && document.activeElement === b) { e.preventDefault(); b.onclick(); if (items[0]) items[0].focus(); }
+      else if (e.key === 'Escape' && !pop.hidden) { e.preventDefault(); e.stopPropagation(); closeMenus(); b.focus(); }
+    }, true);
+  });
+  document.addEventListener('click', function (e) { if (!e.target.closest('.menu')) closeMenus(); });
+  $('dispBtn').onclick = function (e) { e.stopPropagation(); var p = $('dispPop'); p.hidden = !p.hidden; this.setAttribute('aria-expanded', String(!p.hidden)); };
+  document.addEventListener('click', function (e) { var p = $('dispPop'); if (!p.hidden && !e.target.closest('.dispwrap')) { p.hidden = true; $('dispBtn').setAttribute('aria-expanded', 'false'); } });
+  function refreshMenus() { var has = !!(S.selected && poleXY(S.selected)); $('mNewX').disabled = !has; $('mStreet').disabled = !has; }
+
+  // Geometry of any pole the app knows about: the design line, the profile, the survey, or an intersecting line.
+  function poleXY(id) {
+    var q = dm && dm.allPoles.filter(function (p) { return p.id === id; })[0];
+    if (q && isFinite(q.easting)) return { e: q.easting, n: q.northing, ground: q.ground, chainage: q.chainage };
+    var r = built && built.rows.filter(function (x) { return x.id === id; })[0];
+    if (r && isFinite(r.easting)) return { e: r.easting, n: r.northing, ground: r.elevation, chainage: r.chainage };
+    var p = merged.poles[id]; if (p && p.survey && isFinite(p.survey.easting)) return { e: p.survey.easting, n: p.survey.northing, ground: p.survey.elevation, chainage: null };
+    var x = xPole(id); if (x && isFinite(x.pole.easting)) return { e: x.pole.easting, n: x.pole.northing, ground: x.pole.ground, chainage: x.pole.chainage };
+    return null;
+  }
+  function addToProfile(id) { var ids = prof().poleIds; if (ids.indexOf(id) >= 0) return; ids.push(id); prof().poleIds = PNW.autoOrder(merged.poles, ids); S.generated = false; recompute(); setStatus(id + ' added and the profile re-ordered along the line. Use ↑ ↓ to adjust.', 'good'); }
+  function removeFromProfile(id) { prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; }); S.generated = false; recompute(); }
+
+  // Select a pole on the plan, then open (or create) the profile that contains it.
+  function openProfileFor(id) {
+    var inDesign = !!(dm && dm.allPoles.some(function (p) { return p.id === id; }));
+    var xp = !inDesign && xPole(id);
+    if (xp) { linkDesign(xp.line.name); setStatus('Editing ' + xp.line.title + ' (the intersecting line through ' + id + ').', 'good'); }
+    else if (!inDesign) {
+      var idx = S.active; if (prof().poleIds.indexOf(id) < 0) { idx = -1; S.profiles.forEach(function (p, i) { if (idx < 0 && p.poleIds.indexOf(id) >= 0) idx = i; }); }
+      if (idx < 0) {
+        if (!merged.poles[id]) return;
+        var np = newProfile(id + ' profile'); np.poleIds = [id]; S.profiles.push(np); idx = S.profiles.length - 1;
+        setStatus('Started profile "' + np.name + '" with ' + id + '. Select the next poles and choose Add to profile.', 'good');
+      } else if (idx !== S.active) setStatus('Opened profile "' + (S.profiles[idx].name || 'Profile ' + (idx + 1)) + '".', 'good');
+      if (idx !== S.active) { S.active = idx; S.generated = false; recompute(); }
+    }
+    S.selected = id; pvFocus(id); setView('profile'); select(id);
+  }
+  function selectSpan(a, b) {
+    S.selSpan = { a: a, b: b }; S.selected = null; S.multi = []; S.selSection = null; flags.inspected = true;
+    if (!U.right) { U.right = true; applyLayout(); }
+    renderSelected(); highlight(); renderProfile(); renderSteps();
+    if (window.PNW3D && mounted3d) { window.PNW3D.select(null); }
+    if (S.view === 'profile' || S.view === 'split') renderProfileView();
+    renderExtras(true);
+    var la = poleLL(a), lb = poleLL(b); if (la && lb) panPlanTo(L.latLng((la.lat + lb.lat) / 2, (la.lng + lb.lng) / 2));
+  }
+  function spanPane() {
+    var s = S.selSpan, A = poleXY(s.a), B = poleXY(s.b); if (!A || !B) return '<div class="inspane"><p class="hint">This span has no coordinates.</p></div>';
+    var len = Math.hypot(B.e - A.e, B.n - A.n), brg = PNW.bearing({ easting: A.e, northing: A.n }, { easting: B.e, northing: B.n }), dz = (B.ground != null && A.ground != null) ? B.ground - A.ground : null;
+    var h = '<div class="inspane"><div class="ins-title"><b>' + esc(s.a) + ' → ' + esc(s.b) + '</b><span class="pill info">Span</span></div><div class="facts">' + fact('Length (m)', fmt(len, 2)) + fact('Min ground clearance (m)', spanClearance(s.a, s.b) != null ? fmt(spanClearance(s.a, s.b), 2) : '', '', 'Lowest conductor point above the ground profile, at the current sag') + fact('Bearing (°)', fmt(brg, 1)) + fact('Ground rise (m)', dz == null ? '' : fmt(dz, 2)) + fact('Slope (%)', dz == null || !len ? '' : fmt(dz / len * 100, 1)) + fact('Chainage from', A.chainage == null ? '' : fmt(A.chainage, 2)) + fact('Chainage to', B.chainage == null ? '' : fmt(B.chainage, 2)) + '</div>';
+    var ws = dm ? dm.wires.filter(function (w) { return (w.from.pole === s.a && w.to.pole === s.b) || (w.from.pole === s.b && w.to.pole === s.a); }) : [];
+    if (ws.length) {
+      var by = {}; ws.forEach(function (w) { (by[w.segment] = by[w.segment] || []).push(w); });
+      var rsOf = {}; dm.wires.forEach(function (w) { if (w.phase === 1) (rsOf[w.segment] = rsOf[w.segment] || []).push(w.span); });
+      h += '<table class="att"><tr><th>Section</th><th>Conductor</th><th class="num">Wires</th><th class="num">Sag (m)</th><th class="num">Ruling span (m)</th></tr>' + Object.keys(by).map(function (k) {
+        var w0 = by[k][0], seg = project.segments.filter(function (x) { return x.StrainSect === k; })[0], rs = M.rulingSpan(rsOf[k] || []);
+        return '<tr title="' + esc(w0.sagSource || '') + '"><td>' + esc(k) + (seg ? '<br><small class="muted">' + esc(seg.Tension + ' ' + (seg.TensionUnits || '')) + '</small>' : '') + '</td><td>' + esc(w0.conductor) + '</td><td class="num">' + by[k].length + '</td><td class="num">' + (w0.sag != null ? fmt(w0.sag, 2) : '–') + '</td><td class="num">' + (rs ? fmt(rs, 1) : '–') + '</td></tr>';
+      }).join('') + '</table><p class="hint">Sag comes from the DCSH Part 10 table for the section where one fits, otherwise w·L²/8T at the stringing tension (hover a row for its source). Tension and tipload are calculated per pole in Tipload.</p>';
+    } else h += '<p class="hint">' + (project ? 'No conductors are strung on this span yet. Use the Conductor schedule tab to string a section across it.' : 'Start a design from the ground profile to add conductors to this span.') + '</p>';
+    h += '<div class="btnrow"><button class="btn small" data-ctx="spanprofile">Show in profile</button>' + (project ? '<button class="btn small" data-ctx="spansections">Conductor schedule</button>' : '') + '<button class="btn small" data-ctx="clear">Clear</button></div></div>';
+    return h;
+  }
+
+  // Contextual bar: acts on the selected pole or span, so the actions follow the selection.
+  function renderCtx() {
+    var bar = $('ctxBar'), id = S.selected, h = ''; refreshMenus();
+    if (S.multi && S.multi.length > 1) {
+      h = '<span class="who">' + S.multi.length + ' poles selected<small>bulk edit in the panel</small></span><button class="btn small" data-wb="madd">Add to profile</button><button class="btn small" data-wb="mrem">Remove from profile</button><button class="btn small" data-wb="mzoom">⌖ Zoom to</button><span class="sp"></span><button class="ibtn" data-ctx="clear" title="Clear the selection (Esc)" aria-label="Clear the selection">⊘</button>';
+    } else if (id && poleXY(id)) {
+      var p = merged.poles[id], ids = lineIds(), i = ids.indexOf(id), k = prof().poleIds.indexOf(id), inDm = !!(dm && dm.allPoles.some(function (q) { return q.id === id; })), xp = !inDm && xPole(id);
+      var has = inDm || k >= 0 || xp || S.profiles.some(function (q) { return q.poleIds.indexOf(id) >= 0; });
+      h = '<span class="who">Pole ' + esc(id) + '<small>' + (inDm && k >= 0 ? 'profile #' + (k + 1) + ' of ' + prof().poleIds.length : inDm ? 'on the design line' : k >= 0 ? 'profile #' + (k + 1) + ' of ' + prof().poleIds.length : xp ? 'intersecting line' : 'not in a profile') + '</small></span>' +
+        '<span class="seg nav"><button data-ctx="prev" title="Previous pole along the line ( [ )"' + (i > 0 ? '' : ' disabled') + '>◀</button><button data-ctx="next" title="Next pole along the line ( ] )"' + (i >= 0 && i < ids.length - 1 ? '' : ' disabled') + '>▶</button></span>' +
+        (p && p.survey && k < 0 && !xp ? '<button class="btn small primary" data-ctx="add" title="Add this pole to the active profile">Add to profile</button>' : '') +
+        (k >= 0 && !inDm ? '<button class="btn small" data-ctx="remove" title="Take this pole out of the active profile">Remove</button>' : '') +
+        '<button class="btn small" data-wb="edit" title="Edit this pole: length, construction, conductors, equipment">✎ Edit</button><button class="btn small" data-ctx="profile" title="' + (has ? 'Show the longitudinal profile through this pole' : 'Start a new profile at this pole') + '">' + (has ? '📈 Open profile' : '＋ Create profile') + '</button>' +
+        '<button class="btn small" data-ctx="street" title="Street View of this pole, inside the app, with capture to AI">🛣 Street View</button>' +
+        '<button class="btn small" data-ctx="photo" title="Analyse a photo of this pole with AI">✨ AI photo</button>' +
+        (tipPoles().indexOf(id) >= 0 ? '<button class="btn small" data-ctx="tip" title="Tipload for this pole">⇲ Tipload</button>' : '') +
+        '<button class="btn small" data-ctx="focus" title="Zoom the current view to this pole (Z)">⌖ Zoom to</button><span class="sp"></span><button class="ibtn" data-ctx="clear" title="Clear the selection (Esc)" aria-label="Clear the selection">⊘</button>';
+    } else if (S.selSpan) {
+      h = '<span class="who">Span ' + esc(S.selSpan.a) + ' → ' + esc(S.selSpan.b) + '</span><button class="btn small" data-wb="spanedit">✎ Edit span</button><button class="btn small" data-wb="spancond">＋ Add conductor</button><button class="btn small" data-wb="spansag">⌒ Sag calculation</button><button class="btn small" data-ctx="spanprofile">📈 Show in profile</button><button class="btn small" data-ctx="spana">Select ' + esc(S.selSpan.a) + '</button><button class="btn small" data-ctx="spanb">Select ' + esc(S.selSpan.b) + '</button><span class="sp"></span><button class="ibtn" data-ctx="clear" aria-label="Clear the selection">⊘</button>';
+    }
+    var was = bar.hidden; bar.innerHTML = h; bar.hidden = !h;
+    if (was !== bar.hidden) requestAnimationFrame(function () { if (map && map.invalidateSize) map.invalidateSize(); if (S.view === 'profile' || S.view === 'split') renderProfileView(); });
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ctx]'); if (!b || b.disabled) return;
+    var act = b.dataset.ctx, id = S.selected, ids = lineIds(), i = ids.indexOf(id);
+    if (act === 'prev' && ids[i - 1]) { select(ids[i - 1]); showPole(ids[i - 1]); }
+    else if (act === 'next' && ids[i + 1]) { select(ids[i + 1]); showPole(ids[i + 1]); }
+    else if (act === 'add') addToProfile(id);
+    else if (act === 'remove') removeFromProfile(id);
+    else if (act === 'profile') openProfileFor(id);
+    else if (act === 'street') openStreetView(id);
+    else if (act === 'photo') { U.insTab = 'photo'; if (!U.right) { U.right = true; applyLayout(); } saveUi(); select(id); }
+    else if (act === 'tip') openTip(id);
+    else if (act === 'focus') { if (S.view === 'profile') { pvFocus(id); renderProfileView(); } else showPole(id); }
+    else if (act === 'clear') select(null);
+    else if (act === 'spanprofile') { var s = S.selSpan; if (s) { var ca = chainOfPole(s.a), cb = chainOfPole(s.b); if (ca != null && cb != null) pvSet(Math.min(ca, cb) - 5, Math.max(ca, cb) + 5); } setView('profile'); }
+    else if (act === 'spansections') openTab('sections');
+    else if (act === 'spana') select(S.selSpan.a); else if (act === 'spanb') select(S.selSpan.b);
+    else if (act === 'editpole') openPoleDlg(id);
+    else if (act === 'photos') openPhotoDlg();
+  });
+  // [ and ] step along the line, Z zooms to the selection (when no field has focus)
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || !$('genDlg').hidden) return;
+    var ids = lineIds(), i = ids.indexOf(S.selected);
+    if (e.key === ']' && ids[i + 1]) { select(ids[i + 1]); showPole(ids[i + 1]); } else if (e.key === '[' && i > 0) { select(ids[i - 1]); showPole(ids[i - 1]); }
+    else if ((e.key === 'z' || e.key === 'Z') && S.selected && document.activeElement !== $('profileView')) showPole(S.selected);
+  });
+  // profile view buttons
+  (function () {
+    var t = document.createElement('div'); t.className = 'pv-tools'; t.id = 'pvTools';
+    t.innerHTML = '<button class="btn small" data-pv="out" title="Zoom out (-)" aria-label="Zoom out">−</button><button class="btn small" data-pv="in" title="Zoom in (+)" aria-label="Zoom in">＋</button><button class="btn small" data-pv="fit" title="Fit the whole line (0 or double-click)">⤢ Fit</button><button class="btn small" data-pv="sel" title="Zoom to the selected pole (Z)">⌖ Selected</button>';
+    document.querySelector('.viewhead').insertBefore(t, document.querySelector('.dispwrap'));
+    t.addEventListener('click', function (e) { var b = e.target.closest('[data-pv]'); if (!b) return; var k = b.dataset.pv; if (k === 'in') pvZoom(0.7); else if (k === 'out') pvZoom(1 / 0.7); else if (k === 'fit') pvFit(); else if (S.selected) { pvFocus(S.selected); renderProfileView(); } else setStatus('Select a pole first.'); });
+  })();
+  if (window.ResizeObserver) new ResizeObserver(function () { if (map && map.invalidateSize) map.invalidateSize(); }).observe($('map'));
+
+  /* ---- manual design: poles and spans from scratch ---- */
+  var pickMode = null, npDraft = null;
+  function fromLatLng(ll) {
+    var def = '+proj=utm +zone=' + S.zone + ' +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
+    try { var xy = proj4('EPSG:4326', def, [ll.lng, ll.lat]); return isFinite(xy[0]) && isFinite(xy[1]) ? { e: xy[0], n: xy[1] } : null; } catch (x) { return null; }
+  }
+  function manualFile() {
+    var f = S.files.filter(function (x) { return x.manual; })[0];
+    if (!f) { f = { name: 'Manual poles', manual: true, role: 'survey', status: 'ok', items: [], sheets: [], issues: [], size: 0, summary: '', confidence: 'manual' }; S.files.push(f); }
+    return f;
+  }
+  function numIn(id) { var v = $(id).value.trim(); return v === '' ? NaN : Number(v); }
+  function validMga(e, n) { return e > 100000 && e < 900000 && n > 1000000 && n < 10000000; }
+  function openPoleDlg(editId, draft) {
+    var mf = S.files.filter(function (x) { return x.manual; })[0], cur = editId && mf ? mf.items.filter(function (x) { return x.id === editId; })[0] : null;
+    if (editId && !cur) { setStatus(editId + ' was not created by hand, so it cannot be edited here. Edit the source file instead.', 'bad'); return; }
+    var sel = S.selected && poleXY(S.selected) ? S.selected : null, d = draft || npDraft || {}, mode = d.mode || (cur ? 'coord' : sel ? 'span' : 'coord');
+    var inProf = prof().poleIds.length || !cur;
+    var selOpts = Object.keys(merged.poles).filter(function (k) { return poleXY(k); }).map(function (k) { return '<option value="' + esc(k) + '">'; }).join('');
+    var h = '<p class="hint">Create a pole by hand: the plan, profile, spans and tipload all use it like a surveyed pole. Ground level and position are your inputs; they are marked <b>Manual</b>, not LiDAR.</p>' +
+      '<div class="grid2"><div class="field"><label for="npId">Pole ID</label><input id="npId" value="' + esc(cur ? cur.id : d.id || '') + '"' + (cur ? ' readonly' : '') + ' placeholder="e.g. NEW1"></div>' +
+      '<div class="field"><label for="npLen">Pole length (m)</label><input id="npLen" inputmode="decimal" value="' + esc(d.len != null ? d.len : cur && prof().lengths[cur.id] != null ? prof().lengths[cur.id] : '') + '" placeholder="e.g. 12.5"></div></div>' +
+      (cur ? '' : '<div class="seg" id="npMode" role="group" aria-label="How to place the pole"><button data-m="coord" class="' + (mode === 'coord' ? 'on' : '') + '">Coordinates</button><button data-m="span" class="' + (mode === 'span' ? 'on' : '') + '">From another pole</button><button data-m="click" class="' + (mode === 'click' ? 'on' : '') + '">Click on the plan</button></div>') +
+      '<div id="npCoord" class="grid2"' + (mode === 'span' ? ' hidden' : '') + '><div class="field"><label for="npE">Easting (m, MGA)</label><input id="npE" inputmode="decimal" value="' + esc(d.e != null ? d.e : cur ? cur.easting : '') + '"></div><div class="field"><label for="npN">Northing (m, MGA)</label><input id="npN" inputmode="decimal" value="' + esc(d.n != null ? d.n : cur ? cur.northing : '') + '"></div></div>' +
+      '<div id="npSpan" class="grid2"' + (mode === 'span' ? '' : ' hidden') + '><div class="field"><label for="npFrom">From pole (type to search)</label><input id="npFrom" list="npFromList" value="' + esc(d.from || sel || '') + '"><datalist id="npFromList">' + selOpts + '</datalist></div><div class="field"><label for="npSpanLen">Span length (m)</label><input id="npSpanLen" inputmode="decimal" value="' + esc(d.span != null ? d.span : '') + '"></div><div class="field"><label for="npBrg">Bearing from the pole (° from grid north)</label><input id="npBrg" inputmode="decimal" value="' + esc(d.brg != null ? d.brg : '') + '"></div></div>' +
+      '<div class="grid2"><div class="field"><label for="npZ">Ground level (m)</label><input id="npZ" inputmode="decimal" value="' + esc(d.z != null ? d.z : cur ? cur.elevation : '') + '" placeholder="same as the from-pole if blank"></div></div>' +
+      (cur ? '' : '<label class="inline"><input type="checkbox" id="npAdd"' + (d.add === false ? '' : ' checked') + '> Add to profile “' + esc(prof().name || 'Profile ' + (S.active + 1)) + '”' + '</label>') +
+      '<p class="hint warn" id="npMsg" hidden></p><div class="btnrow"><button class="btn primary" id="npOk">' + (cur ? 'Save changes' : 'Create pole') + '</button>' + (cur ? '<button class="btn danger" id="npDel">Delete pole</button>' : '') + '<button class="btn" id="npCancel">Cancel</button></div>';
+    openGen(cur ? 'Edit pole ' + cur.id : 'New pole', h, { narrow: true });
+    var msg = function (t) { $('npMsg').textContent = t; $('npMsg').hidden = !t; };
+    var curMode = mode;
+    Array.prototype.forEach.call(document.querySelectorAll('#npMode button'), function (b) {
+      b.onclick = function () {
+        var m = b.dataset.m;
+        if (m === 'click') { // closes the dialog; the next click on the plan fills the coordinates
+          npDraft = { id: $('npId').value.trim(), len: $('npLen').value.trim(), z: $('npZ').value.trim(), add: $('npAdd').checked, mode: 'coord' };
+          closeGen(); setView('plan'); pickMode = function (ll) { var xy = fromLatLng(ll); if (!xy) { setStatus('That point could not be converted to MGA.', 'bad'); return; } npDraft.e = Math.round(xy.e * 100) / 100; npDraft.n = Math.round(xy.n * 100) / 100; openPoleDlg(null, npDraft); };
+          document.body.classList.add('pickmode'); setStatus('Click the plan where the new pole goes (Esc to cancel).'); return;
+        }
+        curMode = m; Array.prototype.forEach.call(document.querySelectorAll('#npMode button'), function (x) { x.classList.toggle('on', x === b); });
+        $('npCoord').hidden = m === 'span'; $('npSpan').hidden = m !== 'span';
+      };
+    });
+    $('npCancel').onclick = closeGen;
+    if (cur) $('npDel').onclick = function () {
+      mf.items = mf.items.filter(function (x) { return x.id !== cur.id; }); mf.summary = mf.items.length + ' poles';
+      if (!mf.items.length) S.files = S.files.filter(function (x) { return x !== mf; });
+      S.profiles.forEach(function (p) { p.poleIds = p.poleIds.filter(function (x) { return x !== cur.id; }); delete p.lengths[cur.id]; });
+      S.generated = false; if (S.selected === cur.id) S.selected = null; closeGen(); recompute(); setStatus('Deleted pole ' + cur.id + '.', 'good');
+    };
+    $('npOk').onclick = function () {
+      var id = $('npId').value.trim().toUpperCase(), z = numIn('npZ'), len = numIn('npLen'), E, N, fromId = null;
+      if (!id) return msg('Enter a pole ID.');
+      if (!cur && (merged.poles[id] || (dm && dm.allPoles.some(function (q) { return q.id === id; })))) return msg('Pole ' + id + ' already exists. Use a different ID.');
+      if (curMode === 'span' && !cur) {
+        fromId = $('npFrom').value.trim().toUpperCase(); var A = poleXY(fromId), L = numIn('npSpanLen'), br = numIn('npBrg');
+        if (!A) return msg('Choose a from-pole that has coordinates.');
+        if (!(L > 0)) return msg('Enter the span length in metres.'); if (!isFinite(br)) return msg('Enter the bearing in degrees from grid north.');
+        E = A.e + L * Math.sin(br * Math.PI / 180); N = A.n + L * Math.cos(br * Math.PI / 180); if (!isFinite(z) && A.ground != null) z = A.ground;
+      } else { E = numIn('npE'); N = numIn('npN'); }
+      if (!isFinite(E) || !isFinite(N)) return msg('Enter the easting and northing.');
+      if (!validMga(E, N)) return msg(E + ', ' + N + ' is not a valid MGA easting/northing.');
+      if (!isFinite(z)) return msg('Enter the ground level (m).');
+      if ($('npLen').value.trim() !== '' && !(len > 0 && len < 40)) return msg('Pole length must be between 0 and 40 m.');
+      E = Math.round(E * 1000) / 1000; N = Math.round(N * 1000) / 1000;
+      var f = manualFile();
+      if (cur) { cur.easting = E; cur.northing = N; cur.elevation = z; }
+      else f.items.push({ id: id, equipNo: '', group: '', dataType: '', easting: E, northing: N, elevation: z, lidarHeight: null, leanDeg: null, bays: null, bayAngles: [], surveyed: '', kind: 'Manual', src: { file: 'Manual poles', row: 'pole ' + (f.items.length + 1) } });
+      f.summary = f.items.length + ' pole' + (f.items.length > 1 ? 's' : '');
+      if (isFinite(len)) prof().lengths[id] = len; else if (cur && $('npLen').value.trim() === '') delete prof().lengths[id];
+      if (!cur && $('npAdd') && $('npAdd').checked) {
+        var ids = prof().poleIds, at = fromId ? ids.indexOf(fromId) : -1;
+        if (at >= 0) ids.splice(at + 1, 0, id); else ids.push(id);
+      }
+      npDraft = null; S.generated = false; closeGen(); recompute(); select(id); showPole(id);
+      setStatus((cur ? 'Updated ' : 'Created ') + id + (cur ? '.' : ' at ' + E + ', ' + N + '. Ground level ' + z + ' m is your input (Manual).'), 'good');
+    };
+  }
+  $('mNewPole').onclick = function () { openPoleDlg(null); };
+
+  // Intersection span: a two-pole line that shares a pole with the design. It is kept as its own PNW profile file, so it is
+  // drawn with the design in plan and 3D, its shared pole carries both lines' constructions, and it can be edited as the design.
+  function openXDlg() {
+    var A = S.selected; if (!A || !poleXY(A)) { setStatus('Select the pole on the line that the intersecting span connects to.', 'bad'); return; }
+    if (!(dm && dm.allPoles.some(function (q) { return q.id === A; }))) { setStatus('Pole ' + A + ' is not on the design line. Add it to the profile and start a design (Inspector → Constructions) first.', 'bad'); return; }
+    var qa = dm.allPoles.filter(function (q) { return q.id === A; })[0], la = qa.length != null ? qa.length : '';
+    var others = Object.keys(merged.poles).filter(function (k) { return k !== A && poleXY(k); });
+    var h = '<p class="hint">An intersecting span runs from <b>' + esc(A) + '</b> to another pole (new or existing). It is saved as its own two-pole PNW profile that shares ' + esc(A) + ', so both lines show on the plan and in 3D, and ' + esc(A) + ' carries the constructions of both.</p>' +
+      '<div class="grid2"><div class="field"><label for="xName">Line name</label><input id="xName" value="' + esc(A) + ' intersection"></div><div class="field"><label for="xLenA">Length of ' + esc(A) + ' (m)</label><input id="xLenA" inputmode="decimal" value="' + esc(la) + '"></div></div>' +
+      '<div class="seg" id="xMode" role="group" aria-label="Far end"><button data-m="new" class="on">New pole</button><button data-m="old">Existing pole</button></div>' +
+      '<div id="xNew" class="grid2"><div class="field"><label for="xId">New pole ID</label><input id="xId" placeholder="e.g. X1"></div><div class="field"><label for="xLenB">Pole length (m)</label><input id="xLenB" inputmode="decimal"></div><div class="field"><label for="xSpan">Span length (m)</label><input id="xSpan" inputmode="decimal"></div><div class="field"><label for="xBrg">Bearing from ' + esc(A) + ' (°)</label><input id="xBrg" inputmode="decimal"></div><div class="field"><label for="xZ">Ground level (m)</label><input id="xZ" inputmode="decimal" value="' + esc(qa.ground != null ? Math.round(qa.ground * 100) / 100 : '') + '"></div></div>' +
+      '<div id="xOld" class="grid2" hidden><div class="field"><label for="xPick">Far pole</label><input id="xPick" list="xPoles" placeholder="type to search"><datalist id="xPoles">' + others.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist></div><div class="field"><label for="xLenO">Far pole length (m)</label><input id="xLenO" inputmode="decimal"></div></div>' +
+      '<p class="hint warn" id="xMsg" hidden></p><div class="btnrow"><button class="btn primary" id="xOk">Create intersection span</button><button class="btn" id="xCancel">Cancel</button></div>';
+    openGen('New intersection span from ' + A, h, { narrow: true });
+    var mode = 'new', msg = function (t) { $('xMsg').textContent = t; $('xMsg').hidden = !t; };
+    Array.prototype.forEach.call(document.querySelectorAll('#xMode button'), function (b) { b.onclick = function () { mode = b.dataset.m; Array.prototype.forEach.call(document.querySelectorAll('#xMode button'), function (x) { x.classList.toggle('on', x === b); }); $('xNew').hidden = mode !== 'new'; $('xOld').hidden = mode === 'new'; }; });
+    $('xPick').oninput = function () { var k = this.value.trim().toUpperCase(), q = merged.poles[k]; if (q) { var ex = PNW.existingLength(q).value; if (ex != null && !$('xLenO').value) $('xLenO').value = ex; } };
+    $('xCancel').onclick = closeGen;
+    $('xOk').onclick = function () {
+      var name = $('xName').value.trim(), lenA = numIn('xLenA'), B, lenB, created = null;
+      if (!name) return msg('Name the line.'); if (!(lenA > 0)) return msg('Enter the length of ' + A + ' (m).');
+      if (mode === 'new') {
+        B = $('xId').value.trim().toUpperCase(); lenB = numIn('xLenB'); var L = numIn('xSpan'), br = numIn('xBrg'), z = numIn('xZ');
+        if (!B) return msg('Enter the new pole ID.'); if (merged.poles[B] || (dm && dm.allPoles.some(function (q) { return q.id === B; }))) return msg('Pole ' + B + ' already exists. Choose “Existing pole” or a different ID.');
+        if (!(L > 0) || !isFinite(br)) return msg('Enter the span length and bearing.'); if (!isFinite(z)) return msg('Enter the ground level.'); if (!(lenB > 0)) return msg('Enter the new pole length (m).');
+        var E = Math.round((qa.easting + L * Math.sin(br * Math.PI / 180)) * 1000) / 1000, N = Math.round((qa.northing + L * Math.cos(br * Math.PI / 180)) * 1000) / 1000;
+        if (!validMga(E, N)) return msg('The new pole would be outside the valid MGA range.');
+        var f = manualFile(); f.items.push({ id: B, equipNo: '', group: '', dataType: '', easting: E, northing: N, elevation: z, lidarHeight: null, leanDeg: null, bays: null, bayAngles: [], surveyed: '', kind: 'Manual', src: { file: 'Manual poles', row: 'pole ' + (f.items.length + 1) } });
+        f.summary = f.items.length + ' pole' + (f.items.length > 1 ? 's' : ''); created = f;
+      } else { B = $('xPick').value.trim().toUpperCase(); lenB = numIn('xLenO'); if (!merged.poles[B] || !poleXY(B)) return msg('Choose an existing pole that has coordinates.'); if (!(lenB > 0)) return msg('Enter the far pole length (m).'); }
+      var lengths = {}; lengths[A] = lenA; lengths[B] = lenB;
+      var prevActive = S.active; recompute();
+      var pr = { name: name, poleIds: [A, B], lengths: lengths, comments: {}, segments: [] }, bt = PNW.buildProfile(merged.poles, pr);
+      if (!bt.ok) { if (created) { created.items.pop(); created.summary = created.items.length + ' poles'; if (!created.items.length) S.files = S.files.filter(function (x) { return x !== created; }); recompute(); } return msg(bt.issues.filter(function (i) { return i.level === 'error'; }).map(function (i) { return i.message; }).join(' ')); }
+      var fname = 'Ground Profile - ' + name.replace(/[\\/:*?"<>|]+/g, '-') + ' (intersection).pnwx';
+      var text = PNW.profilePnwx(bt, { title: 'Ground Profile - ' + name, createdBy: S.settings.createdBy, option: S.settings.optionSet, clearance1: PNW.num(S.settings.clr1), clearance2: PNW.num(S.settings.clr2) });
+      var r = importText(fname, text); r.size = text.length; r.status = 'ok'; upsertFile(r);
+      S.active = prevActive; closeGen(); recompute();
+      S.design.log = liveLog().concat([logEntry(A, 'Intersection span', 'Created', '', A + ' → ' + B + ', ' + Math.round(bt.rows[1].span * 100) / 100 + ' m', 'manual', 'New line ' + name)]);
+      recompute(); select(B); showPole(B);
+      setStatus('Created intersection span ' + A + ' → ' + B + ' (' + (Math.round(bt.rows[1].span * 100) / 100) + ' m). It is drawn with the design; select ' + B + ' and use “Edit this line as the design” to add its constructions and conductors.', 'good');
+    };
+  }
+  $('mNewX').onclick = openXDlg;
+
+  /* ---------- pole photos: attach, match to poles, compare with the model, verify ---------- */
+  var photoViews = {}, photoSeq = 0, IDB_NAME = 'eve-pnw-photos';
+  function photosOf(id) { return (S.photos && S.photos[id]) || []; }
+  function idbDo(mode, fn) {
+    return new Promise(function (resolve) {
+      try {
+        var rq = indexedDB.open(IDB_NAME, 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore('v'); };
+        rq.onerror = function () { resolve(null); };
+        rq.onsuccess = function () { try { var tx = rq.result.transaction('v', mode), st = tx.objectStore('v'), q = fn(st); tx.oncomplete = function () { resolve(q && q.result !== undefined ? q.result : true); }; tx.onerror = function () { resolve(null); }; } catch (e) { resolve(null); } };
+      } catch (e) { resolve(null); }
+    });
+  }
+  // The resized photo is kept in this browser (IndexedDB) so it can be analysed again; only a small thumbnail goes in the project file.
+  function attachPhoto(id, name, img, meta) {
+    meta = meta || {};
+    var rec = { id: 'ph' + Date.now().toString(36) + (photoSeq++), name: name, thumb: img.thumb, source: meta.source || 'Uploaded photo', at: new Date().toISOString(), pov: meta.pov || null };
+    if (!S.photos) S.photos = {};
+    S.photos[id] = photosOf(id).concat([rec]);
+    photoViews[rec.id] = img.data; idbDo('readwrite', function (st) { return st.put(img.data, rec.id); });
+    save(); return rec;
+  }
+  function photoData(rec) { return photoViews[rec.id] ? Promise.resolve(photoViews[rec.id]) : idbDo('readonly', function (st) { return st.get(rec.id); }).then(function (v) { if (v && typeof v === 'string') photoViews[rec.id] = v; return typeof v === 'string' ? v : null; }); }
+  function b64Blob(b64, type) { var bytes = atob(b64), arr = new Uint8Array(bytes.length); for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i); return new Blob([arr], { type: type || 'image/jpeg' }); }
+  // One entry point for every photo that arrives (file, paste, drop, Street View capture): attach to the pole and analyse.
+  function submitPhoto(id, file, meta) {
+    if (!merged.poles[id]) { setStatus('Select a pole first, then add its photo.', 'bad'); return; }
+    U.insTab = 'photo'; if (!U.right) { U.right = true; applyLayout(); } saveUi();
+    if (S.selected !== id) select(id);
+    if (!project || !project.poles.some(function (r) { return r.ID === id; })) {
+      shrink(file).then(function (img) { attachPhoto(id, file.name, img, meta); renderSelected(); setStatus('Photo attached to ' + id + '. Start a design that includes this pole to analyse it against the PNW constructions.', 'bad'); });
+      return;
+    }
+    runAi(id, file, meta); setStatus('Photo attached to ' + id + ' and sent for AI analysis. Nothing in the design changes until you approve a suggestion.', 'good');
+  }
+  function photoListHtml(id, r) {
+    var l = photosOf(id); if (!l.length) return '';
+    return '<div class="ph-list" aria-label="Photos attached to ' + esc(id) + '">' + l.map(function (p) {
+      return '<button class="ph' + (r && r.photoId === p.id ? ' on' : '') + '" data-phredo="' + esc(p.id) + '" title="' + esc(p.name + ' · ' + p.source + ' · ' + new Date(p.at).toLocaleString('en-AU') + '. Click to analyse it again.') + '"><img src="' + p.thumb + '" alt=""><small>' + esc(p.source.replace(/ \(.*/, '')) + '</small></button>';
+    }).join('') + '</div>';
+  }
+  $('selected').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-phredo]'); if (!b) return;
+    var rec = photosOf(S.selected).filter(function (p) { return p.id === b.dataset.phredo; })[0]; if (!rec) return;
+    photoData(rec).then(function (d) {
+      if (!d) { setStatus('The full photo is no longer stored in this browser. Capture or add it again.', 'bad'); return; }
+      runAi(S.selected, new File([b64Blob(d)], rec.name, { type: 'image/jpeg' }), { noAttach: true, photoId: rec.id, source: rec.source });
+    });
+  });
+  function aiConductors(id) {
+    var out = {}; (lib ? lib.conductors : []).forEach(function (c) { out[String(c.code).toUpperCase()] = { code: c.code, name: c.name || c.name2 || '', material: c.material || '' }; });
+    return Object.keys(out).map(function (k) { return out[k]; });
+  }
+  function aiObservations(j) {
+    var conf = function (v) { return Math.max(0, Math.min(1, Number(v) || 0)); }, valid = {}; aiConductors().forEach(function (c) { valid[String(c.code).toUpperCase()] = c.code; });
+    var st = j && j.stays || {}, tx = j && j.transformer || {}, dropped = 0;
+    var conds = (Array.isArray(j && j.conductors) ? j.conductors : []).map(function (c) {
+      var code = c.code ? valid[String(c.code).toUpperCase()] : null; if (c.code && !code) dropped++;
+      return { level: String(c.level || ''), count: Number(c.count) || null, code: code || null, confidence: conf(c.confidence), notes: String(c.notes || '').slice(0, 200) };
+    });
+    return { pole: j && j.pole_number != null && String(j.pole_number).trim() ? String(j.pole_number).trim() : null,
+      stays: { count: st.count == null ? null : Number(st.count), confidence: conf(st.confidence), notes: String(st.notes || '').slice(0, 200) },
+      transformer: { present: tx.present == null ? null : !!tx.present, confidence: conf(tx.confidence), notes: String(tx.notes || '').slice(0, 200) },
+      conductors: conds, dropped: dropped, checks: (Array.isArray(j && j.field_checks) ? j.field_checks : []).map(String).slice(0, 8) };
+  }
+  // Inputs the model still needs before the tipload for this pole can be trusted (from the tipload engine's own notes plus the design).
+  function missingInputs(id) {
+    var out = [], prow = project && project.poles.filter(function (r) { return r.ID === id; })[0];
+    if (!prow) return ['The pole is not in the linked design.'];
+    var cons = (dm && dm.byPole[id]) || [];
+    if (!cons.length) out.push('No construction is on the pole yet.');
+    if (!poleTypeFor(id, PNW.num(prow.Length))) out.push('Pole type is not set (no wind on the pole, no self weight, no % loaded).');
+    if (!(PNW.num(prow.Length) > 0)) out.push('Pole length is unknown.');
+    var inp = tipInput(id); if (inp) inp.notes.forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); });
+    if (inp && !inp.circuits.length) out.push('No conductors are strung to this pole, so the tipload has no conductor loads.');
+    inp && inp.circuits.forEach(function (c) { if (!(c.tension > 0)) out.push('Conductor ' + (c.code || '?') + ' towards ' + Math.round(c.dir) + '° has no stringing tension.'); });
+    return out;
+  }
+  // Photo-derived changes stay flagged until someone marks them as checked in the field.
+  function unverifiedFor(id) {
+    var ver = (S.design.verified || {})[id], at = ver ? ver.at : '';
+    return liveLog().filter(function (l) { return l.pole === id && (l.source === 'AI suggestion' || l.source === 'photo estimate') && l.t > at; }).length;
+  }
+  function verifyBar(id) {
+    var n = unverifiedFor(id), ver = (S.design.verified || {})[id];
+    if (!n) return ver ? '<p class="hint ok">Photo-derived inputs for ' + esc(id) + ' were marked field-verified by ' + esc(ver.by) + ' on ' + esc(new Date(ver.at).toLocaleDateString('en-AU')) + '.</p>' : '';
+    return '<div class="verifybar"><b>' + n + ' photo-derived change' + (n > 1 ? 's' : '') + ' on ' + esc(id) + ' not yet field-verified.</b> Heights and offsets come from the library and DCSH rules, not from measurement, so the tipload for this pole is provisional. <div class="btnrow" style="margin-top:5px"><button class="btn small" data-verify="' + esc(id) + '">Mark as verified in the field</button></div></div>';
+  }
+  $('selected').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-verify]'); if (!b) return;
+    var id = b.dataset.verify; (S.design.verified = S.design.verified || {})[id] = { at: new Date().toISOString(), by: S.settings.createdBy || 'designer' };
+    recompute(); setStatus('Marked the photo-derived inputs for ' + id + ' as verified in the field.', 'good');
+  });
+  // The photo against the pole model: what the AI saw, what the model has, and what to do about each difference.
+  function aiCompareHtml(id, r, cons) {
+    var o = r.resp.obs, h = '<div class="con"><div class="con-title">Photo against the pole model</div><table class="att"><tr><th>Item</th><th>Photo (estimate)</th><th>Model</th><th></th></tr>', ex = extras(id), row = project.poles.filter(function (x) { return x.ID === id; })[0];
+    function pc(c) { return '<span class="pill ' + (c >= 0.7 ? 'ok' : c >= 0.5 ? 'warn' : 'bad') + '">' + Math.round(c * 100) + '%</span>'; }
+    if (o) {
+      if (o.pole && o.pole.toUpperCase().replace(/^(\d+)$/, 'S$1') !== id.toUpperCase()) h += '<tr><td colspan="4"><span class="pill bad">Check the pole</span> The photo appears to show pole <b>' + esc(o.pole) + '</b> but it is attached to <b>' + esc(id) + '</b>.</td></tr>';
+      else if (o.pole) h += '<tr><td>Pole number</td><td>' + esc(o.pole) + '</td><td>' + esc(id) + '</td><td><span class="pill ok">match</span></td></tr>';
+      var sc = o.stays.count, ms = ex.stays.length;
+      h += '<tr><td>Stays</td><td>' + (sc == null ? '<span class="muted">not clear</span>' : sc + ' ' + pc(o.stays.confidence)) + '</td><td>' + ms + '</td><td>' + (sc == null ? '' : sc === ms ? '<span class="pill ok">match</span>' : sc > ms ? '<button class="btn small" data-aiex="stay">Add stay</button>' : '<span class="pill warn">model has more</span>') + '</td></tr>';
+      var tp = o.transformer.present, mt = ex.plant.length;
+      h += '<tr><td>Transformer</td><td>' + (tp == null ? '<span class="muted">not clear</span>' : (tp ? 'yes' : 'no') + ' ' + pc(o.transformer.confidence)) + '</td><td>' + (mt ? mt : 'none') + '</td><td>' + (tp == null ? '' : tp && !mt ? '<button class="btn small" data-aiex="plant">Add transformer</button>' : tp === !!mt ? '<span class="pill ok">match</span>' : '<span class="pill warn">differs</span>') + '</td></tr>';
+      var secs = project.segPoles.filter(function (q) { return q.id === id; }).map(function (q) { var sg = project.segments.filter(function (x) { return x.StrainSect === q.strsection; })[0]; return sg ? sg.Conductor : ''; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; });
+      o.conductors.forEach(function (c) {
+        var gis = c.code ? gisConductorsAt(id, /hv|high/i.test(c.level) ? 'HV' : 'LV').some(function (t) { return t.lib && t.lib.code === c.code; }) : false;
+        h += '<tr><td>' + esc(c.level || 'Conductor') + ' conductors</td><td>' + (c.count || '?') + (c.code ? ' · <b>' + esc(c.code) + '</b>' : ' · <span class="muted">type unclear</span>') + ' ' + pc(c.confidence) + (c.notes ? '<br><small class="muted">' + esc(c.notes) + '</small>' : '') + '</td><td>' + (secs.length ? esc(secs.join(', ')) : '<span class="muted">none strung</span>') + '</td><td>' + (c.code ? (secs.indexOf(c.code) >= 0 ? '<span class="pill ok">in a section</span>' : gis ? '<span class="pill info">matches GIS</span>' : '<span class="pill warn">not in model</span>') : '') + '</td></tr>';
+      });
+    }
+    h += '</table><p class="hint">Conductor types are never changed from a photo: set them in the <button class="btn small" data-instab="conductors">Conductors</button> tab. New stays and transformers are added with library and DCSH default heights, flagged <span class="pill unv">unverified</span>, and appear in the change log as AI suggestions.</p>';
+    var miss = missingInputs(id), checks = (o && o.checks) || [];
+    if (miss.length || checks.length || (o && o.dropped)) h += '<div class="con-title" style="margin-top:6px">To check before relying on the results</div><ul class="msgs">' + miss.map(function (m) { return '<li class="warning">' + esc(m) + '</li>'; }).join('') + checks.map(function (m) { return '<li class="info">Field check: ' + esc(m) + '</li>'; }).join('') + (o && o.dropped ? '<li class="info">' + o.dropped + ' conductor suggestion(s) named a code that is not in your PNW library and were ignored.</li>' : '') + '</ul>';
+    return h + verifyBar(id) + '</div>';
+  }
+  $('selected').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-aiex]'); if (!b) return;
+    var id = S.selected, kind = b.dataset.aiex, before = liveLog().length;
+    try { addExtra(id, kind); } catch (x) { setStatus('Could not add it: ' + x.message, 'bad'); return; }
+    var log = liveLog().slice(); // addExtra logged it as "calculated"; it came from the photo, so say so and keep it unverified
+    for (var i = before; i < log.length; i++) { if (log[i].pole === id) { log[i] = Object.assign({}, log[i], { source: 'AI suggestion', reference: 'From photo ' + ((aiResults[id] || {}).photo || '') + '. ' + log[i].reference }); } }
+    S.design.log = log; save(); renderSelected();
+    setStatus((kind === 'stay' ? 'Stay' : 'Transformer') + ' added to ' + id + ' as an unverified photo estimate: check its height, bearing and size before using the tipload.', 'good');
+  });
+
+  /* ---- Files → Import pole photos: match photos to poles (file name, then the number in the photo), review, attach, analyse ---- */
+  function knownPoleIds() { var s = {}; Object.keys(merged.poles).forEach(function (k) { s[k] = 1; }); if (dm) dm.allPoles.forEach(function (p) { s[p.id] = 1; }); return Object.keys(s).sort(); }
+  function idFromName(name) {
+    var base = String(name).replace(/\.[^.]+$/, '').toUpperCase(), ids = knownPoleIds().filter(function (id) {
+      var d = id.replace(/^S/, ''), re = new RegExp('(^|[^A-Z0-9])(' + id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/^S\d/.test(id) ? '|' + d : '') + ')([^A-Z0-9]|$)');
+      return re.test(base);
+    });
+    ids.sort(function (a, b) { return b.length - a.length; });
+    return ids[0] || null;
+  }
+  function readPoleNumber(img) {
+    if (!sampleP) return Promise.resolve(null);
+    var known = knownPoleIds();
+    return sampleP.then(function (sample) {
+      if (!sample) return null;
+      return sample.json('Look at the attached photo of an overhead line pole. Read the pole number or ID plate if one is clearly legible (digits, sometimes with an S prefix). Pole IDs in this project, for matching only: ' + known.slice(0, 500).join(', ') + '. Return JSON only: {"pole_number": string|null, "confidence": number between 0 and 1, "note": string}. Use null when no number is legible. Never guess a number.', { images: [b64Blob(img.data)], modelTier: 'default' });
+    }).then(function (j) {
+      var n = j && j.pole_number != null ? String(j.pole_number).trim().toUpperCase().replace(/\s+/g, '') : ''; if (/^\d+$/.test(n)) n = 'S' + n;
+      return n ? { id: known.indexOf(n) >= 0 ? n : null, read: n, confidence: Math.max(0, Math.min(1, Number(j.confidence) || 0)), note: String(j.note || '') } : null;
+    }).catch(function () { return null; });
+  }
+  var photoJobs = [];
+  function openPhotoDlg() {
+    photoJobs = [];
+    openGen('Import pole photos', '<p class="hint">Add photos of individual poles with the pole number visible. Each photo is matched to a pole by its file name' + (IN_CLAUDE ? ', then by reading the number in the photo with Claude' : '') + '. Nothing is attached until you confirm the pole for each photo, and nothing in the design changes until you approve an AI suggestion.</p><div class="btnrow"><button class="btn primary" id="phChoose">Choose photos…</button><span class="meta" id="phCount"></span></div><div id="phRows" style="display:grid;gap:8px"></div><datalist id="phIds">' + knownPoleIds().map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist><div class="btnrow"><label class="inline"><input type="checkbox" id="phAnalyse" checked> Analyse each attached photo with AI (needs the pole in the design)</label></div><div class="btnrow"><button class="btn primary" id="phGo" disabled>Attach photos</button><button class="btn" id="phCancel">Cancel</button></div>');
+    $('phChoose').onclick = function () { $('photoInput').click(); }; $('phCancel').onclick = closeGen;
+    $('phGo').onclick = function () {
+      var jobs = photoJobs.filter(function (j) { return j.id && merged.poles[j.id] && j.img; }), want = $('phAnalyse').checked, first = null;
+      if (!jobs.length) return;
+      jobs.forEach(function (j) { attachPhoto(j.id, j.file.name, j.img, { source: 'Imported photo' + (j.how ? ' (' + j.how + ')' : '') }); if (!first) first = j.id; });
+      closeGen(); renderSelected(); renderTable();
+      setStatus('Attached ' + jobs.length + ' photo' + (jobs.length > 1 ? 's' : '') + ' to ' + jobs.map(function (j) { return j.id; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', ') + '.', 'good');
+      if (want) { // one at a time, so the service is not flooded; each result waits on its pole
+        var seq = jobs.filter(function (j) { return project && project.poles.some(function (r) { return r.ID === j.id; }); }), n = 0;
+        (function next() { var j = seq[n++]; if (!j) return; var rec = photosOf(j.id).slice(-1)[0]; U.insTab = 'photo'; saveUi(); select(j.id); runAi(j.id, j.file, { noAttach: true, photoId: rec && rec.id, source: 'Imported photo' }); var t = setInterval(function () { if (!aiResults[j.id] || !aiResults[j.id].loading) { clearInterval(t); next(); } }, 700); })();
+      } else if (first) { U.insTab = 'photo'; saveUi(); select(first); }
+    };
+    function refresh() {
+      $('phCount').textContent = photoJobs.length ? photoJobs.length + ' photo' + (photoJobs.length > 1 ? 's' : '') + ', ' + photoJobs.filter(function (j) { return j.id && merged.poles[j.id]; }).length + ' matched' : '';
+      $('phRows').innerHTML = photoJobs.map(function (j, i) {
+        return '<div class="photo-row"><img src="' + (j.img ? j.img.thumb : '') + '" alt=""><div><b>' + esc(j.file.name) + '</b><br><small>' + (j.busy ? 'Reading the photo…' : j.how ? 'Matched by ' + esc(j.how) + (j.conf != null ? ' (' + Math.round(j.conf * 100) + '%)' : '') : 'No match yet: choose the pole') + (j.note ? ' · ' + esc(j.note) : '') + '</small></div><div class="field" style="margin:0"><input data-phpick="' + i + '" list="phIds" value="' + esc(j.id || '') + '" placeholder="Pole" aria-label="Pole for ' + esc(j.file.name) + '" class="' + (j.id && !merged.poles[j.id] ? 'invalid' : '') + '" style="width:120px"></div></div>';
+      }).join('');
+      $('phGo').disabled = !photoJobs.some(function (j) { return j.id && merged.poles[j.id] && j.img; });
+    }
+    $('genBody').addEventListener('change', function (e) { var i = e.target.dataset && e.target.dataset.phpick; if (i == null) return; var j = photoJobs[+i]; j.id = e.target.value.trim().toUpperCase().replace(/^(\d+)$/, 'S$1'); j.how = j.id ? 'you' : null; j.conf = null; refresh(); });
+    window.__phAdd = function (files) {
+      Array.prototype.forEach.call(files, function (f) {
+        if (!/^image\//.test(f.type)) return;
+        var j = { file: f, busy: true }; photoJobs.push(j); refresh();
+        shrink(f).then(function (img) {
+          j.img = img; var id = idFromName(f.name);
+          if (id) { j.id = id; j.how = 'file name'; j.busy = false; refresh(); return; }
+          return readPoleNumber(img).then(function (res) { j.busy = false; if (res && res.id) { j.id = res.id; j.how = 'number in photo'; j.conf = res.confidence; if (res.confidence < 0.6) j.note = 'low confidence, please check'; } else if (res) j.note = 'read “' + res.read + '”, which is not a pole in this project'; refresh(); });
+        }).catch(function () { j.busy = false; j.note = 'could not read this image'; refresh(); });
+      });
+    };
+    refresh();
+  }
+  $('mPhotos').onclick = openPhotoDlg;
+  $('tbAuto').onclick = function () { closeMenus(); autoDesign(); };
+  $('mStreet').onclick = function () { if (S.selected) openStreetView(S.selected); else setStatus('Select a pole first, then open Street View.', 'bad'); };
+  $('photoInput').onchange = function () { if (window.__phAdd && !$('genDlg').hidden) window.__phAdd(this.files); this.value = ''; };
+
+  /* ---- Street View inside the app: embedded panorama, capture the visible pole, send it to the AI ---- */
+  var GM_KEY = 'eve-pnw-gmaps-key', sv = { id: null, pano: null, gm: null, pov: null };
+  function gmKey() { try { return localStorage.getItem(GM_KEY) || ''; } catch (e) { return ''; } }
+  function poleLL(id) {
+    var p = merged.poles[id], ll = p && (poleLatLng(p) || (p.gis && p.gis.lat != null ? L.latLng(p.gis.lat, p.gis.lng) : null));
+    if (!ll) { var q = dm && dm.allPoles.filter(function (x) { return x.id === id; })[0] || (xPole(id) || {}).pole; ll = q && isFinite(q.easting) ? toLatLng(q.easting, q.northing) : null; }
+    return ll;
+  }
+  function loadGmaps(key) {
+    if (window.google && window.google.maps && window.google.maps.StreetViewPanorama) return Promise.resolve(window.google.maps);
+    return new Promise(function (resolve, reject) {
+      window.__pnwGm = function () { resolve(window.google.maps); };
+      var sc = document.createElement('script'); sc.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&callback=__pnwGm&v=quarterly'; sc.async = true;
+      sc.onerror = function () { reject(new Error('Google Maps could not be loaded (blocked or offline).')); }; document.head.appendChild(sc);
+      setTimeout(function () { reject(new Error('Google Maps did not load in time. Check the key and the network.')); }, 12000);
+    });
+  }
+  function closeStreetView() { $('svPanel').hidden = true; $('svPanel').innerHTML = ''; sv = { id: null, pano: null, gm: null, pov: null }; }
+  function openStreetView(id) {
+    var ll = poleLL(id); if (!ll) { setStatus(id + ' has no location, so Street View cannot be opened for it.', 'bad'); return; }
+    var panel = $('svPanel'), key = gmKey(); sv = { id: id, pano: null, gm: null, pov: null, ll: ll, mode: key ? 'api' : 'embed' };
+    panel.hidden = false;
+    panel.innerHTML = '<div class="svh"><b>🛣 Street View · ' + esc(id) + '</b><span class="grow" style="flex:1"></span><a class="btn small" id="svNew" target="_blank" rel="noopener" href="' + esc(streetViewUrl(id)) + '" title="Open Google Street View in its own window (then snip and paste)">New window ↗</a><button class="btn small" id="svKey" title="Optional Google Maps API key for a capture that needs no screen sharing">API key…</button><button class="ibtn" id="svClose" aria-label="Close Street View">✕</button></div>' +
+      '<div class="svb" id="svBody"></div><div class="svf"><button class="btn primary" id="svCap" title="Capture what is shown and send it to the AI for ' + esc(id) + '">📸 Capture and analyse</button><span class="meta grow" id="svHint"></span></div>';
+    $('svClose').onclick = closeStreetView; $('svKey').onclick = svKeyDlg; $('svCap').onclick = svCapture;
+    if (key) svStartApi(id, ll, key); else svStartEmbed(id, ll);
+    if (S.selected !== id) select(id);
+  }
+  function svStartEmbed(id, ll) {
+    var f = document.createElement('iframe'); f.id = 'svFrame'; f.title = 'Street View at ' + id; f.allow = 'fullscreen; display-capture'; f.referrerPolicy = 'no-referrer';
+    f.src = 'https://www.google.com/maps?q=&layer=c&cbll=' + ll.lat.toFixed(6) + ',' + ll.lng.toFixed(6) + '&cbp=12,0,,0,0&output=svembed'; $('svBody').appendChild(f);
+    $('svHint').textContent = 'Drag to look around, aim at the pole, then Capture. The browser asks once to share this tab. Blank? This page’s host may block Google embeds: use “New window”, snip the pole and paste it here (Ctrl+V).';
+  }
+  function svStartApi(id, ll, key) {
+    $('svBody').innerHTML = '<div class="svmap" id="svMap"></div>'; $('svHint').textContent = 'Loading Google Street View…';
+    loadGmaps(key).then(function (gm) {
+      sv.gm = gm; var here = new gm.LatLng(ll.lat, ll.lng);
+      new gm.StreetViewService().getPanorama({ location: here, radius: 80, source: 'outdoor' }, function (data, status) {
+        if (status !== 'OK' || !data) { $('svHint').textContent = 'No Street View coverage within 80 m of ' + id + '.'; $('svCap').disabled = true; return; }
+        var heading = bearingTo({ lat: data.location.latLng.lat(), lng: data.location.latLng.lng() }, ll);
+        sv.panorama = new gm.StreetViewPanorama($('svMap'), { pano: data.location.pano, pov: { heading: heading, pitch: 6 }, zoom: 1, addressControl: false, fullscreenControl: false });
+        sv.panorama.addListener('pov_changed', function () { sv.pov = sv.panorama.getPov(); }); sv.pov = { heading: heading, pitch: 6 };
+        $('svHint').textContent = 'Turned toward ' + id + ' from the nearest panorama (' + (data.imageDate || 'date unknown') + '). Adjust the view, then Capture.';
+      });
+    }).catch(function (e) { $('svBody').innerHTML = ''; $('svHint').textContent = e.message + ' Using the keyless embed instead.'; sv.mode = 'embed'; svStartEmbed(id, ll); });
+  }
+  function svKeyDlg() {
+    openGen('Google Maps API key (optional)', '<p class="hint">With a key, Street View opens as a real panorama turned toward the pole, and Capture saves the exact view through the Street View Static API, with no screen sharing. Enable <b>Maps JavaScript API</b> and <b>Street View Static API</b> for the key, and restrict it to this site. The key is stored only in this browser.</p><div class="field"><label for="svKeyIn">API key</label><input id="svKeyIn" value="' + esc(gmKey()) + '" autocomplete="off" spellcheck="false"></div><div class="btnrow"><button class="btn primary" id="svKeySave">Save</button><button class="btn" id="svKeyClear">Remove key</button></div>', { narrow: true });
+    $('svKeySave').onclick = function () { try { localStorage.setItem(GM_KEY, $('svKeyIn').value.trim()); } catch (e) { /* ignore */ } var id = sv.id; closeGen(); if (id) openStreetView(id); };
+    $('svKeyClear').onclick = function () { try { localStorage.removeItem(GM_KEY); } catch (e) { /* ignore */ } var id = sv.id; closeGen(); if (id) openStreetView(id); };
+  }
+  function canvasBlob(c) { return new Promise(function (res, rej) { c.toBlob(function (b) { b ? res(b) : rej(new Error('The image could not be read back (cross-origin).')); }, 'image/jpeg', 0.9); }); }
+  // Capture paths, best first: Street View Static API (exact view), then a screen capture of just the Street View frame, then paste.
+  function svCapture() {
+    var id = sv.id, hint = $('svHint'), btn = $('svCap'); if (!id) return; btn.disabled = true; hint.textContent = 'Capturing…';
+    var done = function (blob, how, pov) { btn.disabled = false; hint.textContent = 'Captured and sent. Aim at another angle and capture again if needed.'; submitPhoto(id, new File([blob], 'Street View ' + id + ' ' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '') + '.jpg', { type: 'image/jpeg' }), { source: 'Street View capture (' + how + ')', pov: pov || null }); };
+    var fail = function (e) { btn.disabled = false; hint.textContent = ((e && e.message) || 'Capture was not possible here.') + ' Use “New window”, snip the pole (Win+Shift+S) and paste it with Ctrl+V: it is analysed straight away.'; };
+    if (sv.mode === 'api' && sv.panorama) {
+      var pov = sv.panorama.getPov(), z = sv.panorama.getZoom ? sv.panorama.getZoom() : 1, fov = Math.max(10, Math.min(120, 180 / Math.pow(2, z))), pano = sv.panorama.getPano();
+      var url = 'https://maps.googleapis.com/maps/api/streetview?size=1280x960&pano=' + encodeURIComponent(pano) + '&heading=' + pov.heading.toFixed(1) + '&pitch=' + pov.pitch.toFixed(1) + '&fov=' + fov.toFixed(0) + '&key=' + encodeURIComponent(gmKey());
+      return fetch(url, { mode: 'cors' }).then(function (r) { if (!r.ok) throw new Error('Street View Static API answered ' + r.status + ' (is it enabled for the key?).'); return r.blob(); })
+        .then(function (b) { done(b, 'Static API', { heading: Math.round(pov.heading), pitch: Math.round(pov.pitch), fov: fov, pano: pano }); }).catch(fail);
+    }
+    var frame = $('svFrame') || $('svBody');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return fail(new Error('This browser cannot capture the screen.'));
+    navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' }).then(function (stream) {
+      var track = stream.getVideoTracks()[0], cropped = window.CropTarget && track.cropTo ? window.CropTarget.fromElement(frame).then(function (t) { return track.cropTo(t); }).then(function () { return true; }, function () { return false; }) : Promise.resolve(false);
+      return cropped.then(function (didCrop) {
+        var v = document.createElement('video'); v.srcObject = stream; v.muted = true;
+        return v.play().then(function () { return new Promise(function (r) { setTimeout(r, 400); }); }).then(function () {
+          var c = document.createElement('canvas'), W = v.videoWidth, H = v.videoHeight, rc = frame.getBoundingClientRect();
+          if (didCrop) { c.width = W; c.height = H; c.getContext('2d').drawImage(v, 0, 0); }
+          else { var k = W / window.innerWidth; c.width = Math.round(rc.width * k); c.height = Math.round(rc.height * k); c.getContext('2d').drawImage(v, rc.left * k, rc.top * k, rc.width * k, rc.height * k, 0, 0, c.width, c.height); }
+          track.stop(); return canvasBlob(c);
+        });
+      });
+    }).then(function (b) { done(b, 'screen capture'); }).catch(function (e) { fail(e && (e.name === 'NotAllowedError' || e.name === 'NotSupportedError' || e.name === 'SecurityError') ? new Error('Screen capture is not available or was not allowed on this page.') : e); });
+  }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('svPanel').hidden && $('genDlg').hidden && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) closeStreetView(); });
+
   /* ---------- start ---------- */
   load();
   setView(S.view, true);
+  /* ---------- integrated workspace: navigation rail, Add menu, plan tools, analysis workspace, multi-select, status bar ---------- */
+  var planTool = 'select', measurePts = [], lyMeasure = null, calcAt = null, dirty = false;
+  if (U.an == null) U.an = 'profile'; if (U.ah == null) U.ah = Math.round(Math.min(250, window.innerHeight * 0.25)); if (U.anOpen == null) U.anOpen = true;
+  function markDirty(v) { dirty = v; if ($('statusBar')) renderStatusBar(); }
+  function addInfo(e) { var o = e && (e.originalEvent || e); return o && (o.shiftKey || o.ctrlKey || o.metaKey) || (typeof multiMode !== 'undefined' && multiMode && o) ? { add: true } : undefined; }
+  function isSel(id) { return S.selected === id || !!(S.multi && S.multi.indexOf(id) >= 0); }
+  function hhmmss(d) { return d ? ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2) : ''; }
+  function pvShow() { var s = U.pvShow || {}; return { ground: s.ground !== false, clr: s.clr !== false, hv: s.hv !== false, lv: s.lv !== false, earth: s.earth !== false, att: s.att !== false }; }
+
+  /* plan tools: select, pan, measure, draw, fit */
+  function plClick(id, e) {
+    L.DomEvent.stopPropagation(e);
+    if (planTool === 'pan' || planTool === 'draw') return;
+    if (planTool === 'measure') { var p = merged.poles[id], ll = p && (poleLatLng(p) || (p.gis && p.gis.lat != null ? L.latLng(p.gis.lat, p.gis.lng) : null)); measureAdd(ll || e.latlng); return; }
+    select(id, addInfo(e));
+  }
+  function plSpan(a, b, e) { L.DomEvent.stopPropagation(e); if (planTool === 'select') selectSpan(a, b); else if (planTool === 'measure') measureAdd(e.latlng); }
+  function planMapClick(ll) {
+    if (planTool === 'measure') { measureAdd(ll); return; }
+    if (planTool === 'draw') { var xy = fromLatLng(ll); setTool('select'); if (xy) openPoleDlg(null, { mode: 'coord', e: Math.round(xy.e * 100) / 100, n: Math.round(xy.n * 100) / 100 }); return; }
+    if (planTool === 'pan') return;
+    if (planTool === 'move') { movePoleTo(snapLL(ll)); return; }
+    if (planTool === 'measure') return;
+    select(null);
+  }
+  function measureAdd(ll) { if (!ll) return; measurePts.push(ll); drawMeasure(); }
+  function drawMeasure() {
+    if (!lyMeasure) lyMeasure = L.layerGroup().addTo(map);
+    lyMeasure.clearLayers();
+    if (measurePts.length > 1) L.polyline(measurePts, { color: '#0f766e', weight: 3, dashArray: '6 4', interactive: false }).addTo(lyMeasure);
+    measurePts.forEach(function (ll) { L.circleMarker(ll, { radius: 4, color: '#0f766e', fillColor: '#fff', fillOpacity: 1, weight: 2, interactive: false }).addTo(lyMeasure); });
+    var xy = measurePts.map(fromLatLng), tot = 0, last = 0;
+    for (var i = 1; i < xy.length; i++) if (xy[i] && xy[i - 1]) { last = Math.hypot(xy[i].e - xy[i - 1].e, xy[i].n - xy[i - 1].n); tot += last; }
+    var out = $('measureOut'); out.hidden = planTool !== 'measure' && !measurePts.length;
+    out.innerHTML = (measurePts.length < 2 ? 'Click points or poles on the plan to measure' : 'Total <b>' + tot.toFixed(1) + ' m</b>' + (measurePts.length > 2 ? ' · last segment ' + last.toFixed(1) + ' m' : '')) +
+      (measurePts.length ? ' <button class="btn small" data-meas="undo">Undo point</button><button class="btn small" data-meas="clear">Clear</button>' : '');
+  }
+  function clearMeasure() { measurePts = []; if (lyMeasure) lyMeasure.clearLayers(); $('measureOut').hidden = true; }
+  function setTool(t) {
+    if (t === 'fit') { $('tbFit').click(); return; }
+    planTool = t; var w = $('mapWrap'); w.className = w.className.replace(/\btool-\w+/g, '').trim() + ' tool-' + t;
+    Array.prototype.forEach.call(document.querySelectorAll('#planTools [data-tool]'), function (b) { b.classList.toggle('on', b.dataset.tool === t); });
+    if (t === 'measure') drawMeasure(); else if (t !== 'measure') clearMeasure();
+    if (t === 'draw') setStatus('Draw: click the plan where the new pole goes.');
+    if (t === 'move') setStatus('Move: select a hand-made pole, then click its new position.');
+    try { updToolStatus(); } catch (e) { /* before the ribbon exists */ }
+  }
+  $('planTools').addEventListener('click', function (e) { var b = e.target.closest('[data-tool]'); if (b) setTool(b.dataset.tool); });
+  $('measureOut').addEventListener('click', function (e) { var b = e.target.closest('[data-meas]'); if (!b) return; if (b.dataset.meas === 'clear') { clearMeasure(); if (planTool === 'measure') drawMeasure(); } else { measurePts.pop(); drawMeasure(); } });
+  setTool('select');
+
+  /* generic searchable pole picker and the span dialog */
+  function pickPole(title, ids, cb, label) {
+    openGen(title, '<div class="field"><label for="ppIn">' + (label || 'Pole') + ' (type to search)</label><input id="ppIn" list="ppList" autocomplete="off" placeholder="e.g. S100003"></div><datalist id="ppList">' + ids.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist><p class="hint warn" id="ppMsg" hidden></p><div class="btnrow"><button class="btn primary" id="ppOk">Continue</button></div>', { narrow: true });
+    var go = function () { var v = $('ppIn').value.trim().toLowerCase(), hit = ids.filter(function (k) { return k.toLowerCase() === v; })[0]; if (!hit) { $('ppMsg').hidden = false; $('ppMsg').textContent = '“' + $('ppIn').value + '” is not one of the ' + ids.length + ' poles available. Pick one from the list.'; return; } closeGen(); cb(hit); };
+    $('ppOk').onclick = go; $('ppIn').onkeydown = function (e) { if (e.key === 'Enter') go(); };
+  }
+  function openSpanDlg() {
+    var ids = Object.keys(merged.poles).filter(function (k) { return poleXY(k); });
+    if (ids.length < 2) { setStatus('Add at least two poles first (Add → Pole, or import a survey).', 'bad'); return; }
+    var opts = ids.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('');
+    openGen('Add span', '<p class="hint">A span joins two poles in the active profile (“' + esc(prof().name || 'Profile ' + (S.active + 1)) + '”). If one pole is already in the profile the other is inserted next to it; if neither is, they start the profile.</p>' +
+      '<div class="grid2"><div class="field"><label for="spA">From pole (type to search)</label><input id="spA" list="spList" autocomplete="off" value="' + esc(S.selected && poleXY(S.selected) ? S.selected : '') + '"></div><div class="field"><label for="spB">To pole (type to search)</label><input id="spB" list="spList" autocomplete="off"></div></div><datalist id="spList">' + opts + '</datalist>' +
+      '<p class="hint" id="spInfo" hidden></p><p class="hint warn" id="spMsg" hidden></p><div class="btnrow"><button class="btn primary" id="spOk">Add span</button></div>');
+    var find = function (v) { v = v.trim().toLowerCase(); return ids.filter(function (k) { return k.toLowerCase() === v; })[0]; };
+    var upd = function () { var a = find($('spA').value), b = find($('spB').value), A = a && poleXY(a), B = b && poleXY(b); $('spInfo').hidden = !(A && B); if (A && B) $('spInfo').textContent = 'Span length ' + Math.hypot(A.e - B.e, A.n - B.n).toFixed(2) + ' m.'; };
+    $('spA').oninput = $('spB').oninput = upd;
+    $('spOk').onclick = function () {
+      var a = find($('spA').value), b = find($('spB').value), m = $('spMsg'); m.hidden = false;
+      if (!a || !b) { m.textContent = 'Pick both poles from the list.'; return; }
+      if (a === b) { m.textContent = 'A span needs two different poles.'; return; }
+      var p = prof(), ia = p.poleIds.indexOf(a), ib = p.poleIds.indexOf(b);
+      if (ia >= 0 && ib >= 0) { if (Math.abs(ia - ib) !== 1) { m.textContent = 'Both poles are already in the profile but not next to each other. Reorder them in the Project panel.'; return; } }
+      else if (ia >= 0) p.poleIds.splice(ia + 1, 0, b); else if (ib >= 0) p.poleIds.splice(ib, 0, a); else p.poleIds.push(a, b);
+      S.generated = false; closeGen(); recompute(); selectSpan(a, b); setStatus('Span ' + a + ' → ' + b + ' is in the profile.', 'good');
+    };
+  }
+
+  /* Add menu: conductor, transformer and stay act on the selected pole (or ask which one) */
+  function addEquip(kind) {
+    if (!project) { setStatus('Start a design first: drop a PNW project, or generate a ground profile and start the design.', 'bad'); return; }
+    var ids = project.poles.map(function (r) { return r.ID; });
+    var go = function (id) {
+      if (kind === 'cond') { U.insTab = 'design'; U.right = true; applyLayout(); saveUi(); select(id); setTimeout(function () { var b = $('conAddBox'); if (b) { b.scrollIntoView({ block: 'nearest' }); var f = b.querySelector('select,input'); if (f) f.focus(); } }, 40); return; }
+      var cons = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; });
+      if (!cons.length) { U.insTab = 'design'; select(id); setStatus(id + ' has no construction yet. Add a conductor/construction first, then the ' + (kind === 'stay' ? 'stay' : 'transformer') + '.', 'bad'); return; }
+      var list = kind === 'stay' ? extras(id).stays : extras(id).plant, n0 = list.length;
+      U.insTab = 'equip'; U.right = true; applyLayout(); saveUi();
+      addExtra(id, kind === 'stay' ? 'stay' : 'plant');
+      S.selEquip = { pole: id, kind: kind, i: n0 }; select(id);
+      setStatus((kind === 'stay' ? 'Stay' : 'Transformer') + ' added to ' + id + ' with defaults from the library. Check the values below: tipload is recalculated.', 'good');
+    };
+    if (S.selected && ids.indexOf(S.selected) >= 0) go(S.selected); else pickPole('Which pole?', ids, go);
+  }
+  $('aPole').onclick = function () { openPoleDlg(); };
+  $('aSpan').onclick = openSpanDlg;
+  $('aCond').onclick = function () { addEquip('cond'); };
+  $('aTx').onclick = function () { addEquip('plant'); };
+  $('aStay').onclick = function () { addEquip('stay'); };
+  $('aX').onclick = function () { $('mNewX').click(); };
+
+  /* navigation rail */
+  function filesHub() {
+    openFilesDlg();
+    var row = document.createElement('div'); row.className = 'btnrow'; row.style.margin = '0 0 10px';
+    row.innerHTML = [['tbOpen', '📂 Open project…'], ['tbSave', '💾 Save project'], ['tbExport', '⬇ Export PNW files…'], ['mExpTip', '⇲ Tipload CSV…'], ['mExpLog', '🧾 Change log']].map(function (x) { return '<button class="btn" data-fa="' + x[0] + '">' + x[1] + '</button>'; }).join('');
+    row.addEventListener('click', function (e) { var b = e.target.closest('[data-fa]'); if (!b) return; var t = $(b.dataset.fa); if (!b.dataset.keep) closeGen(); t.click(); });
+    $('genBody').insertBefore(row, $('genBody').firstChild);
+  }
+  $('rqGrid').addEventListener('click', function (e) { var b = e.target.closest('[data-q]'); if (b && !b.disabled) $(b.dataset.q).click(); });
+  $('rqToggle').onclick = function () { var q = $('railQuick'), m = !q.classList.contains('min'); q.classList.toggle('min', m); this.setAttribute('aria-expanded', !m); this.querySelector('span').textContent = m ? '▾' : '▴'; };
+  function navGo(k) {
+    if (k === 'home') { select(null); setStatus(summaryText()); }
+    else if (k === 'project') { U.left = !U.left || !$('secProfile').open ? true : false; applyLayout(); if (U.left) $('secProfile').open = true; }
+    else if (k === 'plan') setView('plan');
+    else if (k === 'profile') setView('profile');
+    else if (k === 'sag') { openTab('sections'); setAn('sag', true); }
+    else if (k === 'tip') $('tbTip').click();
+    else if (k === 'reports') $('tbExport').click();
+    else if (k === 'import') { openFilesDlg(); }
+    else if (k === 'export') filesHub();
+    else if (k === 'files') { /* toggles the sub-list */ }
+    else if (k === 'settings') { U.left = true; applyLayout(); $('secProject').open = true; $('secProject').scrollIntoView({ block: 'nearest' }); }
+    markRail();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#rail [data-nav]'), function (b) { b.onclick = function () { navGo(b.dataset.nav); }; });
+  function markRail() { Array.prototype.forEach.call(document.querySelectorAll('#rail [data-nav]'), function (b) { var k = b.dataset.nav, on = (k === 'plan' && (S.view === 'plan' || S.view === 'split' && false)) || (k === 'profile' && S.view === 'profile') || (k === 'sag' && tab === 'sections' && U.anOpen && U.an === 'sag'); b.classList.toggle('on', on); }); }
+
+  /* analysis workspace under the plan */
+  function setAn(t, open) { U.an = t; if (open) U.anOpen = true; saveUi(); renderAnalysis(); }
+  function placeProfile() {
+    var box = $('profileView'), dock = U.anOpen && U.an === 'profile' && S.view !== 'profile' && S.view !== 'split';
+    if (dock) { if (box.parentNode !== $('anBody')) { $('anBody').innerHTML = ''; $('anBody').appendChild(box); } box.classList.add('docked'); }
+    else { if (box.parentNode !== $('stage')) $('stage').appendChild(box); box.classList.remove('docked'); }
+    return dock;
+  }
+  function groundTable() {
+    var rows = dm && dm.allPoles.length ? dm.allPoles.map(function (p) { return { id: p.id, ch: p.chainage, z: p.ground, len: p.length, h: p.height, sunk: p.sunk }; }) : built ? built.rows.map(function (r) { return { id: r.id, ch: r.chainage, z: r.elevation, len: r.length, h: r.height, sunk: r.sunk }; }) : [];
+    if (!rows.length) return '<p class="anmsg">No ground profile yet. Add poles to the active profile (select a pole on the plan, then Add to profile).</p>';
+    return '<table class="grid"><thead><tr><th>Pole</th><th class="num">Chainage (m)</th><th class="num">Ground level (m)</th><th class="num">Span back (m)</th><th class="num">Pole length (m)</th><th class="num">Above ground (m)</th><th class="num">Setting depth (m)</th></tr></thead><tbody>' + rows.map(function (r, i) {
+      return '<tr data-id="' + esc(r.id) + '" class="' + (isSel(r.id) ? 'sel' : '') + '"><td><b>' + esc(r.id) + '</b></td><td class="num">' + f2(r.ch) + '</td><td class="num">' + f2(r.z) + '</td><td class="num">' + (i ? f2(r.ch - rows[i - 1].ch) : '') + '</td><td class="num">' + f2(r.len, 1) + '</td><td class="num">' + f2(r.h, 2) + '</td><td class="num">' + f2(r.sunk, 2) + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+  function groundAtFn() {
+    var g = project && project.ground ? project.ground.map(function (q) { return { c: PNW.num(q.Chainage), z: PNW.num(q.Level) }; }).filter(function (q) { return isFinite(q.c) && isFinite(q.z); }) : [];
+    return g.length < 2 ? null : function (c) { for (var i = 1; i < g.length; i++) if (g[i].c >= c) { var a = g[i - 1], b = g[i], t = b.c === a.c ? 0 : (c - a.c) / (b.c - a.c); return a.z + (b.z - a.z) * Math.max(0, Math.min(1, t)); } return g[g.length - 1].z; };
+  }
+  function spanWires(a, b) { return dm ? dm.wires.filter(function (w) { return (w.from.pole === a && w.to.pole === b) || (w.from.pole === b && w.to.pole === a); }) : []; }
+  function spanClearance(a, b) {
+    var gz = groundAtFn(), ws = spanWires(a, b); if (!gz || !ws.length) return null;
+    var min = Infinity;
+    ws.forEach(function (w) { var c0 = chainOfPole(w.from.pole), c1 = chainOfPole(w.to.pole); if (c0 == null || c1 == null) return; for (var k = 0; k <= 10; k++) { var t = k / 10, z = w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0); min = Math.min(min, z - gz(c0 + (c1 - c0) * t)); } });
+    return isFinite(min) ? min : null;
+  }
+  function spanList() {
+    var ids = lineIds(), out = [];
+    for (var i = 1; i < ids.length; i++) {
+      var a = ids[i - 1], b = ids[i], A = poleXY(a), B = poleXY(b), ws = spanWires(a, b), cs = {}, mx = null;
+      ws.forEach(function (w) { cs[w.conductor] = 1; if (w.sag != null && (mx == null || w.sag > mx)) mx = w.sag; });
+      var ca = chainOfPole(a), cb = chainOfPole(b);
+      out.push({ a: a, b: b, len: A && B ? Math.hypot(A.e - B.e, A.n - B.n) : ca != null && cb != null ? Math.abs(cb - ca) : null, conds: Object.keys(cs), sag: mx, clr: spanClearance(a, b), sections: ws.map(function (w) { return w.segment; }).filter(function (v, k, ar) { return ar.indexOf(v) === k; }) });
+    }
+    return out;
+  }
+  function spanTable() {
+    var L0 = spanList(); if (!L0.length) return '<p class="anmsg">No spans yet: a profile needs at least two poles.</p>';
+    return '<table class="grid"><thead><tr><th>#</th><th>From</th><th>To</th><th class="num">Length (m)</th><th>Conductors</th><th class="num">Max sag (m)</th><th class="num">Min ground clearance (m)</th></tr></thead><tbody>' + L0.map(function (s, i) {
+      var on = S.selSpan && !S.selected && ((S.selSpan.a === s.a && S.selSpan.b === s.b) || (S.selSpan.a === s.b && S.selSpan.b === s.a));
+      return '<tr data-span="' + esc(s.a) + '|' + esc(s.b) + '" class="' + (on ? 'sel' : '') + '"><td>' + (i + 1) + '</td><td><b>' + esc(s.a) + '</b></td><td><b>' + esc(s.b) + '</b></td><td class="num">' + f2(s.len) + '</td><td>' + (s.conds.length ? esc(s.conds.join(', ')) : '<span class="muted">none strung</span>') + '</td><td class="num">' + f2(s.sag) + '</td><td class="num">' + f2(s.clr) + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+  function sectionRows() {
+    if (!project || !dm) return [];
+    return project.segments.map(function (sg) {
+      var n = sg.StrainSect, ws = dm.wires.filter(function (w) { return w.segment === n; }), sp = ws.filter(function (w) { return w.phase === 1; }).map(function (w) { return w.span; }), mx = null, src = '';
+      ws.forEach(function (w) { if (w.sag != null && (mx == null || w.sag > mx)) { mx = w.sag; src = w.sagSource || ''; } });
+      return { name: n, conductor: sg.Conductor, tension: sg.Tension + ' ' + (sg.TensionUnits || ''), spans: sp.length, ruling: sp.length ? M.rulingSpan(sp) : null, max: mx, src: src, first: ws[0] ? ws[0].from.pole : null };
+    });
+  }
+  function calcTable() {
+    var rows = sectionRows(); if (!rows.length) return '<p class="anmsg">' + (project ? 'No strain sections yet. String a conductor in the Conductor schedule.' : 'Sag and tension need a design: link a PNW project or start one from the ground profile.') + '</p>';
+    return '<table class="grid"><thead><tr><th>Section</th><th>Conductor</th><th class="num">Tension</th><th class="num">Spans</th><th class="num">Ruling span (m)</th><th class="num">Max sag (m)</th><th>Sag source</th></tr></thead><tbody>' + rows.map(function (r) {
+      return '<tr data-csec="' + esc(r.name) + '" data-cpole="' + esc(r.first || '') + '" class="' + (S.selSection === r.name ? 'sel' : '') + '"><td><b>' + esc(r.name) + '</b></td><td>' + esc(r.conductor) + '</td><td class="num">' + esc(r.tension) + '</td><td class="num">' + r.spans + '</td><td class="num">' + f2(r.ruling, 1) + '</td><td class="num">' + f2(r.max) + '</td><td>' + esc(r.src) + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+  function tipsumTable() {
+    if (!project || !dm) return '<p class="anmsg">Tipload needs a design: link a PNW project or start one from the ground profile.</p>';
+    if (!tipSet().cases.length) return '<p class="anmsg">Enter the load combinations in Tipload (Tipload in the navigation) to see results here.</p>';
+    var ids = tipPoles().filter(function (k) { return !/^tip:/.test(k); }); if (!ids.length) return '<p class="anmsg">No poles with a length yet.</p>';
+    return '<table class="grid"><thead><tr><th>Pole</th><th>Worst load case</th><th class="num">Load (kN)</th><th class="num">Direction (°)</th><th class="num">% of strength</th><th>Result</th><th>Status</th></tr></thead><tbody>' + ids.map(function (id) {
+      var r = null; try { r = tipCalc(id); } catch (e) { r = null; }
+      if (!r || !r.results.length) return '<tr data-id="' + esc(id) + '" class="' + (isSel(id) ? 'sel' : '') + '"><td><b>' + esc(id) + '</b></td><td colspan="6" class="muted">Not calculated (see the pole’s Loading section)</td></tr>';
+      var w = r.results.slice().sort(function (a, b) { return (b.pctHor != null ? b.pctHor : b.load) - (a.pctHor != null ? a.pctHor : a.load); })[0];
+      return '<tr data-id="' + esc(id) + '" class="' + (isSel(id) ? 'sel' : '') + '"><td><b>' + esc(id) + '</b></td><td>' + esc(w.name) + '</td><td class="num">' + f2(w.load) + '</td><td class="num">' + f2(w.dir, 0) + '</td><td class="num">' + (w.pctHor != null ? f2(w.pctHor, 0) : '–') + '</td><td>' + tipBadge(r.results.some(function (x) { return x.pass === false; }) ? { pass: false } : w) + '</td><td>' + (unverifiedFor(id) ? '<span class="pill unv">provisional</span>' : '<span class="pill ok">current</span>') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+  function calcSummaryHtml() {
+    var errs = allIssues.filter(function (i) { return i.level === 'error'; }).length, warns = allIssues.filter(function (i) { return i.level === 'warning'; }).length, unv = 0;
+    if (dm) dm.allPoles.forEach(function (p) { try { if (unverifiedFor(p.id)) unv++; } catch (e) { /* ignore */ } });
+    var secs = sectionRows(), tl = 0, fail = 0;
+    if (project && dm && tipSet().cases.length) tipPoles().filter(function (k) { return !/^tip:/.test(k); }).forEach(function (id) { try { var r = tipCalc(id); if (r && r.results.length) { tl++; if (r.results.some(function (x) { return x.pass === false; })) fail++; } } catch (e) { /* ignore */ } });
+    var t = function (k, v, c) { return '<div class="fact ' + (c || '') + '"><small>' + k + '</small><b>' + v + '</b></div>'; };
+    return '<div class="calcsum">' + t('Poles in profile', (dm ? dm.allPoles.length : prof().poleIds.length)) + t('Spans', spanList().length) + t('Strain sections', secs.length) + t('Max sag (m)', f2(secs.reduce(function (m, r) { return r.max != null && r.max > m ? r.max : m; }, 0) || null)) +
+      t('Tipload checked', tl) + t('Tipload fails', fail, fail ? 'bad' : '') + t('Errors', errs, errs ? 'bad' : '') + t('Warnings', warns, warns ? 'warn' : '') + t('Provisional poles', unv, unv ? 'warn' : '') + '</div>' +
+      '<p class="meta" style="padding:0 12px">' + (calcAt ? 'Last calculated ' + hhmmss(calcAt) + '. ' : '') + 'Sag uses ' + esc(({ auto: 'DCSH tables, else w·L²/8T', none: 'no sag', dcsh: 'DCSH Part 10 tables', illustrative: 'illustrative w·L²/8T' })[S.sagMode || 'auto']) + ' at ' + esc(S.sagTemp || 15) + ' °C. Every edit recalculates sag, tension and tipload for the affected poles and spans.</p>';
+  }
+  function sagDetail() {
+    if (!dm || !dm.wires.length) return '<p class="anmsg">' + (project ? 'No conductors are strung yet.' : 'Sag needs a design: link a PNW project or start one from the ground profile.') + '</p>';
+    var by = {}; dm.wires.forEach(function (w) { var k = w.segment + '|' + w.from.pole + '|' + w.to.pole; if (!by[k]) by[k] = { w: w, n: 0, mx: null }; by[k].n++; if (w.sag != null && (by[k].mx == null || w.sag > by[k].mx)) by[k].mx = w.sag; });
+    return '<table class="grid"><thead><tr><th>Section</th><th>From</th><th>To</th><th>Conductor</th><th class="num">Wires</th><th class="num">Span (m)</th><th class="num">Sag (m)</th><th>Source</th></tr></thead><tbody>' + Object.keys(by).map(function (k) {
+      var x = by[k], w = x.w, on = S.selSpan && !S.selected && S.selSpan.a === w.from.pole && S.selSpan.b === w.to.pole;
+      return '<tr data-span="' + esc(w.from.pole) + '|' + esc(w.to.pole) + '" class="' + (on || S.selSection === w.segment && isSel(w.from.pole) ? 'sel' : '') + '"><td><b>' + esc(w.segment) + '</b></td><td>' + esc(w.from.pole) + '</td><td>' + esc(w.to.pole) + '</td><td>' + esc(w.conductor) + '</td><td class="num">' + x.n + '</td><td class="num">' + f2(w.span) + '</td><td class="num">' + f2(x.mx) + '</td><td>' + esc(w.sagSource || '') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+  function renderAnalysis() {
+    var a = $('analysis'); if (!a) return;
+    a.classList.toggle('min', !U.anOpen); a.style.setProperty('--ah', U.ah + 'px'); $('anMin').textContent = U.anOpen ? '▾' : '▴';
+    Array.prototype.forEach.call(a.querySelectorAll('[data-an]'), function (b) { var on = b.dataset.an === U.an; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    var docked = placeProfile();
+    if (!U.anOpen) { markRail(); return; }
+    var body = $('anBody');
+    if (docked) { renderProfileView(); }
+    else if (U.an === 'profile') body.innerHTML = '<p class="anmsg">The longitudinal profile is open in the main workspace.</p>';
+    else if (U.an === 'ground') body.innerHTML = '<div class="tablewrap">' + groundTable() + '</div>';
+    else if (U.an === 'sag') body.innerHTML = '<div class="tablewrap">' + sagDetail() + '</div>';
+    else body.innerHTML = calcSummaryHtml();
+    markRail();
+  }
+  $('analysis').querySelector('.antabs').addEventListener('click', function (e) { var b = e.target.closest('[data-an]'); if (b) { U.an = b.dataset.an; U.anOpen = true; saveUi(); renderAnalysis(); } });
+  $('anMin').onclick = function () { U.anOpen = !U.anOpen; saveUi(); renderAnalysis(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); }, 30); };
+  (function () {
+    var r = $('anRes'), drag = null;
+    r.addEventListener('pointerdown', function (e) { drag = { y: e.clientY, h: U.ah }; r.setPointerCapture && r.setPointerCapture(e.pointerId); e.preventDefault(); });
+    r.addEventListener('pointermove', function (e) { if (!drag) return; U.ah = Math.max(120, Math.min(window.innerHeight * 0.7, drag.h + (drag.y - e.clientY))); $('analysis').style.setProperty('--ah', U.ah + 'px'); });
+    r.addEventListener('pointerup', function () { if (!drag) return; drag = null; saveUi(); if (map && map.invalidateSize) map.invalidateSize(); if ($('profileView').classList.contains('docked')) renderProfileView(); });
+  })();
+
+  /* profile toolbar: layer toggles and profile switcher */
+  (function () {
+    var t = $('pvTools');
+    t.insertAdjacentHTML('beforeend', '<select id="pvProf" class="btn small" aria-label="Active profile" title="Switch profile without leaving the view"></select><span class="seg pvtog" role="group" aria-label="Profile layers"><button class="btn small on" data-pvt="ground" title="Ground profile (terrain)">Ground</button><button class="btn small on" data-pvt="clr" title="Clearance line above the ground">Clearance</button><button class="btn small on" data-pvt="hv" title="HV conductors">HV</button><button class="btn small on" data-pvt="lv" title="LV conductors">LV</button><button class="btn small on" data-pvt="earth" title="Earth wire">Earth</button><button class="btn small on" data-pvt="att" title="Attachment points and heights">Attach.</button></span>');
+    t.addEventListener('click', function (e) { var b = e.target.closest('[data-pvt]'); if (!b) return; var s = U.pvShow = U.pvShow || {}, k = b.dataset.pvt; s[k] = s[k] === false; saveUi(); syncPvTools(); renderProfileView(); });
+    $('pvProf').onchange = function () { S.active = +this.value; S.generated = false; recompute(); };
+    $('anMin').parentNode.insertAdjacentHTML('afterbegin', '<span id="anPv" class="seg" hidden><button data-anpv="out" title="Zoom out" aria-label="Zoom out">−</button><button data-anpv="in" title="Zoom in" aria-label="Zoom in">＋</button><button data-anpv="fit" title="Fit the whole profile">⤢ Fit</button></span>');
+    $('anPv').addEventListener('click', function (e) { var b = e.target.closest('[data-anpv]'); if (!b) return; if (b.dataset.anpv === 'fit') pvFit(); else pvZoom(b.dataset.anpv === 'in' ? 0.7 : 1 / 0.7); });
+  })();
+  function syncPvTools() {
+    var s = pvShow(); Array.prototype.forEach.call(document.querySelectorAll('[data-pvt]'), function (b) { b.classList.toggle('on', s[b.dataset.pvt]); b.setAttribute('aria-pressed', s[b.dataset.pvt]); });
+    $('pvProf').innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + '</option>'; }).join('');
+    $('pvProf').hidden = S.profiles.length < 2;
+  }
+
+  /* selection panel pieces */
+  function loadPane(id) {
+    if (!project || !dm) return startDesignHint();
+    if (!tipSet().cases.length) return '<p class="hint">Enter the load combinations in Tipload to see the loading on ' + esc(id) + '.</p><div class="btnrow"><button class="btn small" data-tipopen="' + esc(id) + '">Open tipload</button></div>';
+    var h = tipSummaryHtml(id);
+    return (h || '<p class="hint">No tipload for ' + esc(id) + ' yet: it needs a pole length and a construction.</p>') + (calcAt ? '<p class="meta">Calculated ' + hhmmss(calcAt) + '. Edits to this pole or its spans recalculate it.</p>' : '');
+  }
+  function conductorPane(n) {
+    var sg = project && project.segments.filter(function (x) { return x.StrainSect === n; })[0];
+    if (!sg) return '<p class="hint">Strain section ' + esc(n) + ' is not in the linked project.</p>';
+    var cd = conductorFor(sg.Conductor), ws = dm ? dm.wires.filter(function (w) { return w.segment === n; }) : [], p1 = ws.filter(function (w) { return w.phase === 1; }), sp = p1.map(function (w) { return w.span; }), mx = null;
+    ws.forEach(function (w) { if (w.sag != null && (mx == null || w.sag > mx)) mx = w.sag; });
+    var h = '<div class="facts">' + fact('Conductor', sg.Conductor) + fact('Tension', sg.Tension + ' ' + (sg.TensionUnits || '')) + fact('Spans', sp.length) + fact('Ruling span (m)', sp.length ? M.rulingSpan(sp).toFixed(1) : '') + fact('Max sag (m)', mx != null ? mx.toFixed(2) : '') + fact('Temperature (°C)', S.sagMode === 'none' || S.sagMode === 'illustrative' ? '–' : (S.sagTemp || 15), '', 'Set in Display: sag and temperature') + '</div>';
+    h += '<div class="row2"><div class="field"><label for="ctn">Tension</label><input id="ctn" data-ctn="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal"></div><div class="field"><label for="ctu">Units</label><select id="ctu" data-ctu="' + esc(n) + '"><option' + (sg.TensionUnits === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (sg.TensionUnits === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
+    if (cd) { var skip = { weight_per_m: 0 }, rows = Object.keys(cd).filter(function (k) { return cd[k] != null && cd[k] !== '' && typeof cd[k] !== 'object' && String(cd[k]).length < 90; }).slice(0, 12); h += '<h3 class="sub" style="margin-top:6px">Specification</h3><table class="props">' + rows.map(function (k) { return '<tr><th>' + esc(k) + '</th><td>' + esc(cd[k]) + '</td></tr>'; }).join('') + '</table>'; }
+    else h += '<p class="hint warn">' + esc(sg.Conductor) + ' is not in the PNW library tables, so it has no properties here.</p>';
+    var cases = tipSet().cases; h += '<h3 class="sub" style="margin-top:8px">Loading conditions</h3><p class="meta">' + (cases.length ? cases.map(function (c) { return esc(c.name); }).join(' · ') : 'No tipload load combinations entered yet.') + '</p>';
+    var by = {}; p1.forEach(function (w) { by[w.from.pole + '|' + w.to.pole] = w; });
+    h += '<h3 class="sub" style="margin-top:8px">Sag by span</h3><table class="att"><tr><th>Span</th><th class="num">Length (m)</th><th class="num">Sag (m)</th></tr>' + Object.keys(by).map(function (k) { var w = by[k]; return '<tr data-span="' + esc(k) + '" style="cursor:pointer" title="' + esc(w.sagSource || '') + '"><td>' + esc(w.from.pole) + ' → ' + esc(w.to.pole) + '</td><td class="num">' + w.span.toFixed(2) + '</td><td class="num">' + (w.sag != null ? w.sag.toFixed(2) : '–') + '</td></tr>'; }).join('') + '</table>';
+    h += '<div class="btnrow"><button class="btn small" data-wb="recalc">⟳ Recalculate</button><button class="btn small" data-secshow="' + esc(n) + '">Highlight in 3D</button><button class="btn small" data-gotab="sections">Conductor schedule</button><button class="btn small" data-wb="unsec">Done</button></div>';
+    return h;
+  }
+  function multiPane() {
+    var ids = S.multi.slice(), p = prof(), inP = ids.filter(function (k) { return p.poleIds.indexOf(k) >= 0; }), dsg = project ? ids.filter(function (k) { return project.poles.some(function (r) { return r.ID === k; }); }) : [];
+    var chs = ids.map(chainOfPole).filter(function (v) { return v != null; });
+    var h = '<div class="inspane"><div class="ins-title"><b>' + ids.length + ' poles selected</b><span class="pill info">Bulk edit</span></div><div class="facts">' + fact('Selected', ids.length) + fact('In profile', inP.length + ' of ' + ids.length) + fact('Design poles', dsg.length) + (chs.length > 1 ? fact('Chainage span (m)', (Math.max.apply(null, chs) - Math.min.apply(null, chs)).toFixed(1)) : '') + '</div>';
+    h += '<div class="chipsel">' + ids.map(function (k) { return '<button data-pick="' + esc(k) + '" title="Select only ' + esc(k) + '">' + esc(k) + '</button>'; }).join('') + '</div>';
+    h += '<h3 class="sub">Profile</h3><div class="bulk"><button class="btn small" data-wb="madd"' + (inP.length === ids.length ? ' disabled' : '') + '>Add all to profile</button><button class="btn small" data-wb="mrem"' + (inP.length ? '' : ' disabled') + '>Remove from profile</button><button class="btn small" data-wb="mzoom">⌖ Zoom to selection</button></div>';
+    h += '<h3 class="sub">Pole length</h3><div class="bulk"><div class="field"><input id="bkLen" inputmode="decimal" placeholder="m" style="width:80px" aria-label="New pole length for all selected poles in the profile"></div><button class="btn small" data-wb="mlen"' + (inP.length ? '' : ' disabled title="Only poles in the profile have a length"') + '>Set length on ' + inP.length + ' pole' + (inP.length === 1 ? '' : 's') + '</button></div>';
+    h += '<h3 class="sub">Design</h3><div class="bulk"><button class="btn small" data-wb="mstay"' + (dsg.length ? '' : ' disabled title="Needs poles in the linked design"') + '>＋ Stay on each</button><button class="btn small" data-wb="mver"' + (dsg.length ? '' : ' disabled') + ' title="Mark photo-derived changes on these poles as verified in the field">✓ Mark verified</button><button class="btn small" data-wb="mtip">⇲ Tipload</button></div>';
+    h += '<p class="hint">Shift- or Ctrl-click poles on the plan, profile or in the tables to add or remove them. Click a pole name above to work on it alone.</p><div class="btnrow"><button class="btn small" data-ctx="clear">Clear selection</button></div></div>';
+    return h;
+  }
+  var GROUPS = [['config', 'Pole', ['pole', 'equip']], ['cons', 'Construction', ['design']], ['cond', 'Conductors', ['cond', 'conductors']], ['att', 'Attachments', ['attach']], ['load', 'Load', ['load', 'photo', 'checks']]];
+  var SEC_TITLE = { pole: 'General', equip: 'Transformer & stays', cond: '', conductors: 'Conductors on this pole', design: 'Construction',
+ attach: 'Attachment points', load: 'Loading & tipload', photo: '✨ AI photo analysis', checks: 'Checks' };
+  var lastReq = null;
+  function groupOf(key) { for (var i = 0; i < GROUPS.length; i++) if (GROUPS[i][2].indexOf(key) >= 0) return GROUPS[i][0]; return 'config'; }
+  function accOpenNow(key, g) { var o = U.accOpen = U.accOpen || {}; return o[key] === undefined ? g[2][0] === key : !!o[key]; }
+  function openSection(key) { U.accOpen = U.accOpen || {}; U.accOpen[key] = true; U.insGroup = groupOf(key); U.insTab = key; lastReq = key; }
+  function accHtml(panes, badges) {
+    if (U.insTab && U.insTab !== lastReq && U.insTab !== 'pole') openSection(U.insTab); else lastReq = U.insTab;
+    var gid = U.insGroup || 'config', g = GROUPS.filter(function (x) { return x[0] === gid; })[0] || GROUPS[0];
+    var keys = g[2].filter(function (k) { return k !== 'cond' || S.selSection; });
+    var h = '<div class="ptabs" role="tablist" aria-label="Pole details">' + GROUPS.map(function (x) { return '<button role="tab" data-insgroup="' + x[0] + '" aria-selected="' + (x[0] === g[0]) + '" class="' + (x[0] === g[0] ? 'on' : '') + '">' + x[1] + (x[0] === 'load' && badges.checks ? badges.checks : '') + '</button>'; }).join('') + '</div><div class="acc">';
+    h += keys.map(function (k) {
+      var on = accOpenNow(k, g), title = k === 'cond' ? 'Conductor · ' + esc(S.selSection) : SEC_TITLE[k];
+      return '<div class="accs' + (on ? ' open' : '') + (k === 'cond' ? ' cond' : '') + '"><button class="acch" role="button" data-instab="' + k + '" aria-expanded="' + on + '">' + title + (badges[k] || '') + '</button>' + (on ? '<div class="inspane" role="tabpanel">' + panes(k) + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
+    return h;
+  }
+  function qaList(id) {
+    return '<div class="qlist"><h4>Quick Actions</h4><button class="primary" data-ctx="profile">📈 Open Profile</button><button data-ctx="street">📷 Street View</button><button data-wb="edit">✎ Edit Pole</button><button data-ctx="photo">✨ AI Analysis<span class="new">New</span></button></div>';
+  }
+  $('selected').addEventListener('click', function (e) { var g = e.target.closest('[data-insgroup]'); if (g) { U.insGroup = g.dataset.insgroup; saveUi(); renderSelected(); } });
+  $('insNewProf').onclick = function () { $('newProfile').click(); };
+  function postSelected() {
+    var eq = S.selEquip && S.selEquip.pole === S.selected ? S.selEquip : null, any = false;
+    Array.prototype.forEach.call($('selected').querySelectorAll('.xrow'), function (r) {
+      var f = r.querySelector('[data-xf]'); if (!f || !/^(stays|plant)\|/.test(f.dataset.xf)) return;
+      var k = f.dataset.xf.split('|'); r.dataset.eq = k[0] + '|' + k[1]; r.title = 'Click the name to select only this item';
+      var on = eq && ((k[0] === 'stays') === (eq.kind === 'stay')) && +k[1] === eq.i; if (eq) { r.hidden = !on; if (on) any = true; }
+    });
+    if (eq && any) { var first = $('selected').querySelector('.xrow:not([hidden])'); first.insertAdjacentHTML('beforebegin', '<p class="meta"><b>' + (eq.kind === 'stay' ? 'Stay' : 'Transformer') + ' selected</b> · only its properties are shown. <button class="btn small" data-wb="eqall">Show all equipment</button></p>'); }
+    else if (eq && !any) S.selEquip = null;
+    var it = $('selected').querySelector('.ins-title');
+    if (it && S.selected && !(S.multi && S.multi.length)) {
+      var ids = lineIds(), i = ids.indexOf(S.selected), A = i > 0 && poleXY(ids[i - 1]), B = poleXY(S.selected), len = A && B ? Math.hypot(A.e - B.e, A.n - B.n) : null;
+      it.insertAdjacentHTML('beforeend', '<span class="pill selected" style="background:#e3f4ea;color:#1f7a45">Selected</span>');
+      it.insertAdjacentHTML('afterend', '<small class="meta" style="display:block;margin:-2px 0 6px">' + (i > 0 && len != null ? 'Span ' + i + ' &nbsp;|&nbsp; ' + len.toFixed(1) + ' m (' + esc(ids[i - 1]) + ' → ' + esc(S.selected) + ')' : i === 0 ? 'First pole of the line' : 'Not on the line yet') + '</small>');
+    }
+    renderStatusBar();
+  }
+  function renderStatusBar() {
+    var bar = $('sbDyn'); if (!bar) return;
+    var errs = allIssues.filter(function (i) { return i.level === 'error'; }).length, warns = allIssues.filter(function (i) { return i.level === 'warning'; }).length, unv = 0;
+    if (dm) dm.allPoles.forEach(function (p) { try { if (unverifiedFor(p.id)) unv++; } catch (e) { /* ignore */ } });
+    var h = !dm ? '<span class="sb"><span class="dot mute"></span>No design linked: sag, tension and tipload need a PNW project</span>' : '<span class="sb"><span class="dot' + (errs ? ' bad' : warns || unv ? ' warn' : '') + '"></span>Calculations ' + (errs ? 'have errors' : unv ? 'provisional' : 'up to date') + (calcAt ? ' · ' + hhmmss(calcAt) : '') + ' · ' + dm.allPoles.length + ' poles · ' + (project ? project.segments.length : 0) + ' sections</span>';
+    h += errs || warns ? '<button class="sb" data-sb="issues" title="Show the issues">' + errs + ' error' + (errs === 1 ? '' : 's') + ' · ' + warns + ' warning' + (warns === 1 ? '' : 's') + '</button>' : '<span class="sb">No issues</span>';
+    if (unv) h += '<span class="sb" title="Photo or AI-derived changes that have not been verified in the field">⚠ ' + unv + ' pole' + (unv === 1 ? '' : 's') + ' with unverified photo changes</span>';
+    var selTxt = S.multi && S.multi.length > 1 ? S.multi.length + ' poles selected' : S.selSpan && !S.selected ? 'Span ' + S.selSpan.a + ' → ' + S.selSpan.b : S.selected ? 'Pole ' + S.selected + (S.selSection ? ' · conductor ' + S.selSection : '') : 'Nothing selected';
+    h += '<span class="sb">⌖ ' + esc(selTxt) + '</span><span class="grow"></span>';
+    h += dirty ? '<button class="sb" data-sb="save" title="Your work is kept in this browser automatically. Save a project file to keep a copy.">● Unsaved changes: save project file</button>' : '<span class="sb">✓ Saved</span>';
+    bar.innerHTML = h;
+  }
+  $('statusBar').addEventListener('click', function (e) { var b = e.target.closest('[data-sb]'); if (!b) return; if (b.dataset.sb === 'issues') $('tbIssues').click(); else $('tbSave').click(); });
+  function syncHeader() {
+    var sel = $('projTitle'); sel.innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + (linked && i === S.active ? ' · ' + esc(linked.name.replace(/\.pnwx$/i, '')) : '') + '</option>'; }).join('');
+    var opts = Object.keys(merged.poles).map(function (k) { return '<option value="' + esc(k) + '">'; });
+    var ids = lineIds(); for (var i = 1; i < ids.length; i++) opts.push('<option value="' + esc(ids[i - 1] + ' → ' + ids[i]) + '">');
+    $('gsList').innerHTML = opts.join('');
+  }
+  $('projTitle').onchange = function () { S.active = +this.value; S.generated = false; recompute(); };
+  $('gsearch').addEventListener('change', function () {
+    var v = this.value.trim(), lo = v.toLowerCase(), pid = Object.keys(merged.poles).filter(function (k) { return k.toLowerCase() === lo; })[0];
+    if (pid) { select(pid); showPole(pid); this.value = ''; return; }
+    var m = v.split(/\s*(?:→|->|>|\|)\s*/); if (m.length === 2 && poleXY(m[0]) && poleXY(m[1])) { selectSpan(m[0], m[1]); this.value = ''; return; }
+    if (v) setStatus('“' + v + '” is not a pole or span in this project.', 'bad');
+  });
+  var wsReady = false;
+  function renderExtras(sel) { if (!wsReady) return; if (sel && /^(spans|calc|tipsum)$/.test(tab)) renderTable(); syncHeader(); syncPvTools(); renderAnalysis(); renderStatusBar(); markRail(); renderExplorer(); syncPlanProf(); syncAnCtl(); syncTitleBar(); syncRibbon(); syncTabMore(); }
+
+  /* delegated actions from the contextual panel, bars and tables */
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-wb]');
+    if (b) {
+      var act = b.dataset.wb, id = S.selected, ids = S.multi || [], p = prof();
+      if (act === 'edit') { var man = S.files.some(function (f) { return f.manual && f.items.some(function (x) { return x.id === id; }); }); U.insTab = 'pole'; U.right = true; applyLayout(); saveUi(); if (man) openPoleDlg(id); else { renderSelected(); setStatus('Editing ' + id + ': change its length, construction, conductors and equipment in the sections on the right.'); } }
+      else if (act === 'spanedit') { var s = S.selSpan; if (s) { var mb = S.files.some(function (f) { return f.manual && f.items.some(function (x) { return x.id === s.b; }); }); if (mb) openPoleDlg(s.b); else { select(s.b); setStatus('A span follows its end poles: edit ' + s.b + ' here, or reorder poles in the Project panel.'); } } }
+      else if (act === 'spancond') { var s2 = S.selSpan; if (!project) { setStatus('Start a design first to add conductors.', 'bad'); return; } if (s2) { secForm = Object.assign({ tension: '', units: '%CBL' }, secForm || {}, { from: s2.a, to: s2.b }); openTab('sections'); setStatus('String a conductor across ' + s2.a + ' → ' + s2.b + ' in the Conductor schedule: pick the circuit and tension, then Add.'); } }
+      else if (act === 'spansag') { var s3 = S.selSpan; if (s3) { var ca = chainOfPole(s3.a), cb = chainOfPole(s3.b); if (ca != null && cb != null) pvSet(Math.min(ca, cb) - 5, Math.max(ca, cb) + 5); } setAn('sag', true); if (S.view !== 'plan' && S.view !== '3d') renderProfileView(); }
+      else if (act === 'recalc') { recompute(); setStatus('Recalculated sag, tension and tipload.', 'good'); }
+      else if (act === 'unsec') { S.selSection = null; select(S.selected); }
+      else if (act === 'eqall') { S.selEquip = null; renderSelected(); }
+      else if (act === 'madd') { ids.forEach(function (k) { if (p.poleIds.indexOf(k) < 0) p.poleIds.push(k); }); p.poleIds = PNW.autoOrder(merged.poles, p.poleIds); S.generated = false; recompute(); setStatus(ids.length + ' poles are in the profile, ordered along the line.', 'good'); }
+      else if (act === 'mrem') { p.poleIds = p.poleIds.filter(function (k) { return ids.indexOf(k) < 0; }); S.generated = false; recompute(); }
+      else if (act === 'mzoom') { var cs = ids.map(chainOfPole).filter(function (v) { return v != null; }); if (S.view === 'profile' && cs.length) { pvSet(Math.min.apply(null, cs) - 5, Math.max.apply(null, cs) + 5); renderProfileView(); } else { var lls = ids.map(function (k) { var q = merged.poles[k]; return q && (poleLatLng(q) || (q.gis && q.gis.lat != null ? L.latLng(q.gis.lat, q.gis.lng) : null)); }).filter(Boolean); if (lls.length) map.fitBounds(L.latLngBounds(lls).pad(0.3)); } }
+      else if (act === 'mlen') { var n = PNW.num($('bkLen').value); if (!(n > 0) || n > 60) { setStatus('“' + $('bkLen').value + '” is not a valid pole length in metres.', 'bad'); return; } ids.forEach(function (k) { if (p.poleIds.indexOf(k) < 0) return; var ex = merged.poles[k] ? PNW.existingLength(merged.poles[k]).value : null; if (n === ex) delete p.lengths[k]; else p.lengths[k] = n; }); S.generated = false; var keep = ids.slice(); recompute(); S.multi = keep; select(keep[keep.length - 1], { add: false, keepMulti: true }); setStatus('Pole length ' + n + ' m applied; heights, sag and tipload recalculated.', 'good'); }
+      else if (act === 'mstay') { var did = 0; ids.forEach(function (k) { var cons = ((dm && dm.byPole[k]) || []).filter(function (c) { return c.kingbolt != null; }); if (cons.length && project.poles.some(function (r) { return r.ID === k; })) { addExtra(k, 'stay'); did++; } }); setStatus(did + ' stay' + (did === 1 ? '' : 's') + ' added with library defaults; check each pole’s Transformer & stays section.', did ? 'good' : 'bad'); }
+      else if (act === 'mver') { var vv = S.design.verified = S.design.verified || {}, now = new Date().toISOString(); ids.forEach(function (k) { vv[k] = { at: now, by: S.settings.createdBy || 'designer' }; }); save(); renderSelected(); renderStatusBar(); setStatus('Marked ' + ids.length + ' poles as verified in the field.', 'good'); }
+      else if (act === 'mtip') openTip(id);
+      return;
+    }
+    var c = e.target.closest('[data-csec]'); if (c && !e.target.closest('input,select,button')) { select(c.dataset.cpole || S.selected, { segment: c.dataset.csec }); return; }
+    var sp = e.target.closest('#tableWrap [data-span], #anBody [data-span], #selected [data-span]'); if (sp && !e.target.closest('input,select,button')) { var k = sp.dataset.span.split('|'); selectSpan(k[0], k[1]); return; }
+    var an = e.target.closest('#anBody tr[data-id]'); if (an) { select(an.dataset.id, addInfo(e)); showPole(an.dataset.id); return; }
+    var q = e.target.closest('.xrow[data-eq] > b'); if (q) { var r = q.parentNode, kk = r.dataset.eq.split('|'); S.selEquip = { pole: S.selected, kind: kk[0] === 'stays' ? 'stay' : 'transformer', i: +kk[1] }; renderSelected(); }
+  });
+  $('selected').addEventListener('change', function (e) {
+    var t = e.target, d = t.dataset; if (d.ctn == null && d.ctu == null) return;
+    var n = d.ctn || d.ctu, tv = PNW.num($('ctn').value);
+    if (d.ctn != null && !(tv > 0)) { setStatus('“' + t.value + '” is not a valid tension for ' + n + '.', 'bad'); renderSelected(); return; }
+    commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = sg.Tension + ' ' + sg.TensionUnits; M.updateSection(p, n, d.ctn != null ? { tension: tv } : { units: t.value }); return [logEntry('', n, 'Tension', from, (d.ctn != null ? tv + ' ' + sg.TensionUnits : $('ctn').value + ' ' + t.value), 'manual')]; });
+    setStatus('Section ' + n + ' updated; sag, tension and tipload recalculated.', 'good');
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && $('genDlg').hidden && (S.multi && S.multi.length > 1)) select(null); });
+  window.addEventListener('beforeunload', function (e) { if (dirty && S.files.length) { e.preventDefault(); e.returnValue = ''; } });
+
+  /* ---------- CAD shell: ribbon, explorer, title bar, status readouts, extra tools and tables ---------- */
+  var multiMode = false, snapOn = true, ribTab = U.rtab || 'Home';
+  var TOOL_HINT = { select: 'Select: click a pole or span (Shift or Ctrl adds)', pan: 'Pan: drag the plan', measure: 'Measure: click points or poles', draw: 'Draw: click the plan to place a new pole', move: 'Move: select a hand-made pole, then click its new position' };
+  function updToolStatus() { $('sbTool').innerHTML = 'Tool: <b>' + ({ select: 'Select', pan: 'Pan', measure: 'Measure', draw: 'Draw pole', move: 'Move pole' }[planTool] || planTool) + (multiMode ? ' · multi' : '') + '</b>'; $('sbTool').title = TOOL_HINT[planTool] || ''; syncRibbon(); }
+  function runWb(act) { var b = document.createElement('button'); b.dataset.wb = act; b.hidden = true; document.body.appendChild(b); b.click(); b.remove(); }
+  function poleLL(id) { var q = merged.poles[id]; return q && (poleLatLng(q) || (q.gis && q.gis.lat != null ? L.latLng(q.gis.lat, q.gis.lng) : null)); }
+  function snapLL(ll) {
+    if (!snapOn || !ll || !map.latLngToContainerPoint) return ll;
+    var pt = map.latLngToContainerPoint(ll), best = null, bd = 12;
+    Object.keys(merged.poles).forEach(function (k) { var l2 = poleLL(k); if (!l2) return; var d = map.latLngToContainerPoint(l2).distanceTo(pt); if (d < bd) { bd = d; best = l2; } });
+    return best || ll;
+  }
+  function panPlanTo(ll) { try { if (ll && map.getBounds && !map.getBounds().contains(ll)) map.panTo(ll); } catch (e) { /* ignore */ } }
+
+  /* ribbon */
+  var RIB = [
+    ['Home', [
+      ['Modify', [['select', 'Select', '⬉', 'tool', 'Select poles and spans'], ['multi', 'Multi-select', '⬚', 'multi', 'Add to the selection with every click (or hold Shift/Ctrl)'], ['pan', 'Pan', '✋', 'tool', 'Pan the plan'], ['zin', 'Zoom in', '⊕', 'zoom'], ['zout', 'Zoom out', '⊖', 'zoom'], ['fit', 'Fit', '⤢', 'tool', 'Fit the whole project in the current view'], ['measure', 'Measure', '📏', 'tool', 'Measure distances on the plan']]],
+      ['Poles', [['aPole', 'Add pole', '●', 'run', 'Create a pole: coordinates, from another pole, or click the plan'], ['move', 'Move pole', '✥', 'tool', 'Move a hand-made pole'], ['delPole', 'Delete pole', '🗑', 'fn', 'Delete the selected pole']]],
+      ['Spans', [['aSpan', 'Add span', '↔', 'run', 'Join two poles'], ['editSpan', 'Edit span', '✎', 'fn', 'Edit the selected span'], ['aX', 'Intersection', '✕', 'run', 'Intersection span at the selected pole']]],
+      ['Equipment', [['tbCond', 'Draw conductor', '〰', 'run', 'Draw a strain section pole to pole: snaps to poles on the plan and to attachment points in 3D and profile (Esc to stop)'], ['aCond', 'Conductor', '〰', 'run', 'Add a conductor on the selected pole'], ['construction', 'Construction', '⊞', 'fn', 'Add or edit constructions and attachments on the selected pole'], ['aTx', 'Transformer', '▣', 'run', 'Add a transformer to the selected pole'], ['aStay', 'Stays', '⟋', 'run', 'Add a stay to the selected pole (edit it in Properties)']]],
+      ['Review', [['tbAuto', 'Auto design', '🪄', 'run', 'Full draft design from QLINK, GIS exports and pole photos (Street View where there is no photo), for review'], ['mStreet', 'Street View', '🛣', 'run', 'Street View of the selected pole, with capture'], ['tbAi', 'AI photo', '✨', 'run', 'Analyse a pole photo with AI']]],
+      ['Calculate', [['sagten', 'Sag & Tension', '⌒', 'fn', 'Conductor schedule and sag results'], ['tbTip', 'Tipload', '⇲', 'run', 'Tipload of every pole'], ['validate', 'Validate', '✓', 'fn', 'Recalculate everything and list the warnings']]],
+      ['History', [['tbUndo', 'Undo', '↶', 'run'], ['tbRedo', 'Redo', '↷', 'run']]]]],
+    ['Files', [
+      ['Import', [['tbUpload', 'Import files', '⇪', 'run', 'LiDAR, GIS, inspections, conductor spreadsheets, PNW files'], ['mImported', 'Imported files', '🗂', 'run', 'Review everything imported, with data mapping'], ['mPhotos', 'Pole photos', '📷', 'run', 'Match photos to poles']]],
+      ['Project', [['tbOpen', 'Open', '📂', 'run'], ['tbSave', 'Save', '💾', 'run'], ['tbReset', 'New', '⟲', 'run', 'New project']]],
+      ['Export', [['tbGenerate', 'Ground profile', '▶', 'run', 'Generate and review the ground profile'], ['tbExport', 'PNW files', '⬇', 'run', 'Export the PNW ground profile and .pnwx'], ['mExpTip', 'Tipload CSV', '⇲', 'run'], ['mExpLog', 'Change log', '🧾', 'run']]]]],
+    ['View', [
+      ['Views', [['v:plan', 'Plan', '◫', 'view'], ['v:profile', 'Profile', '📈', 'view'], ['v:3d', '3D', '🧊', 'view'], ['v:split', '3D + Profile', '⧉', 'view']]],
+      ['Navigate', [['fit', 'Fit', '⤢', 'tool'], ['zin', 'Zoom in', '⊕', 'zoom'], ['zout', 'Zoom out', '⊖', 'zoom']]],
+      ['Layers', [['chk', [['lySurvey', 'Poles'], ['lyAlign', 'Spans'], ['lySpanLbl', 'Span lengths'], ['lyGis', 'GIS positions']]], ['chk', [['pv:hv', 'HV conductors'], ['pv:lv', 'LV conductors'], ['pv:ground', 'Ground profile'], ['pv:att', 'Attachments']]]]],
+      ['Panels', [['pan:tbSide', 'Explorer', '◧', 'run'], ['pan:tbInspector', 'Properties', '◨', 'run'], ['pan:tbDock', 'Tables', '⬓', 'run'], ['pan:an', 'Profile', '▤', 'fn']]]]],
+    ['Settings', [
+      ['Project', [['settings', 'Project & PNW', '⚙', 'fn'], ['tbIssues', 'Issues', '⚠', 'run']]],
+      ['Display', [['sagset', 'Sag display', '⌒', 'fn', 'How sag and temperature are drawn'], ['tbLabels', 'Pole labels', '🏷', 'run']]]]]
+  ];
+  var FN = {
+    delPole: function () {
+      var id = S.selected; if (!id) { setStatus('Select a pole first.', 'bad'); return; }
+      var man = S.files.some(function (f) { return f.manual && f.items.some(function (x) { return x.id === id; }); });
+      openGen('Delete pole ' + id, '<p>' + (man ? 'Pole <b>' + esc(id) + '</b> was created by hand. It will be removed from the project and from every profile.' : 'Pole <b>' + esc(id) + '</b> comes from an imported file, so the source data stays. It will only be removed from the active profile.') + '</p><div class="btnrow"><button class="btn danger" id="dpOk">Delete</button><button class="btn" id="dpNo">Cancel</button></div>', { narrow: true });
+      $('dpNo').onclick = closeGen;
+      $('dpOk').onclick = function () {
+        closeGen();
+        if (man) { var mf = S.files.filter(function (x) { return x.manual; })[0]; mf.items = mf.items.filter(function (x) { return x.id !== id; }); mf.summary = mf.items.length + ' poles'; if (!mf.items.length) S.files = S.files.filter(function (x) { return x !== mf; }); S.profiles.forEach(function (p) { p.poleIds = p.poleIds.filter(function (x) { return x !== id; }); delete p.lengths[id]; }); }
+        else prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; });
+        S.selected = null; S.multi = []; S.generated = false; recompute(); select(null); setStatus('Pole ' + id + (man ? ' deleted.' : ' removed from the profile.'), 'good');
+      };
+    },
+    editSpan: function () { if (!S.selSpan) { setStatus('Select a span first: click a span on the plan, the profile or the Span table.', 'bad'); return; } runWb('spanedit'); },
+    construction: function () { var id = S.selected; if (!id) { setStatus('Select a pole first.', 'bad'); return; } if (!project) { setStatus('Start a design first to add constructions.', 'bad'); return; } U.right = true; applyLayout(); openSection('design'); saveUi(); select(id); },
+    sagten: function () { navGo('sag'); },
+    validate: function () { recompute(); openTab('issues'); var e = allIssues.filter(function (i) { return i.level === 'error'; }).length, w = allIssues.filter(function (i) { return i.level === 'warning'; }).length; setStatus('Validated and recalculated: ' + e + ' error' + (e === 1 ? '' : 's') + ', ' + w + ' warning' + (w === 1 ? '' : 's') + '.', e ? 'bad' : 'good'); },
+    settings: function () { U.left = true; applyLayout(); $('secProject').open = true; $('secProject').scrollIntoView({ block: 'nearest' }); },
+    sagset: function () { $('dispBtn').click(); },
+    'pan:an': function () { U.anOpen = !U.anOpen; saveUi(); renderAnalysis(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); }, 30); }
+  };
+  function ribBtn(d) {
+    var id = d[0], title = d[1], type = d[3];
+    return '<button class="rbt" data-rid="' + esc(id) + '" data-rt="' + type + '" title="' + esc(d[4] || title) + '" aria-label="' + esc(title) + '"><span class="ic">' + d[2] + '</span><span>' + esc(title) + '</span></button>';
+  }
+  function renderRibbon() {
+    $('rtabs').innerHTML = RIB.map(function (t) { return '<button role="tab" data-rtab="' + t[0] + '" class="' + (t[0] === ribTab ? 'on' : '') + '" aria-selected="' + (t[0] === ribTab) + '">' + t[0] + '</button>'; }).join('');
+    var tab = RIB.filter(function (t) { return t[0] === ribTab; })[0] || RIB[0];
+    $('rbody').innerHTML = tab[1].map(function (g) {
+      var inner = g[1].map(function (d) {
+        if (d[0] === 'chk') return '<div class="rcol">' + d[1].map(function (c) { return '<label class="rchk"><input type="checkbox" data-rchk="' + c[0] + '"> ' + c[1] + '</label>'; }).join('') + '</div>';
+        return ribBtn(d);
+      }).join('');
+      return '<div class="rgrp"><div class="rbtns">' + inner + '</div><div class="rlab">' + g[0] + '</div></div>';
+    }).join('');
+    syncRibbon();
+  }
+  function syncRibbon() {
+    Array.prototype.forEach.call(document.querySelectorAll('#rbody .rbt'), function (b) {
+      var id = b.dataset.rid, t = b.dataset.rt, on = false, dis = false;
+      if (t === 'tool') on = planTool === id; else if (t === 'multi') on = multiMode; else if (t === 'view') on = S.view === id.slice(2);
+      else if (t === 'run') { var el = $(id.replace(/^pan:/, '')); if (el) { dis = el.disabled; if (/^pan:/.test(id)) on = el.classList.contains('on'); if (id === 'tbLabels') on = !!S.labels; } }
+      else if (id === 'pan:an') on = U.anOpen;
+      b.classList.toggle('on', on); b.disabled = dis; b.setAttribute('aria-pressed', on);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#rbody [data-rchk]'), function (c) { var k = c.dataset.rchk; c.checked = /^pv:/.test(k) ? pvShow()[k.slice(3)] : !!($(k) && $(k).checked); });
+  }
+  $('rtabs').addEventListener('click', function (e) { var b = e.target.closest('[data-rtab]'); if (b) { ribTab = U.rtab = b.dataset.rtab; saveUi(); renderRibbon(); } });
+  $('rbody').addEventListener('click', function (e) {
+    var b = e.target.closest('.rbt'); if (!b || b.disabled) return;
+    var id = b.dataset.rid, t = b.dataset.rt;
+    if (t === 'tool') { if (id === 'fit' && S.view !== 'plan') $('tbFit').click(); else setTool(id); if (id !== 'fit' && S.view !== 'plan') setView('plan'); }
+    else if (t === 'multi') { multiMode = !multiMode; updToolStatus(); }
+    else if (t === 'zoom') { if (S.view === 'profile' || S.view === 'split') pvZoom(id === 'zin' ? 0.7 : 1 / 0.7); else if (map && map.zoomIn) (id === 'zin' ? map.zoomIn() : map.zoomOut()); }
+    else if (t === 'view') setView(id.slice(2));
+    else if (t === 'run') { var el = $(id.replace(/^pan:/, '')); if (el) el.click(); }
+    else if (t === 'fn') FN[id] && FN[id]();
+    setTimeout(syncRibbon, 0);
+  });
+  $('rbody').addEventListener('change', function (e) {
+    var c = e.target.closest('[data-rchk]'); if (!c) return; var k = c.dataset.rchk;
+    if (/^pv:/.test(k)) { var s = U.pvShow = U.pvShow || {}; s[k.slice(3)] = c.checked; saveUi(); syncPvTools(); if (S.view === 'profile' || S.view === 'split' || U.anOpen) renderProfileView(); }
+    else if ($(k) && $(k).checked !== c.checked) $(k).click();
+  });
+
+  /* title bar */
+  $('bell').onclick = function () { $('tbIssues').click(); };
+  $('helpBtn').onclick = function () {
+    openGen('Shortcuts', '<table class="props"><tr><th>Shift / Ctrl + click</th><td>Add a pole to the selection (plan, profile, tables)</td></tr><tr><th>[ and ]</th><td>Previous / next pole along the line</td></tr><tr><th>Z</th><td>Zoom the current view to the selection</td></tr><tr><th>Esc</th><td>Clear the selection</td></tr><tr><th>S</th><td>Snap on / off</td></tr><tr><th>Wheel / drag</th><td>Zoom and pan the profile; double-click fits it</td></tr><tr><th>Ctrl+Z / Ctrl+Y</th><td>Undo / redo</td></tr><tr><th>Search box</th><td>Type a pole, a span (A → B) or a command such as “Add pole”</td></tr></table>', { narrow: true });
+  };
+  function allCommands() { var out = []; RIB.forEach(function (t) { t[1].forEach(function (g) { g[1].forEach(function (d) { if (d[0] !== 'chk' && d[3] && d[3] !== 'view' && d[3] !== 'zoom' && d[3] !== 'multi') out.push({ id: d[0], type: d[3], name: d[1] }); }); }); }); return out; }
+  document.addEventListener('keydown', function (e) { if ((e.key === 's' || e.key === 'S') && !e.ctrlKey && !e.metaKey && !e.altKey && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && $('genDlg').hidden) { snapOn = !snapOn; syncSnap(); } });
+  function syncSnap() { $('sbSnap').classList.toggle('on', snapOn); $('sbSnap').innerHTML = 'Snap: <b>' + (snapOn ? 'ON' : 'OFF') + '</b>'; }
+  $('sbSnap').onclick = function () { snapOn = !snapOn; syncSnap(); };
+
+  /* status readouts: coordinates, scale */
+  map.on('mousemove', function (e) { var xy = e && e.latlng && fromLatLng(e.latlng); if (xy) $('sbCoord').innerHTML = 'E <b>' + xy.e.toFixed(1) + '</b> N <b>' + xy.n.toFixed(1) + '</b>'; });
+  function updScale() {
+    try { var z = map.getZoom(), lat = map.getCenter().lat, mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z), n = Math.round(mpp / 0.0002646); $('sbScale').innerHTML = 'Scale <b>1:' + n.toLocaleString('en-AU') + '</b>'; } catch (e) { /* stub map */ }
+  }
+  map.on('zoomend', updScale); map.on('moveend', updScale);
+
+  /* project explorer */
+  function exKey(k) { return U.exp && U.exp[k] !== undefined ? U.exp[k] : ({ layers: false, design: true, poles: false, spans: false, conds: false, equip: false, cons: false, profiles: true, files: false })[k]; }
+  function exNode(k, title, count, inner) { return '<details data-k="' + k + '"' + (exKey(k) ? ' open' : '') + '><summary>' + title + (count != null ? ' <small style="color:#7f93ad">(' + count + ')</small>' : '') + '</summary><div class="xn">' + inner + '</div></details>'; }
+  function exItem(attrs, ico, label, sub, sel) { return '<div class="xi' + (sel ? ' sel' : '') + '" ' + attrs + '><i>' + ico + '</i><span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; }
+  function exChk(src, label, on) { return '<label class="xi"><input type="checkbox" data-xl="' + src + '"' + (on ? ' checked' : '') + '> ' + label + '</label>'; }
+  function renderExplorer() {
+    var ex = $('explorer'); if (!ex) return;
+    var ids = lineIds(), allIds = Object.keys(merged.poles).sort(), sv = pvShow(), cap = 250;
+    var spans = spanList(), secs = sectionRows(), exx = S.design.extras || {}, tx = [], st = [];
+    Object.keys(exx).forEach(function (p) { (exx[p].plant || []).forEach(function (x, i) { tx.push({ p: p, i: i, x: x }); }); (exx[p].stays || []).forEach(function (x, i) { st.push({ p: p, i: i, x: x }); }); });
+    var cons = {}; if (dm) dm.constructions.forEach(function (c) { cons[c.code] = (cons[c.code] || 0) + 1; });
+    var h = exItem('data-xact="settings"', '⚙', 'Project Settings') +
+      exNode('layers', '▤ Layers', null,
+        exChk('lySurvey', 'Poles', $('lySurvey').checked) + exChk('lyAlign', 'Spans', $('lyAlign').checked) + exChk('lySpanLbl', 'Span lengths', $('lySpanLbl').checked) + exChk('lyGis', 'GIS positions', $('lyGis').checked) + exChk('lyExtent', 'Project extent', $('lyExtent').checked) +
+        exChk('pv:hv', 'Conductors (HV)', sv.hv) + exChk('pv:lv', 'Conductors (LV)', sv.lv) + exChk('pv:earth', 'Earth wire', sv.earth) + exChk('pv:ground', 'Ground profile', sv.ground) + exChk('pv:clr', 'Clearance line', sv.clr) + exChk('pv:att', 'Attachments', sv.att) + exChk('lbl', 'Labels', !!S.labels)) +
+      exNode('design', '▦ Design Data', null,
+        exNode('poles', 'Poles', allIds.length, allIds.slice(0, cap).map(function (k) { return exItem('data-xp="' + esc(k) + '"', '●', esc(k), ids.indexOf(k) >= 0 ? '#' + (ids.indexOf(k) + 1) : '', isSel(k)); }).join('') + (allIds.length > cap ? '<div class="xmore">+ ' + (allIds.length - cap) + ' more: use the Poles table</div>' : '')) +
+        exNode('spans', 'Spans', spans.length, spans.slice(0, cap).map(function (s) { var on = S.selSpan && !S.selected && S.selSpan.a === s.a && S.selSpan.b === s.b; return exItem('data-xs="' + esc(s.a) + '|' + esc(s.b) + '"', '↔', esc(s.a) + ' → ' + esc(s.b), s.len != null ? s.len.toFixed(1) + ' m' : '', on); }).join('')) +
+        exNode('conds', 'Conductors', secs.length, secs.map(function (r) { return exItem('data-xc="' + esc(r.name) + '" data-xcp="' + esc(r.first || '') + '"', '〰', esc(r.name) + ' · ' + esc(r.conductor), esc(r.tension), S.selSection === r.name); }).join('')) +
+        exNode('equip', 'Equipment', tx.length + st.length, tx.map(function (t) { return exItem('data-xe="' + esc(t.p) + '|plant|' + t.i + '"', '▣', 'Transformer · ' + esc(t.p), esc(t.x.code || '')); }).join('') + st.map(function (t) { return exItem('data-xe="' + esc(t.p) + '|stay|' + t.i + '"', '⟋', 'Stay · ' + esc(t.p), esc(t.x.wire || '')); }).join('')) +
+        exNode('cons', 'Construction', Object.keys(cons).length, Object.keys(cons).sort().map(function (c) { return exItem('data-xact="reg"', '⊞', esc(c), '×' + cons[c]); }).join('')) +
+        exNode('profiles', 'Profiles', S.profiles.length, S.profiles.map(function (p, i) { return exItem('data-xprof="' + i + '"', '📈', esc(p.name || 'Profile ' + (i + 1)) + (i === S.active ? '<span class="act">Active</span>' : ''), p.poleIds.length + ' poles', false); }).join('') + exItem('data-xact="newprof"', '＋', 'New profile…'))) +
+      exNode('files', '🗂 Files', S.files.length, exItem('data-xact="import"', '⇪', 'Import files…') + exItem('data-xact="imported"', '🗂', 'Review imported files…', S.files.length ? String(S.files.length) : '') + exItem('data-xact="photos"', '📷', 'Pole photos…'));
+    if (ex.dataset.h !== h) { var sc = ex.parentNode.scrollTop; ex.innerHTML = h; ex.dataset.h = h; ex.parentNode.scrollTop = sc; }
+  }
+  $('explorer').addEventListener('toggle', function (e) { var d = e.target; if (d.dataset && d.dataset.k) { (U.exp = U.exp || {})[d.dataset.k] = d.open; saveUi(); } }, true);
+  $('explorer').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-xp],[data-xs],[data-xc],[data-xe],[data-xprof],[data-xact]'); if (!t) return;
+    var d = t.dataset;
+    if (d.xp) { select(d.xp, addInfo(e)); showPole(d.xp); }
+    else if (d.xs) { var k = d.xs.split('|'); selectSpan(k[0], k[1]); }
+    else if (d.xc) select(d.xcp || S.selected, { segment: d.xc });
+    else if (d.xe) { var q = d.xe.split('|'); S.selEquip = { pole: q[0], kind: q[1] === 'stay' ? 'stay' : 'transformer', i: +q[2] }; openSection('equip'); select(q[0]); }
+    else if (d.xprof != null) { S.active = +d.xprof; S.generated = false; recompute(); }
+    else if (d.xact === 'settings') FN.settings();
+    else if (d.xact === 'reg') openTab('register');
+    else if (d.xact === 'newprof') $('newProfile').click();
+    else if (d.xact === 'import') $('tbUpload').click();
+    else if (d.xact === 'imported') $('mImported').click();
+    else if (d.xact === 'photos') $('mPhotos').click();
+  });
+  $('explorer').addEventListener('change', function (e) {
+    var c = e.target.closest('[data-xl]'); if (!c) return; var k = c.dataset.xl;
+    if (/^pv:/.test(k)) { var s = U.pvShow = U.pvShow || {}; s[k.slice(3)] = c.checked; saveUi(); syncPvTools(); renderProfileView(); }
+    else if (k === 'lbl') $('tbLabels').click();
+    else if ($(k) && $(k).checked !== c.checked) $(k).click();
+  });
+
+  /* plan: select a profile directly, bulk new profile */
+  (function () {
+    $('planTools').insertAdjacentHTML('beforeend', '<select id="planProf" title="Active profile: switch or start a new one from the plan" aria-label="Profile"></select>');
+    $('planProf').onchange = function () { if (this.value === 'new') { this.value = String(S.active); $('newProfile').click(); } else { S.active = +this.value; S.generated = false; recompute(); } };
+  })();
+  function syncPlanProf() { var s = $('planProf'); s.innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + '</option>'; }).join('') + '<option value="new">＋ New profile…</option>'; }
+
+  /* docked profile controls in the analysis header */
+  (function () {
+    $('anMin').parentNode.insertAdjacentHTML('afterbegin', '<span id="anCtl" class="rchk-row" style="display:flex;gap:8px;align-items:center;margin-right:8px"><select id="anProf" aria-label="Profile"></select><span style="color:#8fa2bb;font-size:11px">Show:</span><label class="rchk"><input type="checkbox" data-anshow="ground"> Ground</label><label class="rchk"><input type="checkbox" data-anshow="hv"> HV</label><label class="rchk"><input type="checkbox" data-anshow="lv"> LV</label><button class="btn small" id="anExpand" title="Open the profile in the main workspace">⤢</button></span>');
+    $('anProf').onchange = function () { S.active = +this.value; S.generated = false; recompute(); };
+    $('anCtl').addEventListener('change', function (e) { var c = e.target.closest('[data-anshow]'); if (!c) return; var s = U.pvShow = U.pvShow || {}; s[c.dataset.anshow] = c.checked; saveUi(); syncPvTools(); renderProfileView(); });
+    $('anExpand').onclick = function () { setView('profile'); };
+  })();
+  function syncAnCtl() {
+    var on = U.an === 'profile'; $('anCtl').style.display = on ? 'flex' : 'none'; if (!on) return;
+    $('anProf').innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + '</option>'; }).join('');
+    var s = pvShow(); Array.prototype.forEach.call(document.querySelectorAll('[data-anshow]'), function (c) { c.checked = s[c.dataset.anshow]; });
+  }
+
+  /* data tables: Poles, Spans, Conductors, Attachments, Transformers, Stays, Warnings (+ more) */
+  (function () {
+    var tabs = document.querySelector('.tabs'), tools = tabs.querySelector('.tools');
+    ['transformers', 'stays'].forEach(function (k) { var b = document.createElement('button'); b.setAttribute('role', 'tab'); b.dataset.tab = k; b.setAttribute('aria-selected', 'false'); b.onclick = function () { setTab(k); }; tabs.insertBefore(b, tools); });
+    var main = [['poles', 'Poles'], ['spans', 'Spans'], ['sections', 'Conductors'], ['heights', 'Attachments'], ['transformers', 'Transformers'], ['stays', 'Stays'], ['issues', 'Warnings']];
+    main.forEach(function (m) { var b = tabs.querySelector('[data-tab=' + m[0] + ']'); b.textContent = m[1]; tabs.insertBefore(b, tools); });
+    var more = [['calc', 'Calculation Results'], ['tipsum', 'Tipload Summary'], ['register', 'Construction Register'], ['log', 'Change Log']];
+    more.forEach(function (m) { tabs.querySelector('[data-tab=' + m[0] + ']').hidden = true; });
+    var sel = document.createElement('select'); sel.id = 'tabMore'; sel.setAttribute('aria-label', 'More tables'); sel.innerHTML = '<option value="">More…</option>' + more.map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>'; }).join('');
+    sel.onchange = function () { if (this.value) setTab(this.value); };
+    tabs.insertBefore(sel, tools);
+  })();
+  function syncTabMore() { var s = $('tabMore'); if (!s) return; var sec = /^(calc|tipsum|register|log)$/.test(tab); s.value = sec ? tab : ''; s.classList.toggle('on', sec); }
+  function equipTable(kind) {
+    var ex = S.design.extras || {}, rows = [], ids = lineIds().concat(Object.keys(ex).filter(function (k) { return lineIds().indexOf(k) < 0; }));
+    ids.forEach(function (p) { var l = ex[p] && (kind === 'stays' ? ex[p].stays : ex[p].plant) || []; l.forEach(function (x, i) { rows.push({ p: p, i: i, x: x }); }); });
+    if (!rows.length) return '<p class="anmsg">No ' + (kind === 'stays' ? 'stays' : 'transformers') + ' yet. Select a pole and use ' + (kind === 'stays' ? 'Add Stay' : 'Add Transformer') + ' in the ribbon.</p>';
+    var head = kind === 'stays' ? '<th>Pole</th><th>Wire</th><th class="num">Attach. height (m)</th><th class="num">Direction (°)</th><th class="num">Angle (°)</th>' : '<th>Pole</th><th>Code</th><th>Arrangement</th><th class="num">Attach. height (m)</th><th class="num">Direction (°)</th>';
+    return '<table class="grid"><thead><tr>' + head + '</tr></thead><tbody>' + rows.map(function (r) {
+      var on = S.selEquip && S.selEquip.pole === r.p && S.selEquip.i === r.i && (S.selEquip.kind === 'stay') === (kind === 'stays');
+      return '<tr data-eqrow="' + esc(r.p) + '|' + (kind === 'stays' ? 'stay' : 'plant') + '|' + r.i + '" class="' + (on ? 'sel' : '') + '"><td><b>' + esc(r.p) + '</b></td>' + (kind === 'stays' ? '<td>' + esc(r.x.wire) + '</td><td class="num">' + f2(r.x.attHt, 2) + '</td><td class="num">' + f2(r.x.dir, 0) + '</td><td class="num">' + f2(r.x.angle, 0) + '</td>' : '<td>' + esc(r.x.code) + '</td><td>' + esc(r.x.drawing || '') + '</td><td class="num">' + f2(r.x.attHt, 2) + '</td><td class="num">' + f2(r.x.dir, 0) + '</td>') + '</tr>';
+    }).join('') + '</tbody></table>';
+  }
+  function attachPane(id) {
+    var pts = dm ? dm.points.filter(function (q) { return q.pole === id; }) : [];
+    if (!pts.length) return '<p class="hint">' + (project ? 'No attachment points on ' + esc(id) + ' yet. Add a construction first.' : 'Attachments come from the PNW design: link a project or start a design.') + '</p>';
+    return '<table class="att"><tr><th>Construction</th><th class="num">#</th><th class="num">Height AG (m)</th></tr>' + pts.map(function (q) { return '<tr><td>' + esc(q.construction) + '</td><td class="num">' + esc(q.order) + '</td><td class="num">' + f2(q.heightAG, 3) + '</td></tr>'; }).join('') + '</table><p class="hint">Edit attachments in <button class="btn small" data-instab="design">Construction</button>.</p>';
+  }
+  document.addEventListener('click', function (e) {
+    var r = e.target.closest('[data-eqrow]'); if (!r) return;
+    var q = r.dataset.eqrow.split('|'); S.selEquip = { pole: q[0], kind: q[1] === 'stay' ? 'stay' : 'transformer', i: +q[2] }; openSection('equip'); U.right = true; applyLayout(); select(q[0]); showPole(q[0]);
+  });
+  function syncTitleBar() {
+    var n = allIssues.filter(function (i) { return i.level === 'error' || i.level === 'warning'; }).length;
+    $('bellN').hidden = !n; $('bellN').textContent = n; var u = (S.settings.createdBy || '').trim(); $('userName').textContent = u || 'Designer'; $('userIn').textContent = (u ? u.split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2) : 'D').toUpperCase();
+  }
+
+  function movePoleTo(ll) {
+    var id = S.selected; if (!id) { setStatus('Move: select a pole first, then click its new position.', 'bad'); return; }
+    var mf = S.files.filter(function (x) { return x.manual; })[0], it = mf && mf.items.filter(function (x) { return x.id === id; })[0];
+    if (!it) { setStatus(id + ' comes from an imported survey, so it keeps its surveyed position. Only hand-made poles can be moved.', 'bad'); return; }
+    var xy = fromLatLng(ll); if (!xy || !validMga(xy.e, xy.n)) { setStatus('That position is outside the valid MGA range.', 'bad'); return; }
+    it.easting = Math.round(xy.e * 1000) / 1000; it.northing = Math.round(xy.n * 1000) / 1000;
+    S.generated = false; recompute(); select(id); setStatus('Pole ' + id + ' moved to E ' + it.easting.toFixed(1) + ' N ' + it.northing.toFixed(1) + '.', 'good');
+  }
+  // one-off layout reset for the CAD workspace
+  if (!U.cadv) { U.left = true; U.right = true; U.dock = true; U.dockMin = false; U.anOpen = true; U.tab = 'poles'; U.ah = Math.round(Math.min(190, window.innerHeight * 0.2)); U.dh = Math.round(Math.min(160, window.innerHeight * 0.17)); U.cadv = 1; saveUi(); }
+  renderRibbon(); updToolStatus(); syncSnap();
   syncInputs(); applyLayout(); setTab(U.tab || 'poles');
   recompute();
   if (S.files.length) { fit(); setStatus('Restored your saved project. ' + summaryText()); }
+  wsReady = true; markDirty(false); renderExtras();
   setTimeout(function () { map.invalidateSize(); }, 200);
 })();
