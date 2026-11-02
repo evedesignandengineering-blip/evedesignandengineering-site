@@ -648,6 +648,17 @@ button:focus-visible,select:focus-visible,input:focus-visible,[tabindex]:focus-v
   .statusbar #status{max-width:100%}
   .sagnote{max-width:calc(100% - 16px)}
 }
+
+/* compact ribbon (owner feedback 2026-11-02): one short row, labels beside icons, click the open tab to hide it */
+.rbody{min-height:0;padding:3px 6px;align-items:center}
+.rgrp{flex-direction:row;align-items:center;padding:0 6px}
+.rgrp .rlab{display:none}
+.rbt{grid-template-rows:auto;grid-template-columns:auto auto;gap:5px;min-width:0;max-width:none;padding:3px 8px;font-size:11.5px;white-space:nowrap}
+.rbt .ic{font-size:14px;line-height:18px;height:18px}
+.rbt>span:last-child{display:inline}
+.rtabs button{padding:4px 12px}
+.ribbon.min .rbody{display:none}
+.ribbon.min .rtabs button.on{background:none;border-bottom-color:transparent}
 </style>
 
 </head>

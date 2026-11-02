@@ -3752,6 +3752,7 @@
   }
   function renderRibbon() {
     $('rtabs').innerHTML = RIB.map(function (t) { return '<button role="tab" data-rtab="' + t[0] + '" class="' + (t[0] === ribTab ? 'on' : '') + '" aria-selected="' + (t[0] === ribTab) + '">' + t[0] + '</button>'; }).join('');
+    $('ribbon').classList.toggle('min', !!U.ribMin); $('rtabs').title = 'Click the open tab to hide or show the ribbon';
     var tab = RIB.filter(function (t) { return t[0] === ribTab; })[0] || RIB[0];
     $('rbody').innerHTML = tab[1].map(function (g) {
       var inner = g[1].map(function (d) {
@@ -3773,7 +3774,7 @@
     });
     Array.prototype.forEach.call(document.querySelectorAll('#rbody [data-rchk]'), function (c) { var k = c.dataset.rchk; c.checked = /^pv:/.test(k) ? pvShow()[k.slice(3)] : !!($(k) && $(k).checked); });
   }
-  $('rtabs').addEventListener('click', function (e) { var b = e.target.closest('[data-rtab]'); if (b) { ribTab = U.rtab = b.dataset.rtab; saveUi(); renderRibbon(); } });
+  $('rtabs').addEventListener('click', function (e) { var b = e.target.closest('[data-rtab]'); if (b) { if (b.dataset.rtab === ribTab) U.ribMin = !U.ribMin; else U.ribMin = false; ribTab = U.rtab = b.dataset.rtab; saveUi(); renderRibbon(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); }, 30); } });
   $('rbody').addEventListener('click', function (e) {
     var b = e.target.closest('.rbt'); if (!b || b.disabled) return;
     var id = b.dataset.rid, t = b.dataset.rt;
