@@ -164,6 +164,8 @@
       });
     });
     if (pts.length) L.rectangle(L.latLngBounds(pts).pad(0.15), { color: '#64748b', weight: 1, dashArray: '6 4', fill: false }).addTo(lyExtent);
+    // Pole markers above the span lines, so a click on a pole picks the pole (and multi-select adds it) instead of the span.
+    lySurvey.eachLayer(function (l) { if (l.bringToFront) l.bringToFront(); });
     $('emptyMap').hidden = ids.length > 0; if (!$('emptyImport').onclick) $('emptyImport').onclick = function () { $('tbUpload').click(); };
     highlight();
   }
