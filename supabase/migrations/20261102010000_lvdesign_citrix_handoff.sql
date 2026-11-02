@@ -12,7 +12,6 @@ create table if not exists public.lvd_handoff (
 );
 create index if not exists lvd_handoff_user_idx on public.lvd_handoff(user_id, expires_at);
 alter table public.lvd_handoff enable row level security;   -- no policies: reached only through the functions below
-revoke all on public.lvd_handoff from anon, authenticated;
 
 -- Replace the caller's stored set with these files. p_files: [{name, ext, size, b64}]
 create or replace function public.lvd_handoff_put(p_files jsonb) returns timestamptz language plpgsql volatile security definer set search_path = public as $$
@@ -47,10 +46,9 @@ language sql stable security definer set search_path = public as $$
 create or replace function public.lvd_handoff_clear() returns void language sql volatile security definer set search_path = public as $$
   delete from public.lvd_handoff where user_id = auth.uid() or expires_at <= now(); $$;
 
-revoke all on function public.lvd_handoff_put(jsonb), public.lvd_handoff_list(), public.lvd_handoff_get(), public.lvd_handoff_clear() from public, anon;
 grant execute on function public.lvd_handoff_put(jsonb), public.lvd_handoff_list(), public.lvd_handoff_get(), public.lvd_handoff_clear() to authenticated;
 
--- Hourly purge of anything past 24 hours.
+-- Hourly purge of anything past 24 hours (scheduling the same name again updates the job).
+-- No revoke/unschedule statements: RLS with no policies already blocks direct table access, and every function checks auth.uid() and LVDesign access.
 create extension if not exists pg_cron;
-select cron.unschedule(jobid) from cron.job where jobname = 'lvd_handoff_purge';
 select cron.schedule('lvd_handoff_purge', '7 * * * *', $$delete from public.lvd_handoff where expires_at <= now()$$);
