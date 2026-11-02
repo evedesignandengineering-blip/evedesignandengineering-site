@@ -3817,7 +3817,7 @@
         if (d[0] === 'chk') return '<div class="rcol">' + d[1].map(function (c) { return '<label class="rchk"><input type="checkbox" data-rchk="' + c[0] + '"> ' + c[1] + '</label>'; }).join('') + '</div>';
         return ribBtn(d);
       }).join('');
-      return '<div class="rgrp"><div class="rbtns">' + inner + '</div><div class="rlab">' + g[0] + '</div></div>';
+      return '<div class="rgrp" role="group" aria-label="' + g[0] + '" title="' + g[0] + '"><div class="rbtns">' + inner + '</div><div class="rlab">' + g[0] + '</div></div>';
     }).join('');
     syncRibbon(); rove();
   }
