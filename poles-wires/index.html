@@ -14,13 +14,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261109"></script>
-<script src="pnw-model.js?v=20261109"></script>
-<script src="builtin-data.js?v=20261109"></script>
-<script src="pnw-tipload.js?v=20261109"></script>
-<script src="hvlv-rules.js?v=20261109"></script>
+<script src="pnw-core.js?v=20261110"></script>
+<script src="pnw-model.js?v=20261110"></script>
+<script src="builtin-data.js?v=20261110"></script>
+<script src="pnw-tipload.js?v=20261110"></script>
+<script src="hvlv-rules.js?v=20261110"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<script type="module" src="view3d.js?v=20261109"></script>
+<script type="module" src="view3d.js?v=20261110"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#a1c5ef;--ink:#b6c8de;--muted:#79879b;--line:#243342;--bg:#162533;--blue:#2f6ea4;--teal:#0f766e;--white:#171c24;--bad:#df5b51;--warn:#ee884e;--ok:#80d8a5;--ground:#2f6ea4;--pole:#c2410c;--sel:#f59e0b;--focus:#2563eb;color-scheme:dark}
@@ -665,6 +665,14 @@ input[type=checkbox]{width:15px;height:15px}
 .sagnote{white-space:normal!important;max-width:60%}
 .cdn-fail{position:fixed;top:0;left:0;right:0;z-index:9999;background:#7f1d1d;color:#fff;padding:10px 16px;font:600 13px "DM Sans",Arial,sans-serif}
 @media(max-width:900px){.titlebar .gsearch{display:block;width:34vw}}
+/* Compact ribbon (2026-11-02, Ishan: the ribbon took too much space): one row, icon beside the label, group names as tooltips. */
+.rbody{min-height:0;padding:3px 8px;align-items:center}.rtabs button{padding:4px 12px}
+.rgrp{flex-direction:row;padding:0 6px}.rgrp .rlab{display:none}
+.rgrp .rbtns{align-items:center}
+.rbt{display:flex;flex-direction:row;align-items:center;gap:5px;min-width:0;max-width:none;padding:4px 8px;white-space:nowrap;font-size:12px}
+.rbt .ic{font-size:15px;line-height:16px;height:16px}.rbt .ic svg{width:16px;height:16px}
+.rbt>span:last-child{display:inline;line-height:1.2}
+.rcol{display:grid;grid-auto-flow:column;grid-template-rows:auto auto;gap:0 4px}.rchk{padding:0 6px;line-height:1.35}
 @media(min-width:901px){.workspace.sum-fold{grid-template-columns:var(--lw,300px) 6px minmax(0,1fr) 6px 46px!important}.workspace.no-left.sum-fold{grid-template-columns:0 0 minmax(0,1fr) 6px 46px!important}
 .sum-fold .inspector .pbody,.sum-fold .inspector .phead>*:not(#insFold){display:none!important}.sum-fold .inspector .phead{height:100%;padding:6px 0;align-items:stretch;justify-content:center}
 #insFold.foldbar{writing-mode:vertical-rl;transform:rotate(180deg);width:34px;height:auto;padding:12px 0;font:700 12px "DM Sans",Arial,sans-serif;color:#d9e2ef;background:#1a2331;border:1px solid #2e3d55;border-radius:6px}#insFold.foldbar.bad{color:#ff9a8f;border-color:#7a2a22}#insFold.foldbar.warn{color:#ffcf7a;border-color:#7a5a12}}
@@ -912,12 +920,12 @@ input[type=checkbox]{width:15px;height:15px}
 </div>
 <div id="dcshPop" hidden role="dialog" aria-label="DCSH drawing"></div>
 <script>if (!window.L || !window.proj4 || !window.XLSX) document.body.insertAdjacentHTML('afterbegin', '<div class="cdn-fail" role="alert">The map and spreadsheet libraries did not load (no internet, or a blocked CDN). Check your connection and reload the page.</div>');</script>
-<script src="app.js?v=20261109"></script>
+<script src="app.js?v=20261110"></script>
 <script>
 // DCSH drawing thumbnails: fetched only after the page has fully loaded, then the images are warmed in idle time.
 window.addEventListener('load', function () {
   setTimeout(function () {
-    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261109';
+    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261110';
     sc.onload = function () {
       var keys = Object.keys(window.PNW_DCSH_IMG || {}), idle = window.requestIdleCallback || function (f) { return setTimeout(f, 200); };
       (function next() { var k = keys.shift(); if (!k) return; var im = new Image(); im.onload = im.onerror = function () { idle(next); }; im.src = window.PNW_DCSH_IMG[k].src; })();
