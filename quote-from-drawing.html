@@ -211,7 +211,7 @@ aside.c{visibility:hidden;box-shadow:none!important}aside{transition:margin .2s,
 <div class="card" id="rv" hidden><div class="row" style="justify-content:space-between;align-items:center"><div id="rvHead"></div><span><select id="rvZoom" title="Zoom" aria-label="Drawing zoom"><option value="0">Fit width</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option></select> <button class="g" id="rvRestore" hidden>Restore removed</button> <button class="g" id="rvCsv">List (.csv)</button> <button id="rvDl">Download marked-up PDF</button></span></div>
 <div id="rvSum" style="margin:8px 0 12px"></div><div class="rvg"><ul id="rvList"></ul><div id="rvPdf"></div></div>
 <p style="font-size:12px;color:var(--mut);margin:10px 0 0">These are things to check, not confirmed errors. In the downloaded PDF each callout is a normal Bluebeam / Acrobat markup you can move, edit or delete.</p></div>
-<div id="out" hidden><div class="card" id="rbar" aria-label="Quote summary"><div><div class="rb-t" id="rbT">Quote</div><div class="rb-s" id="rbSub"></div></div><div class="rb-m"><div class="rb-tot" id="rbTot">$0.00</div><div class="rb-s" id="rbSplit"></div></div><div class="rb-a"><button type="button" id="rbDl">Download DQM file</button><button type="button" class="g" id="rbNc" hidden>Non-CU list</button></div><div class="rb-n"><span id="rbFn"></span> · AI-assisted draft: check every line against the drawing before submitting. Rates from the DQM manual rev 40 CU library; materials have no rate.</div></div><div class="tabs"><button class="g on" id="t1" type="button">Quote</button><button class="g" id="t2" type="button">Non-CU items</button></div><div id="pq">
+<div id="out" hidden><div class="card" id="rbar" aria-label="Quote summary"><div><div class="rb-t" id="rbT">Quote</div><div class="rb-s" id="rbSub"></div></div><div class="rb-m"><div class="rb-tot" id="rbTot">$0.00</div><div class="rb-s" id="rbSplit"></div></div><div class="rb-a"><button type="button" id="rbDl">Download DQM file</button><button type="button" class="g" id="rbPr">Print report</button><button type="button" class="g" id="rbNc" hidden>Non-CU list</button></div><div class="rb-n"><span id="rbFn"></span> · AI-assisted draft: check every line against the drawing before submitting. Service rates from the DQM manual rev 40; material rates from recent DQM quotes.</div></div><div class="tabs"><button class="g on" id="t1" type="button">Quote</button><button class="g" id="t2" type="button">Non-CU items</button></div><div id="pq">
 <div class="card" id="dr" hidden></div>
 <div class="card" id="gs" hidden></div>
 <div class="card" id="cmp" hidden></div>
@@ -248,7 +248,8 @@ async function gateOpen(session){gateBusy("Checking access…");
   if(m.qfd_request){const q=await SB.rpc("qfd_request",{p_name:m.name||"",p_company:m.company||"",p_reason:m.qfd_reason||""});return q.error?gateNo("Could not send your request: "+q.error.message):gateShowStatus(q.data)}
   document.getElementById("gRName").value=m.name||"";gateView("gReq");return}
  document.getElementById("whoEm").textContent=session.user.email||"";document.getElementById("who").hidden=false;
- document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=false);document.getElementById("gate").hidden=true;accInit(session)}
+ document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=false);document.getElementById("gate").hidden=true;accInit(session);loadMatRates()}
+async function loadMatRates(){const r=await SB.from("qfd_material_rates").select("cu,rate,description,quote_date").limit(5000);if(r.error||!r.data)return;if(typeof applyMatRates==="function")applyMatRates(r.data.map(x=>({cu:x.cu,rate:x.rate,desc:x.description,date:x.quote_date||""})))}
 async function gateStart(){document.querySelectorAll("body>header,body>.layout").forEach(e=>e.inert=true);gateBusy("Checking your sign-in…");
  const g=await SB.auth.getSession();const s=g.data&&g.data.session;
  if(s&&(gateLink==="invite"||gateLink==="recovery")){document.getElementById("gSetEm").textContent=s.user.email;gateView("gSet");return}
@@ -335,6 +336,13 @@ const DEP=[["Forrestdale",-32.136882,115.951940],["Northam",-31.652603,116.69710
 const ROAD=1.3;
 const $=id=>document.getElementById(id);let rows=[],name="quote",doc=null,geo=null,mats=[];
 const BY=Object.fromEntries(CAT.map(c=>[c.id,c]));
+// material CU unit rates, taken from recent DQM Quote Details reports (latest price seen per CU)
+let MATDATE="";
+function applyMatRates(L){(L||[]).forEach(m=>{if(!m||!m.cu||m.rate==null)return;let c=BY[m.cu];
+  if(!c){const fam=(m.cu.match(/^[A-Z]+/)||[""])[0],sib=CAT.find(x=>x.g==="Materials (EM)"&&(x.id.match(/^[A-Z]+/)||[""])[0]===fam);
+   c={g:"Materials (EM)",s:sib?sib.s:"Other materials (from DQM quotes)",id:m.cu,d:m.desc||m.cu,c:null};CAT.push(c);BY[m.cu]=c}
+  c.c=Number(m.rate);c.md=m.date||"";if(c.md>MATDATE)MATDATE=c.md});
+ try{if($("lib")){buildLib()}if(rows.length){render()}}catch(e){}}
 const st=(t,e)=>{$("st").textContent=t;$("st").className=e?"err":""};
 // ---- library
 function item(c){const d=document.createElement("div");d.className="cu";d.draggable=true;d.title=c.g+' › '+c.s+' — '+c.d;
@@ -377,7 +385,7 @@ function view(){const md=$("ord").value,N=(f)=>nc.filter(x=>x.desc&&f(x)).map(x=
  const o=ordered(rows),i=o.findIndex(x=>x.ind===2);if(i>=0)o.splice(i,0,{h:"Project / general service CUs"});return o.concat(tail(N(()=>true)))}
 function lines(){return view().filter(x=>x.r).map(x=>x.r)}
 function fmt(){return lines().filter(r=>r.cu&&r.qty!==""&&r.qty!=null).map(r=>" ".repeat(13)+String(r.cu).padEnd(52)+String(r.qty).padEnd(6)+"100YNYNYY").join("\n")+"\n"}
-function value(){return rows.reduce((s,r)=>{const c=BY[r.cu];return s+(c&&c.c&&!/^Internal/.test(c.g)?c.c*Number(r.qty||0):0)},0)}
+function value(){return rows.reduce((s,r)=>{const c=BY[r.cu];return s+(c&&c.c&&!/^Internal/.test(c.g)&&c.g!=="Materials (EM)"?c.c*Number(r.qty||0):0)},0)}
 const _cx=document.createElement("canvas").getContext("2d");
 const fit=i=>{const c=getComputedStyle(i);_cx.font=c.fontStyle+" "+c.fontWeight+" "+c.fontSize+" "+c.fontFamily;const w=_cx.measureText(i.value||"").width;i.style.width=Math.min(640,Math.ceil(w)+(parseFloat(c.paddingLeft)||0)+(parseFloat(c.paddingRight)||0)+(parseFloat(c.borderLeftWidth)||0)+(parseFloat(c.borderRightWidth)||0)+16+(i.hasAttribute("list")?30:0))+"px"};
 function render(){const tb=$("tb");tb.innerHTML="";
@@ -391,13 +399,13 @@ function render(){const tb=$("tb");tb.innerHTML="";
   a.firstChild.oninput=x=>fit(x.target);a.firstChild.onchange=x=>{r.cu=x.target.value.trim();render()};b.firstChild.oninput=x=>{r.qty=x.target.value;amt(tr);pv()};e.firstChild.onclick=()=>{rows.splice(rows.indexOf(r),1);render()};amt(tr);tb.appendChild(tr)});tb.querySelectorAll("td:first-child input").forEach(fit);pv()}
 // ---- cost: every priced CU (internal ES services, external/contractor services); materials have no rate in the library
 const money=v=>"$"+(Math.round(v*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-const rateOf=id=>{const c=BY[id];return c&&c.g!=="Materials (EM)"&&c.c!=null?c.c:null};
+const rateOf=id=>{const c=BY[id];return c&&c.c!=null?c.c:null};
 function amt(tr){const r=tr._r,c=rateOf(r.cu),q=Number(r.qty||0);tr.querySelector(".rt").textContent=c==null?(isMat(r)?"material":"no rate"):money(c);tr.querySelector(".am").textContent=c==null?"–":money(c*q);tr.querySelector(".rt").style.color=c==null?"var(--mut)":""}
-function costs(){const o={ins:0,ext:0,mat:0,nr:[]};rows.forEach(r=>{if(!r.cu)return;const c=rateOf(r.cu),q=Number(r.qty||0);if(c==null){if(isMat(r))o.mat++;else o.nr.push(r.cu);return}if(/^Internal/.test(BY[r.cu].g))o.ins+=c*q;else o.ext+=c*q});o.tot=o.ins+o.ext;return o}
+function costs(){const o={ins:0,ext:0,mt:0,mat:0,nr:[]};rows.forEach(r=>{if(!r.cu)return;const c=rateOf(r.cu),q=Number(r.qty||0);if(c==null){if(isMat(r))o.mat++;else o.nr.push(r.cu);return}const g=BY[r.cu].g;if(g==="Materials (EM)")o.mt+=c*q;else if(/^Internal/.test(g))o.ins+=c*q;else o.ext+=c*q});o.tot=o.ins+o.ext+o.mt;return o}
 function renderCost(){const o=costs(),C=$("cost");if(!rows.length){C.innerHTML="";return}
- C.innerHTML="<div style='display:grid;grid-template-columns:1fr auto;gap:4px 18px;max-width:440px;margin-left:auto;padding:12px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--bg)'><span>Internal service CUs (ES crews)</span><b style='text-align:right'>"+money(o.ins)+"</b><span>External / contractor service CUs</span><b style='text-align:right'>"+money(o.ext)+"</b><span style='border-top:1px solid var(--bd);padding-top:6px;font-weight:700'>Total quote (incl. service CUs)</span><b style='text-align:right;border-top:1px solid var(--bd);padding-top:6px;font-size:16px'>"+money(o.tot)+"</b></div><div style='font-size:12px;color:var(--mut);text-align:right;margin-top:4px'>"+(o.mat?o.mat+" material CU line(s) have no rate in the CU library and are not in the total. ":"")+(o.nr.length?"No rate for: "+esc(o.nr.join(", "))+". ":"")+"Rates from the DQM manual rev 40 CU library.</div>"}
+ C.innerHTML="<div style='display:grid;grid-template-columns:1fr auto;gap:4px 18px;max-width:440px;margin-left:auto;padding:12px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--bg)'><span>Internal service CUs (ES crews)</span><b style='text-align:right'>"+money(o.ins)+"</b><span>External / contractor service CUs</span><b style='text-align:right'>"+money(o.ext)+"</b><span>Materials</span><b style='text-align:right'>"+money(o.mt)+"</b><span style='border-top:1px solid var(--bd);padding-top:6px;font-weight:700'>Total quote</span><b style='text-align:right;border-top:1px solid var(--bd);padding-top:6px;font-size:16px'>"+money(o.tot)+"</b></div><div style='font-size:12px;color:var(--mut);text-align:right;margin-top:4px'>"+(o.mat?o.mat+" material CU line(s) have no known rate and are not in the total. ":"")+(o.nr.length?"No rate for: "+esc(o.nr.join(", "))+". ":"")+"Service rates from the DQM manual rev 40; material rates from recent DQM quotes"+(MATDATE?" (to "+MATDATE.split("-").reverse().join("/")+")":"")+".</div>"}
 const PN=()=>String((proj&&proj.drawingNo)||name||"").toUpperCase().trim().replace(/\s+/g,"")||"QUOTE",FN=()=>PN().replace(/[^A-Z0-9_\-]/g,"")||"QUOTE";
-function pv(){$("fn").textContent=FN()+"_CU.txt"+(nc.some(x=>x.desc)?"  +  "+FN()+"_NonCU.txt":"");$("val").textContent="Total ≈ "+money(costs().tot)+" incl. service CUs";renderCost()}
+function pv(){$("fn").textContent=FN()+"_CU.txt"+(nc.some(x=>x.desc)?"  +  "+FN()+"_NonCU.txt":"");$("val").textContent="Total ≈ "+money(costs().tot);renderCost()}
 $("ord").onchange=render;$("add").onclick=()=>{rows.push({cu:"",qty:1,basis:""});render()};
 async function save(fn,data){try{const d=await claude.use("downloads");if(!d)throw 0;await d.save({filename:fn,data})}catch(e){try{await navigator.clipboard.writeText(data);st("Download unavailable here; copied to clipboard instead.")}catch(_){st("Download unavailable; copy from the preview.",1)}}}
 $("dl").onclick=async()=>{await save(FN()+"_CU.txt",fmt());if(nc.some(x=>x.desc)){await new Promise(r=>setTimeout(r,600));await save(FN()+"_NonCU.txt",ncText())}};
@@ -652,6 +660,23 @@ function updChips(){const c=window.lastCmp,el=$("cmpChips");if(!c||!el)return;co
 function renderAI(){const c=window.lastCmp,box=$("cmpAI");if(!c||!c.review||!box)return;const r=c.review,qi=sortedQI();box.style.color="var(--fg)";if(!box._d){box._d=1;box.addEventListener("click",e=>{const b=e.target.closest("button.rm");if(!b)return;const q=window.lastCmp.review.quoteIssues[+b.dataset.qi];if(q)q._rm=1;renderAI();updChips()})}
  const sev=v=>"<span class='"+(v==="high"?"bad":v==="medium"?"wr":"ok")+"'>"+esc(v||"")+"</span>";
  box.innerHTML="<h2 style='margin-top:6px'>Review</h2><p>"+esc(r.summary||"")+"</p><b>Quote issues</b>"+(qi.length?"<ul>"+qi.map(i=>"<li><button class='g rm' data-qi='"+r.quoteIssues.indexOf(i)+"'>×</button> "+sev(i.severity)+" <b>"+esc(i.cu||"")+"</b>: "+esc(i.issue||"")+(i.fix?" → <i>"+esc(i.fix)+"</i>":"")+"</li>").join("")+"</ul>":"<div>None found.</div>")+"<div style='margin-top:8px;color:var(--mut)'>Drawing findings are in the Drawing Review section above.</div>"}
+// ---- printable quote report: quantities and totals only, no individual item prices
+function quoteHtml(){const o=costs(),P=PN(),tr=[...$("tb").children],L=[];let grp="";
+ tr.forEach(t=>{if(t.classList.contains("grp")){grp=t.children[0]?t.children[0].textContent:"";return}const r=t._r;if(!r||!r.cu)return;L.push([grp,r]);grp=""});
+ if(!L.length)rows.filter(r=>r.cu).forEach(r=>L.push(["",r]));
+ const ln=L.map(([g,r])=>(g?"<tr class='g'><td colspan='3'>"+esc(g)+"</td></tr>":"")+"<tr><td><b>"+esc(r.cu)+"</b></td><td>"+esc((BY[r.cu]||{}).d||"")+"</td><td class='n'>"+esc(r.qty)+"</td></tr>").join("");
+ const ncs=(nc||[]).filter(x=>x.desc),as=(window.lastAssump||[]);
+ const pr="<table class='p'>"+projRows().map(x=>"<tr><th>"+x[0]+"</th><td>"+esc(x[1])+"</td></tr>").join("")+"</table>";
+ const cs="<table class='t'><tr><td>Internal service CUs (ES crews)</td><td class='n'>"+money(o.ins)+"</td></tr><tr><td>External / contractor service CUs</td><td class='n'>"+money(o.ext)+"</td></tr><tr><td>Materials</td><td class='n'>"+money(o.mt)+"</td></tr><tr class='tot'><td>Total quote (excl. GST)</td><td class='n'>"+money(o.tot)+"</td></tr></table>"+((o.mat||o.nr.length)?"<p class='m'>"+(o.mat?o.mat+" material line(s) have no known rate and are not in the total. ":"")+(o.nr.length?"No rate for: "+esc(o.nr.join(", "))+".":"")+"</p>":"");
+ return "<!doctype html><html><head><meta charset='utf-8'><title>Quote - "+esc(P)+"</title><style>body{font:12px/1.45 Arial,Helvetica,sans-serif;color:#13202b;margin:20px}h1{font-size:19px;margin:0 0 2px;color:#09284b}h2{font-size:14px;margin:18px 0 6px;color:#09284b}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfd8e0;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eef3f6}table.p th{width:160px}table.t{max-width:440px}td.n{text-align:right;white-space:nowrap}tr.tot td{font-weight:700;background:#eef3f6}tr.g td{background:#f6f8fa;font-weight:700}tr{break-inside:avoid}.m{color:#607184}@page{margin:12mm}</style></head><body><h1>Quote "+esc(P)+"</h1><div>EVE Design &amp; Engineering · "+new Date().toLocaleString()+"</div>"
+  +"<h2>Project</h2>"+pr+"<h2>Cost summary</h2>"+cs
+  +"<h2>Quote lines ("+L.length+")</h2><table><thead><tr><th style='width:150px'>CU ID</th><th>Description</th><th style='width:70px;text-align:right'>Qty</th></tr></thead><tbody>"+ln+"</tbody></table>"
+  +(ncs.length?"<h2>Non-CU items</h2><table><thead><tr><th>Description</th><th>Type</th><th style='text-align:right'>Qty</th><th>Unit</th></tr></thead><tbody>"+ncs.map(x=>"<tr><td>"+esc(x.desc)+"</td><td>"+esc(x.type||"")+"</td><td class='n'>"+esc(x.qty)+"</td><td>"+esc(x.unit||"")+"</td></tr>").join("")+"</tbody></table>":"")
+  +(as.length?"<h2>Assumptions</h2><ul>"+as.map(a=>"<li>"+esc(a)+"</li>").join("")+"</ul>":"")
+  +"<p class='m' style='margin-top:14px'>AI-assisted draft quote: check every line against the drawing before relying on it. Service rates from the DQM manual rev 40; material rates from recent DQM quotes.</p></body></html>"}
+function printQuote(){if(!rows.length)return;const h=quoteHtml();closeRpt();const d=new DOMParser().parseFromString(h,"text/html");const o=document.createElement("div");o.id="rpt";
+ o.innerHTML="<style>#rpt td.n{text-align:right;white-space:nowrap}#rpt table.t{max-width:440px}#rpt tr.tot td{font-weight:700;background:#eef3f6}#rpt tr.g td{background:#f6f8fa;font-weight:700}#rpt .m{color:#607184}</style><div class='rbar'><button id='rpPrint'>Print</button><button class='g' id='rpDl'>Download report</button><button class='g' id='rpClose'>Close</button><span style='color:#607184;font-size:12px'>Individual item prices are left out. If Print does nothing here, use Download report, open the file and press Ctrl+P.</span></div><div class='rbody'>"+d.body.innerHTML+"</div>";
+ document.body.appendChild(o);document.body.classList.add("pr");$("rpClose").onclick=closeRpt;$("rpDl").onclick=()=>save(FN()+"_quote-report.html",h);$("rpPrint").onclick=()=>{try{window.print()}catch(e){}}}
 function closeRpt(){const o=$("rpt");if(o)o.remove();document.body.classList.remove("pr")}
 function printReport(){const h=reportHtml();if(!h)return;closeRpt();const d=new DOMParser().parseFromString(h,"text/html");const o=document.createElement("div");o.id="rpt";
  o.innerHTML="<div class='rbar'><button id='rpPrint'>Print</button><button class='g' id='rpDl'>Download report</button><button class='g' id='rpClose'>Close</button><span style='color:#607184;font-size:12px'>If Print does nothing here, use Download report, open the file and press Ctrl+P.</span></div><div class='rbody'>"+d.body.innerHTML+"</div>";
@@ -1002,11 +1027,11 @@ function flagged(){const o=costs(),f=[];o.nr.forEach(id=>f.push(id+": no rate"))
  (mats||[]).forEach(m=>{const s=(links&&links[m.cu])||[];if(!s.length&&!matOnly(m.cu)&&rows.some(r=>r.cu===m.cu))f.push(m.cu+": no service CU")});
  (gen||[]).forEach(g=>{if(g.confidence==="low")f.push("Scope step "+g.step+": low confidence")});return f}
 function updBar(){if(!$("rbar"))return;const o=costs(),n=rows.filter(r=>r.cu).length,f=flagged();
- $("rbT").textContent="Quote · "+PN();$("rbTot").textContent=money(o.tot);$("rbSplit").textContent="Internal "+money(o.ins)+" · External "+money(o.ext);
+ $("rbT").textContent="Quote · "+PN();$("rbTot").textContent=money(o.tot);$("rbSplit").textContent="Internal "+money(o.ins)+" · External "+money(o.ext)+" · Materials "+money(o.mt);
  const s=$("rbSub");s.textContent=n+" line"+(n===1?"":"s")+(nc.length?" + "+nc.length+" non-CU":"")+(o.mat?" · "+o.mat+" material (no rate)":"");
  if(f.length){s.append(" · ");const b=document.createElement("button");b.type="button";b.textContent=f.length+" to check";b.title=f.join("\n");b.onclick=()=>{($("cov").querySelector("li.err")||$("cost")).scrollIntoView({behavior:"smooth",block:"center"})};s.appendChild(b)}
  $("rbNc").hidden=!nc.some(x=>x.desc);$("rbFn").textContent=FN()+"_CU.txt"}
-$("rbDl").onclick=()=>{$("dl").click();dirty=false};$("rbNc").onclick=()=>$("ncDl").click();$("dl").addEventListener("click",()=>{dirty=false});
+$("rbDl").onclick=()=>{$("dl").click();dirty=false};$("rbPr").onclick=()=>printQuote();$("rbNc").onclick=()=>$("ncDl").click();$("dl").addEventListener("click",()=>{dirty=false});
 
 // ---- quote table: group subtotals, material tags, labels
 function subtot(){let h=null,sum=0;const put=()=>{if(h){const c=h.querySelector(".gsub");if(c)c.textContent=sum?money(sum):""}};
