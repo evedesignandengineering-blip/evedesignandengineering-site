@@ -253,7 +253,7 @@ function update(data) {
     const rTop = (p.diamTip || 300) / 2000, rGL = (p.diamGL || p.diamTip || 300) / 2000;
     const parts = [];
     if (p.height > 0) {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rGL, p.height, 20), new THREE.MeshStandardMaterial({ color: COLORS.pole, roughness: 0.85 }));
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rGL, p.height, 20), new THREE.MeshStandardMaterial({ color: p.color != null ? p.color : COLORS.pole, roughness: 0.85 }));
       m.position.copy(b).add(new THREE.Vector3(0, p.height / 2, 0)); m.userData.pole = p.id; part(m, p.id); parts.push(m);
     }
     if (p.sunk > 0) {
@@ -334,10 +334,10 @@ function update(data) {
     const vs = [];
     for (let k = 0; k <= 24; k++) { const t = k / 24, v = a.clone().lerp(b, t); if (w.sag) v.y -= 4 * w.sag * t * (1 - t); pts.push(v.x, v.y, v.z); vs.push(v); }
     const g = new LineGeometry(); g.setPositions(pts);
-    const mt = new LineMaterial({ color: COLORS[kind(w)], linewidth: WIRE_PX, worldUnits: false });
+    const wc = w.color != null ? w.color : COLORS[kind(w)], mt = new LineMaterial({ color: wc, linewidth: WIRE_PX, worldUnits: false });
     mt.resolution.set(w0, h0); lineMats.push(mt);
     const line = new Line2(g, mt); line.computeLineDistances();
-    line.userData = { segment: w.segment, pole: w.from.pole, to: w.to.pole, color: COLORS[kind(w)], pts: vs };
+    line.userData = { segment: w.segment, pole: w.from.pole, to: w.to.pole, color: wc, pts: vs };
     group.add(line); wireLines.push(line); fitObjects.push(line);
   });
 

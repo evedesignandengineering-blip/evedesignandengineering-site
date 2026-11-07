@@ -787,8 +787,8 @@
   // Plant code drop-down grouped like the PNW database: three-phase and single-phase transformers, then switchgear and reclosers.
   function plantSelect(key, cur) {
     var ks = Object.keys(PLANT_DB), g = [['3-phase transformers', function (k) { return /XT/i.test(k.replace(/[^A-Za-z0-9]/g, '')) && /3\s*ph/i.test(k) && !/GS|RC/i.test(k); }], ['1-phase transformers', function (k) { return /XT/i.test(k.replace(/[^A-Za-z0-9]/g, '')) && /1\s*-?\s*ph/i.test(k) && !/GS|RC/i.test(k); }], ['Other transformers', function (k) { return /^\W*X\W*T/i.test(k) && !/ph/i.test(k); }], ['Switchgear, reclosers and combinations', function () { return true; }]], used = {};
-    var groups = []; g.forEach(function (x) { var l = ks.filter(function (k) { return !used[k] && x[1](k); }); if (!l.length) return; l.forEach(function (k) { used[k] = 1; }); groups.push({ label: x[0], items: l.map(function (k) { var d = PLANT_DB[k]; return { value: k, label: d.weight + ' kg', keys: x[0] + (/XT/i.test(k) ? ' transformer tx' : '') }; }) }); });
-    return '<span class="xarr">' + combo('plsel|' + key, { value: cur || '', placeholder: 'Search plant code…', aria: 'Plant code', groups: function () { return groups; }, emptyText: 'no PNW plant database loaded.', onPick: function (v) { xfChange({ target: { dataset: { xf: key }, value: v } }); } }) + '</span>';
+    var groups = []; g.forEach(function (x) { var l = ks.filter(function (k) { return !used[k] && x[1](k); }); if (!l.length) return; l.forEach(function (k) { used[k] = 1; }); groups.push({ label: x[0], items: l.map(function (k) { var d = PLANT_DB[k]; var ti = txInfo(k); return { value: k, label: (ti ? ti.name + ' · ' : '') + d.weight + ' kg', keys: x[0] + (/XT/i.test(k) ? ' transformer tx' : '') + (ti ? ' ' + ti.name + ' ' + ti.cu + ' ' + ti.stock : '') }; }) }); });
+    return '<span class="xarr">' + combo('plsel|' + key, { value: cur || '', placeholder: 'Search plant code…', aria: 'Plant code', groups: function () { return groups; }, emptyText: 'no PNW plant database loaded.', onPick: function (v) { xfChange({ target: { dataset: { xf: key }, value: v } }); } }) + '</span>' + (function () { var ti = txInfo(cur); return ti ? '<small class="txnm" title="WP transformer catalogue: stock ' + esc(ti.stock) + ', CU ' + esc(ti.cu) + (ti.all.length > 1 ? ' (also ' + esc(ti.all.filter(function (c) { return c !== ti.cu; }).join(', ')) + ')' : '') + '"><b>' + esc(ti.name) + '</b> · CU ' + esc(ti.cu) + '</small>' : ''; })();
   }
   function extrasHtml(id, row) {
     var x = extras(id), hag = PNW.num(row.HeightAG), cons = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; });
@@ -2810,7 +2810,7 @@
       var sel = isSel(p.id), x = X(p.chainage);
       if (x < m.l - 40 || x > W - m.r + 40) return;
       if (p.sunk) d += '<line x1="' + x + '" x2="' + x + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground - p.sunk) + '" stroke="#5b4636" stroke-width="3" stroke-dasharray="3 3" opacity=".6"/>';
-      if (p.height) d += '<line x1="' + x + '" x2="' + x + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground + p.height) + '" stroke="' + (sel ? '#f59e0b' : '#8b6b4a') + '" stroke-width="' + (sel ? 5 : 3) + '"/>';
+      if (p.height) d += '<line x1="' + x + '" x2="' + x + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground + p.height) + '" stroke="' + (sel ? '#f59e0b' : (FX.ep && fxEpPole(p.id)) || '#8b6b4a') + '" stroke-width="' + (sel ? 5 : 3) + '"/>';
       d += '<text x="' + x + '" y="' + (Y(p.ground + (p.height || 0)) - 6) + '" text-anchor="' + (x - m.l < 36 ? 'start' : m.l + pw - x < 36 ? 'end' : 'middle') + '" class="pl' + (sel ? ' sel' : '') + '">' + esc(p.id) + '</text>';
     });
     if (dm) {
@@ -2824,6 +2824,7 @@
     }
     for (var i = 1; i < ids.length; i++) d += '<rect class="hit span" data-span="' + esc(ids[i - 1]) + '|' + esc(ids[i]) + '" x="' + X(chainOf[ids[i - 1]]) + '" y="' + m.t + '" width="' + Math.max(0, X(chainOf[ids[i]]) - X(chainOf[ids[i - 1]])) + '" height="' + (H - m.t - m.b) + '" fill="transparent"><title>Span ' + esc(ids[i - 1]) + ' → ' + esc(ids[i]) + ': click to select</title></rect>';
     if (CT.on && dm) d += ctProfile(chainOf, X, Y);
+    try { d += fxProfile(chainOf, X, Y, x0, x1, m, H); } catch (e) { /* overlay only */ }
     poles.forEach(function (p) { d += '<rect class="hit' + (CT.on ? ' ct' : '') + '" data-pick="' + esc(p.id) + '" x="' + (X(p.chainage) - 12) + '" y="' + m.t + '" width="24" height="' + (H - m.t - m.b) + '" fill="transparent"/>'; });
     d += '</g>';
     g = '<defs><clipPath id="pvclip"><rect x="' + m.l + '" y="0" width="' + pw + '" height="' + H + '"/></clipPath></defs>' + g + d;
@@ -2833,7 +2834,7 @@
     if (!$('pvPlot')) box.innerHTML = '<div id="pvPlot"></div><div class="pv-nav"><input type="range" id="pvSlide" min="0" max="1000" step="1" aria-label="Pan along the profile" title="Drag to move along the line (or use the mouse wheel)">' +
       '<span class="pv-scale" id="pvScale" title="Horizontal scale only; the vertical scale does not change. Ctrl + wheel zooms horizontally."></span>' +
       '<button class="ibtn" data-pvz="out" title="Zoom out horizontally" aria-label="Zoom out horizontally">−</button><button class="ibtn" data-pvz="in" title="Zoom in horizontally" aria-label="Zoom in horizontally">+</button><button class="ibtn" data-pvz="fit" title="Whole line" aria-label="Show the whole line">⤢</button></div>';
-    $('pvPlot').innerHTML = leg + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Line profile" style="touch-action:none">' + g + '</svg>';
+    $('pvPlot').innerHTML = leg.replace(/<\/div>$/, fxLegend() + '</div>') + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Line profile" style="touch-action:none">' + g + '</svg>';
     var fr = R.full, fw = fr.x1 - fr.x0, ww = x1 - x0, sl = $('pvSlide'), mpp = ww / pw, ratio = Math.round(mpp / 0.000264583 / 10) * 10;
     sl.disabled = !(fw - ww > 1e-6); if (document.activeElement !== sl) sl.value = fw - ww > 1e-6 ? Math.round(Math.max(0, Math.min(1, (x0 - fr.x0) / (fw - ww))) * 1000) : 0;
     $('pvScale').textContent = 'H ×' + (fw / ww).toFixed(fw / ww < 1 ? 2 : 1) + ' · ≈1:' + ratio.toLocaleString('en-AU') + ' · ' + fmt(Math.max(fr.x0, x0), 0) + '–' + fmt(Math.min(fr.x1, x1), 0) + ' m';
@@ -5669,6 +5670,867 @@
     Array.prototype.forEach.call(document.querySelectorAll('#tbMenus .rbt'), function (b) { var t = $('rbody').querySelector('.rbt[data-rid="' + b.dataset.rid + '"]'); if (t) { b.classList.toggle('on', t.classList.contains('on')); b.disabled = t.disabled; b.title = t.title; } });
     Array.prototype.forEach.call(document.querySelectorAll('#tbMenus [data-rchk]'), function (c) { var k = c.dataset.rchk; c.checked = /^pv:/.test(k) ? pvShow()[k.slice(3)] : !!($(k) && $(k).checked); });
   };
+  var FX = { pick: null }, DQM_CU = {"CN1_7/250":"Termination AAC & AAAC 7/2.50","CN1_7/300":"Termination AAC & AAAC 7/3.00","CN1_7/375":"Termination AAC & AAAC 7/3.75","CN1_7/450":"Termination AAC & AAAC 7/4.50","CN1_7/475":"Termination AAC & AAAC 7/4.75","CN1_19/325":"Termination AAC & AAAC 19/3.25","CN1_6/1/250":"Termination ACSR 6/1/2.50","CN1_6/1/300":"Termination ACSR & AACSR 6/1/3.00","CN1_6/475":"Termination ACSR 6/4.75 & 7/1.60","CN1_SCAC":"Termination SCAC 3/2.75","CN4_3/275":"Termination SCGZ 3/2.75","CN4_7/160":"Termination SCGZ 7/1.60","CN4_7/200":"Termination SCGZ 7/2.00","CN4_CU7/16":"Termination CU 7/16 (7/160)","CN4_CU7/14":"Termination CU 7/14 (7/200)","CN4_CU7/12":"Termination CU 7/12 (7/275, 19/16)","CN4_CU19/14":"Termination CU 19/14 (19/214)","CN4_CU19/275":"Termination CU 19/275","CN5":"Termination SCGZ and CU conductor","CN6_3/2.75":"Angle assembly SCGZ 3/2.75","CN6_7/160":"Angle assembly SCGZ 7/1.60","CN6_3/2.75AC":"Angle assembly SCAC 3/2.75","CN6_CU7/16":"Angle assembly CU 7/16 (7/160)","CN6_CU7/14":"Angle assembly CU 7/14 (7/200)","CN6_CU7/12":"Angle assembly CU 7/12 (7/275, 19/16)","CN6_CU19/14":"Angle assembly CU 19/14 (19/214)","CN8_7/250":"Angle clamp AAC & AAAC 7/2.50","CN8_7/475":"Angle clamp AAC & AAAC 7/4.75","CN8_19/325":"Angle clamp AAC & AAAC 19/3.25","CN9_7/250AA":"PG clamp Al to Al 7/2.50","CN9_3/275A":"PG clamp 3/275 SCGZ/AC to 3/275 SCGZ/AC","CN9_7/475AA":"PG clamp Al to Al 7/4.75","CN9_19/325AA":"PG clamp Al to Al 19/3.25","CN9_3/275AC":"PG clamp Al to Cu 3/2.75","CN9_7/250AC":"PG clamp Al to Cu 7/2.50","CN9_7/475AC":"PG clamp Al to Cu 7/4.75","CN9_19/325AC":"PG clamp Al to Cu 19/3.25","CN9_CU":"PG clamp Cu to Cu 250 amp max","CN9_CU250":"PG clamp Cu to Cu >250 amp","CN9_T7/250":"PG clamp 7/1.6 SCGZ to 7/2.5 AC","CN9_T7/300":"PG clamp 7/1.6 SCGZ to 7/3.0 AC","CN9_T6/1/25":"PG clamp 7/1.6 SCGZ to 6/1/2.5 ACSR","CN9_T6/1/275":"PG clamp 7/1.6 SCGZ to 6/1/2.75 ACSR","CN9_T6/1/300":"PG clamp 7/1.6 SCGZ to 6/1/3.0 ACSR","CN9_T19/1.6C":"PG clamp 7/1.6 SCGZ to 19/1.6 HDBC","CN9_T7/3.75A":"PG clamp 7/1.6 SCGZ to 7/3.75 AC","CN9_T95ABC":"PG clamp 7/1.6 SCGZ to 95mm ABC","CN9_T7/14C":"PG clamp 7/1.6 SCGZ to 7/14 HDBC","CN9_T7/2.0C":"PG clamp 7/1.6 SCGZ to 7/2.0 HDBC","CN9_T19/14C":"PG clamp 7/1.6 SCGZ to 19/14 HDBC","CN9_T19/200C":"PG clamp 7/1.6 SCGZ to 19/2.0 HDBC","CN9_T7/4.5AC":"PG clamp 7/1.6 SCGZ to 7/4.5 AC","CN9_T7/1.6C":"PG clamp 7/1.6 SCGZ to 7/1.6 HDBC","CN9_T7/1.75C":"PG clamp 7/1.6 SCGZ to 7/1.75 HDBC","CN9_T7/4.75":"PG clamp 7/1.6 SCGZ to 7/4.75 AC","CN9_T19/3.25":"PG clamp 7/1.6 SCGZ to 19/3.25 AC","CN9_T150ABC":"PG clamp 7/1.6 SCGZ to 150mm ABC","CN9_T6/475":"PG clamp 7/1.6 SCGZ to 6/4.75 & 7/1.6 ACSR","CN9_052AWA":"PG clamp copper to Al 052AWA","CN9_TSCAC":"PG clamp 7/1.6 SCGZ to 3/2.75 SCAC","CN9_T70C":"PG clamp 7/1.6 SCGZ to 70mm2 copper down earth","CN9_T25C":"PG clamp 7/1.6 SCGZ to 25mm2 copper down earth","CN9_BAIL":"PG clamp 7/1.6 SCGZ to bail clamp FC0105","CN10_7/250":"Lug bi-metal M10 hole 7/2.50","CN10_7/475":"Lug bi-metal M10 hole 7/4.75","CN10_19/325":"Lug bi-metal M10 hole 19/3.25","CN11_7/250":"Lug bi-metal M12 hole 7/2.50","CN11_7/300":"Lug bi-metal M12 hole 7/3.00","CN11_7/375":"Lug bi-metal M12 hole 7/3.75","CN11_7/475":"Lug bi-metal M12 hole 7/4.75","CN11_19/325":"Lug bi-metal M12 hole 19/3.25","CN11_95":"Lug bi-metal M12 hole 95 LV ABC","CN11_150":"Lug bi-metal M12 hole 150 LV ABC","CN13_7/250AA":"Helical termination AAC & AAAC 7/2.50","CN13_7/475AA":"Helical termination AAC & AAAC 7/4.75","CN13_19/325A":"Helical termination AAC & AAAC 19/3.25","CN13_3/275GZ":"Helical termination SCGZ 3/2.75","CN13_7/160GZ":"Helical termination SCGZ 7/1.60","CN13_3/275AC":"Helical termination SCAC 3/2.75","CN13_7/160CU":"Helical termination copper 7/160","CN13_7/200CU":"Helical termination copper 7/200","CN13_7/275CU":"Helical termination copper 7/275","CN13_19/214CU":"Helical termination copper 19/2.14","CN13_19/275CU":"Helical termination copper 19/2.75","CN13_7/300AA":"Helical termination AAC & AAAC 7/3.00","CN13_7/375AA":"Helical termination AAC & AAAC 7/3.75","CN13_7/450AA":"Helical termination AAC & AAAC 7/4.50","CN17_7/250":"Full tension comp joint AAC/AAAC 7/2.50","CN17_7/300":"Full tension comp joint AAC/AAAC 7/3.00","CN17_7/375":"Full tension comp joint AAC/AAAC 7/3.75","CN17_7/475":"Full tension comp joint AAC/AAAC 7/4.75","CN17_19/325":"Full tension comp joint AAC/AAAC 19/3.25","CN17_7/1.60":"Helical splice SCGZ 7/1.60","CN17_7/12":"Full tension comp joint copper 7/12","CN17_7/14":"Full tension comp joint copper 7/14","CN17_7/16":"Full tension comp joint copper 7/16","CN17_19/14":"Full tension comp joint copper 19/14","CN17_19/16":"Full tension splice 19/16","CN17_3/275GZ":"Helical splice 3/275 SCGZ","CN17_3/275AC":"Helical splice 3/275 SCAC","CN17_7/275GZ":"Helical splice 7/275 SCGZ","CN18_7/250AA":"Armour rods AAC & AAAC 7/2.50","CN18_7/300AA":"Armour rods AA & AAA 7/3.00 & 6/1/3.00 ACSR","CN18_7/375AA":"Armour rods AAC & AAAC 7/3.75","CN18_7/475AA":"Armour rods AAC & AAAC 7/4.75","CN18_19/325A":"Armour rods AAC & AAAC 19/3.25","CN18_3/275GZ":"Armour rods SCGZ 3/2.75","CN18_7/1.6S":"Armour rods SCGZ 7/1.60","CN18_3/275AC":"Armour rods SCAC 3/2.75","CN18_7/450AA":"Armour rods AA & AAAC 7/4.50","CN26_3/275":"Ties HV/LV AAC & AAAC 3/2.75","CN26_7/250":"Ties HV/LV AAC & AAAC 7/2.50","CN26_7/475":"Ties HV/LV AAC & AAAC 7/4.75","CN26_19/325":"Ties HV/LV AAC & AAAC 19/3.25","CN27_3/275":"Ties steel 3/2.75","CN27_CULV":"Ties LV copper","CN27_CUHV":"Ties HV copper","CN30_7/250":"Stirrup live line clamp 7/2.50","CN30_7/475":"Stirrup live line clamp 7/4.75","CN30_19/325":"Stirrup live line clamp 19/3.25","CN30_7/16":"Stirrup live line clamp 7/16 SCGZ","CN30_3/275":"Stirrup live line clamp 3/275 SCGZ/SCAC","CN35_10":"Pole mounted LV fuse holder with 10amp fuse","CN35_32":"Pole mounted LV fuse holder with 32amp fuse","CN35_50":"Pole mounted LV fuse holder with 50amp fuse","CN35_60":"Pole mounted LV fuse holder with 60amp fuse","CN35_80":"Pole mounted LV fuse holder with 80amp fuse","CN35_100":"Pole mounted LV fuse holder with 100amp fuse","CN35_Bare":"Fuse on bare network","CN35_LV_ABC":"Fuse on LV ABC network","CN35_Pole":"Fuse on pole","CN37_3/275":"Conductor SCAC 3/2.75","CN38_95":"Conductor LVABC 95","CN38_150":"Conductor LVABC 150","CN39_95/4M":"Conductor LV ABC 95mm2 4m 4 core tap jumper","CN39_150/4M":"Conductor LV ABC 150mm2 4m 4 core tap jumper","CN41":"Cable 16mm XLPE streetlight","CN41_TRMT":"Cable 16mm XLPE streetlight, termite protected","CN42":"Cable 25mm XLPE LV","CN42_TRMT":"Cable 25mm XLPE LV, termite protected","CN43":"Cable 120mm XLPE LV","CN43_TRMT":"Cable 120mm XLPE LV, termite protected","CN45":"Cable 240mm XLPE LV","CN45_TRMT":"Cable 240mm XLPE LV, termite protected (DBT)","CN46":"Cable 22kV Al 35mm TR-XLPE HV 3x1 core nylon","CN47":"Cable 22kV Al 35mm XLPE HV 1 core nylon","CN48":"Cable 33kV Al 185mm TR-XLPE HV 3x1 core nylon","CN49_22":"Cable 22kV Cu 240mm TR-XLPE HV 3x1 core double brass tape","CN49_33":"Cable 33kV Cu 240mm TR-XLPE HV 3x1 core double brass tape","CN51":"Cable 33kV Al 50mm XLPE HV 3x1 core nylon","CN52_7/475":"Conductor AAAC 7/4.75","CN52_19/3.25":"Conductor AAAC 19/3.25","CN53":"Cable 22kV Al 400mm TR-XLPE HV 3x1 core double brass tape","CN54":"Cable protector plastic slabs 2.1m long","CN56_25":"Conduit 25 dia 4m long","CN56_32":"Conduit 32 dia 4m long","CN56_50":"Conduit 50 dia 4m long","CN56_80":"Conduit 80 dia 4m long","CN56_100":"Conduit 100 dia 4m long","CN56_125":"Conduit 125 dia 4m long","CN56_150":"Conduit 150 dia 4m long","CN56_100_CO":"Conduit 100 dia 6m long (congested areas)","CN56_125_CO":"Conduit 125 dia 6m long (congested areas)","CN56_150_CO":"Conduit 150 dia 6m long (congested areas)","CN57":"Cable 33kV Al 50mm TR-XLPE HV 1x1 core nylon","CN59_6/1/300":"Conductor AACSR 6/1/300","CN60_630AL":"Conductor 630mm Al","CN60_400CU":"Conductor 400mm Cu","CN61_125":"Cable below warning tape 125mm x 690m roll","CN64":"Above ground cable marker","CN65_95/35":"95 ABC to 6-35 service (IPC)","CN65_95/95":"95 ABC to 95 ABC (IPC)","CN65_150/35":"150 ABC to 6-35 service (IPC)","CN65_150/150":"150 ABC to 95/150 ABC (IPC)","CN68_95/35":"IPC LVABC to 2 service 95/35","CN68_150/35":"IPC LVABC to 2 service 150/35","CN68_150/50":"IPC LVABC to 4 service 150/50","CN69_95":"Splice LVABC to bare copper 95","CN69_150":"Splice LVABC to bare copper 150","CN70_95":"Splice LVABC to bare aluminium 95","CN70_150":"Splice LVABC to bare aluminium 150","CN71_2/6":"Conductor twisted 2 core 6mm","CN71_3/6":"Conductor twisted 3 core 6mm","CN71_4/6":"Conductor twisted 4 core 6mm","CN71_2/16":"Conductor twisted 2 core 16mm","CN71_4/16":"Conductor twisted 4 core 16mm","CN72":"Strain clamp house service","CN73_35/185":"End cap heat shrink 35 to 185 HV cable","CN73_240":"End cap heat shrink 240-400 HV cable","CN73_LVMAINS":"End cap heat shrink 120 to 240 LV cable","CN73_LV10/16":"End cap push on 10/16 streetlight cable","CN73_LV25":"End cap push on 25 3 core screened service cable","CN74_3/275":"Vibration damper 3/2.75 (SCAC and SCGZ)","CN74_6/1/250":"Vibration damper 6/1/2.50 ACSR/AZ","CN74_6/1/275":"Vibration damper 6/1/2.75 ACSR/AZ","CN74_6/1/300":"Vibration damper 6/1/3.00 ACSR/AZ","CN74_6/475":"Vibration damper 6/4.75 - 7/1.6 ACSR/AZ","CN74_7/250":"Vibration damper 7/250 AAC/AAAC","CN74_7/375":"Vibration damper 7/375 AAC/AAAC","CN74_7/475":"Vibration damper 7/475 AAC/AAAC","CN75":"Customer service carryover connection","CN76_AWA":"Hendrix messenger wire","CN76_19/275":"Hendrix messenger wire 19/275","CN76_19/325":"Hendrix messenger wire 19/325","CN77_22":"Hendrix covered conductor 22kV","CN77_33":"Hendrix covered conductor 33kV","CN78_3P":"Hendrix spacer 3 phase","CN79_3/275":"Bird diverter 3/2.75 (SCAC and SCGZ)","CN79_19/325":"Bird diverter 19/3.25 (AAC/AAAC)","CN79_7/250":"Bird diverter 7/2.50 (AAC/AAAC)","CN79_7/375":"Bird diverter 7/3.75 (AAC/AAAC)","CN79_7/475":"Bird diverter 7/4.75 (AAC/AAAC)","CN80_400/22":"Cable clamp 400mm2 22kV","CN80_240/22":"Cable clamp 240mm2 22kV","CN80_185/33":"Cable clamp 185mm2 33kV","CN80_240/33":"Cable clamp 240mm2 33kV","CN80_400/22S":"Single cable clamp 400mm2 22kV","CN80_400/22D":"Double cable clamp 400mm2 22kV","CN80_240/22S":"Single cable clamp 240mm2 22kV","CN80_240/22D":"Double cable clamp 240mm2 22kV","CN80_185/22S":"Single cable clamp 185mm2","CN80_185/22D":"Double cable clamp 185mm2","CN80_240/33S":"Single cable clamp 240mm2 33kV","CN80_240/33D":"Double cable clamp 240mm2 33kV","CN81":"Conduit sealing up to 160mm","CN44":"Cable 185mm XLPE LV (per drawing legend)","TX1_25/11":"Transformer bare LV 25kVA 6/11kV","TX1_25/22":"Transformer bare LV 25kVA 22kV","TX1_25/33":"Transformer bare LV 25kVA 33kV","TX1_63/11":"Transformer bare LV 63kVA 6/11kV","TX1_63/22":"Transformer bare LV 63kVA 22kV","TX1_63/33":"Transformer bare LV 63kVA 33kV","TX2_100/11":"Transformer bare LV 100kVA 6/11kV","TX2_200/11":"Transformer bare LV 200kVA 6/11kV","TX2_100/22":"Transformer bare LV 100kVA 22kV","TX2_200/22":"Transformer bare LV 200kVA 22kV","TX2_100/33":"Transformer bare LV 100kVA 33kV","TX2_200/33":"Transformer bare LV 200kVA 33kV","TX3_25/6":"Transformer only 25kVA 6kV 3 bushing","TX3_100/6":"Transformer only 100kVA 6kV 3 bushing","TX3_200/6":"Transformer only 200kVA 6kV 3 bushing","TX3_315/6":"Transformer only 315kVA 6kV 3 bushing","TX3_25/11":"Transformer only 25kVA 11kV 3 bushing","TX3_100/11":"Transformer only 100kVA 11kV 3 bushing","TX3_200/11":"Transformer only 200kVA 11kV 3 bushing","TX3_315/11":"Transformer only 315kVA 11kV 3 bushing","TX3_25/22":"Transformer only 25kVA 22kV 3 bushing","TX3_63/22":"Transformer only 63kVA 22kV 3 bushing","TX3_100/22":"Transformer only 100kVA 22kV 3 bushing","TX3_200/22":"Transformer only 200kVA 22kV 3 bushing","TX3_315/22":"Transformer only 315kVA 22kV 3 bushing","TX3_25/33":"Transformer only 25kVA 33kV 3 bushing","TX3_63/33":"Transformer only 63kVA 33kV 3 bushing","TX3_100/33":"Transformer only 100kVA 33kV 3 bushing","TX3_200/33":"Transformer only 200kVA 33kV 3 bushing","TX3_315/33":"Transformer only 315kVA 33kV 3 bushing","TX3_10/6":"Transformer only 10kVA 6kV 2 bushing","TX3_10/11":"Transformer only 10kVA 11kV 2 phase 2 bushing","TX3_10/12.7":"Transformer only 10kVA 12.7kV 1 phase 1 bushing","TX3_25/12.7":"Transformer only 25kVA 12.7kV 1 phase 1 bushing","TX3_10/22B2":"Transformer only 10kVA 22kV 2 phase 2 bushing","TX3_25/22B2":"Transformer only 25kVA 22kV 2 phase 2 bushing","TX3_10/19.1":"Transformer only 10kVA 19.1kV 1 phase 1 bushing","TX3_25/19.1":"Transformer only 25kVA 19.1kV 1 phase 1 bushing","TX3_25/33B2":"Transformer only 25kVA 33kV 2 phase 2 bushing","TX4_25/11":"Transformer with LVABC 25kVA 6/11kV","TX4_100/11":"Transformer with LVABC 100kVA 6/11kV","TX4_200/11":"Transformer with LVABC 200kVA 6/11kV","TX4_25/22":"Transformer with LVABC 25kVA 22kV","TX4_63/22":"Transformer with LVABC 63kVA 22kV","TX4_100/22":"Transformer with LVABC 100kVA 22kV","TX4_100/22S":"Transformer with LVABC 100kVA 22kV sole use","TX4_200/22":"Transformer with LVABC 200kVA 22kV","TX4_200/22S":"Transformer with LVABC 200kVA 22kV sole use","TX4_25/33":"Transformer with LVABC 25kVA 33kV","TX4_63/33":"Transformer with LVABC 63kVA 33kV","TX4_100/33":"Transformer with LVABC 100kVA 33kV","TX4_200/33":"Transformer with LVABC 200kVA 33kV","TX5_10/11B2":"Transformer single phase 10kVA 11kV 2 bushing 240V (old)","TX5_10/12.7":"Transformer single phase 10kVA 12.7kV 1 bushing 240V","TX5_10/19.1":"Transformer single phase 10kVA 19.1kV 1 bushing 240V","TX5_10/22B2":"Transformer single phase 10kVA 22kV 2 bushing 240V","TX5_25/12.7":"Transformer single phase 25kVA 12.7kV 1 bushing 240V","TX5_25/19.1":"Transformer single phase 25kVA 19.1kV 1 bushing 240V","TX5_25/22B2":"Transformer single phase 25kVA 22kV 2 bushing 240V","TX5_25/33B2":"Transformer single phase 25kVA 33kV 2 bushing 240V (old)","TX5_10/11B2P":"Transformer single phase 10kVA 11kV 2 bushing 480V (old)","TX5_10/12.7P":"Transformer single phase 10kVA 12.7kV 1 bushing 480V","TX5_10/19.1P":"Transformer single phase 10kVA 19.1kV 1 bushing 480V","TX5_10/22B2P":"Transformer single phase 10kVA 22kV 2 bushing 480V","TX5_25/12.7P":"Transformer single phase 25kVA 12.7kV 1 bushing 480V","TX5_25/19.1P":"Transformer single phase 25kVA 19.1kV 1 bushing 480V","TX5_25/22B2P":"Transformer single phase 25kVA 22kV 2 bushing 480V","TX5_25/33B2P":"Transformer single phase 25kVA 33kV 2 bushing 480V (old)","TX6_63/22":"Isolation transformer 63kVA 22-12.7kV","TX6_200/22":"Isolation transformer 200kVA 22-12.7kV","TX6_200/33":"Isolation transformer 200kVA 33-12.7kV","TX6_33/19.1":"Isolation transformer 200kVA 33-19.1kV","TX7_22":"Pole top metering transformer outdoor 22kV","TX7_33":"Pole top metering transformer outdoor 33kV","TX8_1_315/11":"Transformer 315kVA 6/11kV (type 1)","TX8_1_315/22":"Transformer 315kVA 22kV (type 1)","TX8_1_315/33":"Transformer 315kVA 33kV (type 1)","TX8_4_315/11":"Transformer 315kVA 6/11kV (type 4)","TX8_4_315/22":"Transformer 315kVA 22kV (type 4)","TX8_4_315/33":"Transformer 315kVA 33kV (type 4)","HV1_2HS":"Two-phase intermediate structure, heavy pollution","HV1_2VS":"Two-phase intermediate structure, very heavy pollution","HV1_3HS":"Three-phase intermediate structure, heavy pollution","HV1_3VS":"Three-phase intermediate structure, very heavy pollution","HV1_CS":"Intermediate structure with cross-arm strap","HV3_2N":"Two-phase running disc angle, normal rating","HV3_2H":"Two-phase running disc angle, high rating","HV3_2E":"Two-phase running disc angle, extreme rating","HV3_3N":"Three-phase running disc angle, normal rating","HV3_3H":"Three-phase running disc angle, high rating","HV3_3E":"Three-phase running disc angle, extreme rating","HV5_3MN":"Three-phase horizontal termination, metro, normal","HV5_3MH":"Three-phase horizontal termination, metro, high","HV5_2RN":"Two-phase horizontal termination, rural, normal","HV5_2RH":"Two-phase horizontal termination, rural, high","HV5_2E":"Two-phase horizontal termination, extreme","HV5_3RN":"Three-phase horizontal termination, rural, normal","HV5_3RH":"Three-phase horizontal termination, rural, high","HV5_3E":"Three-phase horizontal termination, extreme","HV6_2H":"Two-phase offset intermediate, heavy pollution","HV6_2V":"Two-phase offset intermediate, very heavy pollution","HV6_3H":"Three-phase offset intermediate, heavy pollution","HV6_3V":"Three-phase offset intermediate, very heavy pollution","HV7_3MH":"Three-phase tee-off termination, metro, heavy pollution","HV7_2RH":"Two-phase tee-off termination, rural, heavy pollution","HV7_2V":"Two-phase tee-off termination, very heavy pollution","HV7_3RH":"Three-phase tee-off termination, rural, heavy pollution","HV7_3V":"Three-phase tee-off termination, very heavy pollution","HV8_3N":"Three-phase tee-off termination with drop-out fuses, normal","HV8_3H":"Three-phase tee-off termination with drop-out fuses, high","HV8_3E":"Three-phase tee-off termination with drop-out fuses, extreme","HV8_2N":"Two-phase tee-off termination with drop-out fuses, normal","HV8_2H":"Two-phase tee-off termination with drop-out fuses, high","HV8_2E":"Two-phase tee-off termination with drop-out fuses, extreme","HV9_2H":"Two-phase in-line strain, heavy pollution","HV9_2V":"Two-phase in-line strain, very heavy pollution","HV9_3H":"Three-phase in-line strain, heavy pollution","HV9_3V":"Three-phase in-line strain, very heavy pollution","HV10_2N":"Two-phase in-line strain with drop-out fuses, normal","HV10_2H":"Two-phase in-line strain with drop-out fuses, high","HV10_2E":"Two-phase in-line strain with drop-out fuses, extreme","HV10_3N":"Three-phase in-line strain with drop-out fuses, normal","HV10_3H":"Three-phase in-line strain with drop-out fuses, high","HV10_3E":"Three-phase in-line strain with drop-out fuses, extreme","HV11":"Combination pole-top switch","HV12_2H":"Two-phase offset intermediate with drop-out fuses, heavy pollution","HV12_2V":"Two-phase offset intermediate with drop-out fuses, very heavy pollution","HV12_3H":"Three-phase offset intermediate with drop-out fuses, heavy pollution","HV12_3V":"Three-phase offset intermediate with drop-out fuses, very heavy pollution","HV13":"Combination pole-top switch with drop-out fuses","HV18":"Intermediate wishbone, normal and high ratings","HV18_E":"Intermediate wishbone, extreme rating","HV19":"Pole-top switch, normal and high ratings","HV19_E":"Pole-top switch, extreme rating","HV20_2H":"Drop-out fuse cross-arm for intermediate transformer, two-phase, high","HV20_3H":"Drop-out fuse cross-arm for intermediate transformer, three-phase, high","HV21_2H":"Two-phase intermediate extended raiser, heavy pollution","HV21_2V":"Two-phase intermediate extended raiser, very heavy pollution","HV21_3H":"Three-phase intermediate extended raiser, heavy pollution","HV21_3V":"Three-phase intermediate extended raiser, very heavy pollution","HV23_W":"Termination pole-top switch with drop-out fuses, normal and high","HV23_WE":"Termination pole-top switch with drop-out fuses, extreme","HV23_WO":"Termination pole-top switch without drop-out fuses, normal and high","HV23_WOE":"Termination pole-top switch without drop-out fuses, extreme","HV27_N":"Single-phase in-line strain with drop-out fuses, normal","HV27_H":"Single-phase in-line strain with drop-out fuses, high","HV27_E":"Single-phase in-line strain with drop-out fuses, extreme","HV29_H":"Single-phase intermediate, heavy pollution","HV29_V":"Single-phase intermediate, very heavy pollution","HV30_N":"Single-phase running disc angle / tee-off, normal","HV30_H":"Single-phase running disc angle / tee-off, high","HV30_E":"Single-phase running disc angle / tee-off, extreme","HV31_H":"Single-phase slack strain with drop-out fuses, heavy pollution","HV31_V":"Single-phase slack strain with drop-out fuses, very heavy pollution","HV32_N":"Single-phase termination with drop-out fuses, normal","HV32_H":"Single-phase termination with drop-out fuses, high","HV32_E":"Single-phase termination with drop-out fuses, extreme","HV33_N":"Single-phase strain angle, normal","HV33_H":"Single-phase strain angle, high","HV33_E":"Single-phase strain angle, extreme","HV34_N":"Earthing for wood pole","HV34_PT":"Pole-top earthing base kit","HV34_PT12":"Pole-top earthing 12mm add-on","HV34_PT16":"Pole-top earthing 16mm add-on","HV34_PTS":"Pole-top earthing stay add-on","HV34_T":"Earthing for 10 and 25kVA transformer (maintenance)","HV34_VAN70":"70mm2 copper pole earth, vandalism repair","HV34_VAN25":"25mm2 copper pole earth, vandalism repair","HV36":"Stand-off line post insulator","HV38_1000_M":"22kV 1000kVAr capacitor bank, metro, one-bushing VT","HV38_1000_R":"22kV 1000kVAr capacitor bank, rural, one-bushing VT","HV38_500_M":"22kV 500kVAr capacitor bank, metro, one-bushing VT","HV38_500_R":"22kV 500kVAr capacitor bank, rural, one-bushing VT","HV39_1000_R":"33kV 1000kVAr capacitor bank, rural, one-bushing VT","HV39_500_R":"33kV 500kVAr capacitor bank, rural, one-bushing VT","HV43_3HAS":"Three-phase intermediate anti-swan cross-arm, heavy pollution","HV43_3VAS":"Three-phase intermediate anti-swan cross-arm, very heavy pollution","HV43_3HM":"Three-phase intermediate maintenance short riser, heavy pollution","HV43_3VM":"Three-phase intermediate maintenance short riser, very heavy pollution","HV44_3NAS":"Three-phase horizontal anti-swan cross-arm, normal","HV44_3HAS":"Three-phase horizontal anti-swan cross-arm, high","HV44_3EAS":"Three-phase horizontal termination with anti-swan, extreme","HV45_2S":"Two-phase intermediate double cross-arm, heavy pollution","HV45_2V":"Two-phase intermediate double cross-arm, very heavy pollution","HV45_3S":"Three-phase intermediate double cross-arm, heavy pollution","HV45_3V":"Three-phase intermediate double cross-arm, very heavy pollution","HV47_3NAS":"Three-phase strain angle deviation with anti-swan, normal","HV47_3HAS":"Three-phase strain angle deviation with anti-swan, high","HV47_3EAS":"Three-phase strain angle deviation with anti-swan, extreme","HV51_3.15EDO":"Expulsion drop-out fuse 3.15A","HV51_5EDO":"Expulsion drop-out fuse 5A","HV51_8EDO":"Expulsion drop-out fuse 8A","HV51_10 EDO":"Expulsion drop-out fuse 10A","HV51_16 EDO":"Expulsion drop-out fuse 16A","HV51_20EDO":"Expulsion drop-out fuse 20A","HV51_25EDO":"Expulsion drop-out fuse 25A","HV51_31.5EDO":"Expulsion drop-out fuse 31.5A","HV51_40EDO":"Expulsion drop-out fuse 40A","HV51_63EDO":"Expulsion drop-out fuse 63A","HV51_80 EDO":"Expulsion drop-out fuse 80A","HV52_3FT":"Standard speed Fault Tamer drop-out fuse 3A (max 22kV)","HV52_5FT":"Standard speed Fault Tamer drop-out fuse 5A (max 22kV)","HV52_7FT":"Standard speed Fault Tamer drop-out fuse 7A (max 22kV)","HV52_10FT":"Standard speed Fault Tamer drop-out fuse 10A (max 22kV)","HV52_15FT":"Standard speed Fault Tamer drop-out fuse 15A (max 22kV)","HV52_20FT":"Standard speed Fault Tamer drop-out fuse 20A (max 22kV)","HV53_HC":"600A disconnect switch, cross-arm mounted","HV53_HB":"600A disconnect switch, bracket mounted","HV54_1PH":"Single-phase fuse saver","HV61_22W":"Three-phase recloser with PTS and isolators 22kV wood pole, one-bushing transformer supply","HV61_33W":"Three-phase recloser with PTS and isolators 33kV wood pole, one-bushing transformer supply","HV61_22W_M":"Three-phase recloser with PTS and isolators 22kV, two-bushing transformer supply","HV61_22W_LV":"Three-phase recloser with PTS and isolators 22kV wood pole, LV aerial supply","HV61_33W_LV":"Three-phase recloser with PTS and isolators 33kV wood pole, LV aerial supply","HV65_12_TX":"12.7kV single-phase recloser with bypass","HV65_19_TX":"19.1kV single-phase recloser with bypass","HX1_I":"HENDRIX intermediate 0-2 deg","HX2_IA":"HENDRIX intermediate angle 3-30 deg","HX3_IA":"HENDRIX intermediate angle 31-60 deg","HX4_SA_150":"HENDRIX strain angle 61-90 deg","HX5_T_150":"HENDRIX termination","HX6_1_TSA150":"HENDRIX termination on surge arresters","HX6_2_TSA150":"HENDRIX termination on surge arresters w/o X-arm","HX7_TST150":"HENDRIX termination series tap terminated messenger wire","HX8_ITO":"HENDRIX intermediate tap-off","HX9_150":"HENDRIX mid span full tension joint","HX10_IX":"HENDRIX intermediate pole crossing","PO2":"Wood pole 9.5m 5kN","PO2_R":"Wood pole 9.5m 5kN rural painted","PO4_M":"Wood pole 11m 4kN metro","PO4_R":"Wood pole 11m 4kN rural painted","PO5_M":"Wood pole 11m 5kN metro","PO5_R":"Wood pole 11m 5kN rural painted","PO6_M":"Wood pole 11m 6kN metro","PO6_R":"Wood pole 11m 6kN rural painted","PO7_M":"Wood pole 12.5m 4kN metro","PO7_R":"Wood pole 12.5m 4kN rural painted","PO8_M":"Wood pole 12.5m 6kN metro","PO8_R":"Wood pole 12.5m 6kN rural painted","PO9_M":"Wood pole 12.5m 8kN metro","PO9_R":"Wood pole 12.5m 8kN rural painted","PO11_M":"Wood pole 14m 8kN metro","PO11_R":"Wood pole 14m 8kN rural painted","PO18_11M":"SSP 11m pole (8.45m above ground)","PO18_11R":"SSP 11m pole (8.45m above ground) painted","PO18_12.5M":"SSP 12.5m pole (9.7m above ground)","PO18_12.5R":"SSP 12.5m pole (9.7m above ground) painted","PO18_14M":"SSP 14m pole (11m above ground)","PO18_14R":"SSP 14m pole (11m above ground) painted","RE1":"Running earth intermediate","RE2_7/475A":"Running earth angle 7/4.75 AAC/AAAC","RE2_7/250A":"Running earth angle 7/2.50 AAC/AAAC and 6/1/3.00 ACSR/AACSR","RE2_3/275SC":"Running earth angle 3/2.75 SCGZ","RE2_7/160SC":"Running earth angle 7/1.60 SCGZ","RE2_3/275AC":"Running earth angle 3/2.75 SCAC","RE3_7/250AA":"Running earth termination 7/2.50 AAC and AAAC","RE3_7/475AA":"Running earth termination 7/4.75 AAC and AAAC","RE3_19/325AA":"Running earth termination 19/3.25 AAC and AAAC","RE3_3/275AC":"Running earth termination 3/2.75 SCAC","RE3_3/275SC":"Running earth termination 3/2.75 SCGZ","RE3_7/160SC":"Running earth termination 7/1.60 SCGZ","RE3_6/1/300":"Running earth termination 6/1/3.00 AACSR/AC","RE4":"Running earth intermediate angle 2 to 10 degrees","RE6":"Running earth intermediate wishbone raiser","RE7_TC":"Streetlight feed termination concrete","RE7_TW":"Streetlight feed termination wood","RE8_IC":"Streetlight feed intermediate concrete","RE8_IW":"Streetlight feed intermediate wood","LV1_C1":"Intermediate concrete 1 phase","LV1_C3":"Intermediate concrete 3 phase","LV1_W1":"Intermediate wood 1 phase","LV1_W3":"Intermediate wood 3 phase","LV1_C1G":"Intermediate concrete 1 phase (Geraldton District only)","LV1_C3G":"Intermediate concrete 3 phase (Geraldton District only)","LV1_W1G":"Intermediate wood 1 phase (Geraldton District only)","LV1_W3G":"Intermediate wood 3 phase (Geraldton District only)","LV2_C1":"Angle 0 to 20 concrete 1 phase","LV2_C3":"Angle 0 to 20 concrete 3 phase","LV2_W1":"Angle 0 to 20 wood 1 phase","LV2_W3":"Angle 0 to 20 wood 3 phase","LV2_C1G":"Angle 0 to 20 concrete 1 phase (Geraldton District only)","LV2_C3G":"Angle 0 to 20 concrete 3 phase (Geraldton District only)","LV2_W1G":"Angle 0 to 20 wood 1 phase (Geraldton District only)","LV2_W3G":"Angle 0 to 20 wood 3 phase (Geraldton District only)","LV3_C1":"In line strain angle 20 to 40 concrete 1 phase","LV3_C3":"In line strain angle 20 to 40 concrete 3 phase","LV3_W1":"In line strain angle 20 to 40 wood 1 phase","LV3_W3":"In line strain angle 20 to 40 wood 3 phase","LV3_C1G":"In line strain angle 20 to 40 concrete 1 phase (Geraldton District only)","LV3_C3G":"In line strain angle 20 to 40 concrete 3 phase (Geraldton District only)","LV3_W1G":"In line strain angle 20 to 40 wood 1 phase (Geraldton District only)","LV3_W3G":"In line strain angle 20 to 40 wood 3 phase (Geraldton District only)","LV5_C1":"Termination concrete 1 phase","LV5_C3":"Termination concrete 3 phase","LV5_W1":"Termination wood 1 phase","LV5_W3":"Termination wood 3 phase","LV5_C1G":"Termination concrete 1 phase (Geraldton District only)","LV5_C3G":"Termination concrete 3 phase (Geraldton District only)","LV5_W1G":"Termination wood 1 phase (Geraldton District only)","LV5_W3G":"Termination wood 3 phase (Geraldton District only)","LV6_600A":"LV isolators underslung 600V-600A","LV7_1P":"Single phase overhead temporary builders supply","LV7_3P":"Three phase overhead temporary builders supply","LV8_1P":"Single phase overhead permanent customer supply","LV8_3P":"Three phase overhead permanent customer supply","AB1_95":"Intermediate and angle 0 to 25 95","AB1_150":"Intermediate and angle 0 to 25 150","AB2_95":"Angle 26 to 50 95","AB2_150":"Angle 26 to 50 150","AB3_95":"Termination 95","AB3_150":"Termination 150","AB4_95":"Inline strain 95","AB4_150":"Inline strain 150","AB4_95FSDO":"Inline strain with FSDO 95","AB4_150FSDO":"Inline strain with FSDO 150","AB5_95":"Tee off 95","AB5_150":"Tee off 150","AB6_95AL":"Tee off LV bare aluminium to ABC 95","AB6_150AL":"Tee off LV bare aluminium to ABC 150","AB18_95AL":"Tee off LV bare aluminium to fused ABC 95","AB18_150AL":"Tee off LV bare aluminium to fused ABC 150","ST1_19/200C":"Ground stay 19/2.00 concrete pole, screw anchor","ST1_19/275C":"Ground stay 19/2.75 concrete pole, screw anchor","ST1_19/200W":"Ground stay 19/2.00 wood pole, screw anchor","ST1_19/200WC":"Ground stay 19/2.00 wood pole, concrete anchor","ST1_19/275W":"Ground stay 19/2.75 wood pole, screw anchor","ST1_19/275WC":"Ground stay 19/2.75 wood pole, concrete anchor","ST2_19/200C":"Aerial stay 19/2.00 concrete pole","ST2_19/200W":"Aerial stay 19/2.00 wood pole","ST2_19/200CW":"Aerial stay 19/2.00 concrete pole to wood pole","ST4_19/200C":"Outrigger stay 19/2.00 concrete pole, screw anchor","ST4_19/275C":"Outrigger stay 19/2.75 concrete pole, screw anchor","ST4_19/200W":"Outrigger stay 19/2.00 wood pole, screw anchor","ST4_19/200WC":"Outrigger stay 19/2.00 wood pole, concrete anchor","ST4_19/275W":"Outrigger stay 19/2.75 wood pole, screw anchor","ST4_19/275WC":"Outrigger stay 19/2.75 wood pole, concrete anchor"}; // DQM Service CU manual rev 40 (poles and stays), from the DGN-to-SOW tool
+  /* ======================================================================================================================
+     DESIGN DELIVERY (2026-11-07): clearance checks, batch tipload + strength, existing vs proposed, bill of materials / SOW /
+     pole schedule, design report PDF, version history, cadastre layer, typed and spoken commands. Private artifact only.
+     Engineering values are inputs (clearances, temperature) or come from the loaded PNW / DCSH data: none are invented here.
+     ====================================================================================================================== */
+  function fxS() {
+    var f = S.fx = S.fx || {};
+    if (!f.clr) f.clr = {};
+    var c = f.clr, c1 = PNW.num(S.settings.clr1), c2 = PNW.num(S.settings.clr2);
+    if (c.temp == null) c.temp = 50; // Ishan's maximum sag option (v69); editable in Clearance settings
+    if (!c.req) c.req = { ground: { hv: c1 > 0 ? c1 : '', lv: c1 > 0 ? c1 : '' }, road: { hv: c2 > 0 ? c2 : '', lv: c2 > 0 ? c2 : '' }, building: { hv: '', lv: '' }, other: { hv: '', lv: '' } };
+    if (c.roadFromCad == null) c.roadFromCad = true;
+    if (!f.area) f.area = 'metro';
+    return f;
+  }
+  function fxObs() { return S.design.obstacles = S.design.obstacles || []; }
+  var FXK = { ground: 'Ground', road: 'Road crossing', building: 'Building / structure', other: 'Other obstacle' };
+  var n2 = function (v, dp) { return v == null || v === '' || !isFinite(v) ? '–' : Number(v).toFixed(dp == null ? 2 : dp); };
+  var fxEsc = function (s) { return esc(s == null ? '' : s); };
+  function fxTable(head, rows, cls) { return '<div class="fx-tw"><table class="grid ' + (cls || '') + '"><thead><tr>' + head.map(function (h) { return '<th' + (/^#|\(m\)|kN|%|Qty|°/.test(h) ? ' class="num"' : '') + '>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>'; }
+  function fxCsv(head, rows) { return [head].concat(rows).map(function (r) { return r.map(function (v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n'); }
+  function fxWb(sheets) { var wb = XLSX.utils.book_new(); sheets.forEach(function (s) { XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([s[1]].concat(s[2])), s[0].slice(0, 31)); }); return new Blob([xlsxBytes(wb)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); }
+  function fxName() { return (prof().name || (project && project.attrs && project.attrs.title) || 'Design').replace(/[\\/:*?"<>|]+/g, '-'); }
+  function fxToday() { return new Date().toISOString().slice(0, 10); }
+
+  /* ---------------- 1. Clearance checks ---------------- */
+  // Sag of a wire at the clearance temperature: the section's DCSH Part 10 table (final), else w·L²/8T at the stringing tension.
+  function fxSagAt(w, temp, bySeg) {
+    var sg = project && project.segments.filter(function (s) { return s.StrainSect === w.segment; })[0], t = sg ? tableFor(sg) : null;
+    if (t) { var r = M.tableSag(t, 'final', Number(temp), w.span, M.rulingSpan(bySeg[w.segment] || [w.span])); if (r && r.value != null) return { sag: r.value, src: t.title + ' (DCSH Part 10 p' + t.page + ') final ' + temp + ' °C' + (r.extrapolated ? ', extended past 45 °C' : '') }; }
+    var cd = project && project.conductors.filter(function (c) { return String(c.Code).toUpperCase() === String(w.conductor).toUpperCase(); })[0], s = M.illustrativeSag(w.span, cd, sg);
+    return { sag: s, src: s != null ? 'w·L²/8T at the stringing tension (no DCSH table: temperature not applied)' : 'no sag (no conductor mass or tension)', approx: true };
+  }
+  function fxReq(kind, wk) { var r = fxS().clr.req[kind] || {}, v = PNW.num(wk === 'hv' ? r.hv : r.lv); return v > 0 ? v : null; }
+  // Road reserve from the cadastre: chainage intervals of the line that are outside every lot (needs a lots layer).
+  function fxRoadIntervals() {
+    var out = [], cd = fxCad(); if (!fxS().clr.roadFromCad || !cd.polys.some(function (p) { return p.kind === 'lot'; })) return out;
+    var ids = lineIds();
+    for (var i = 1; i < ids.length; i++) {
+      var A = poleXY(ids[i - 1]), B = poleXY(ids[i]), ca = chainOfPole(ids[i - 1]), cb = chainOfPole(ids[i]); if (!A || !B || ca == null || cb == null) continue;
+      var st = null;
+      for (var k = 0; k <= 40; k++) { var t = k / 40, ll = toLatLng(A.e + (B.e - A.e) * t, A.n + (B.n - A.n) * t), inLot = ll && fxPolyAt(ll, 'lot'), c = ca + (cb - ca) * t; if (!inLot && st == null) st = c; if ((inLot || k === 40) && st != null) { out.push({ kind: 'road', from: Math.min(st, c), to: Math.max(st, c), src: 'road reserve (cadastre)' }); st = null; } }
+    }
+    return out;
+  }
+  function fxClearance() {
+    var res = { rows: [], fails: 0, worst: {}, temp: fxS().clr.temp, notes: [] }; if (!dm || !dm.wires.length || !project) return res;
+    var gz = groundAtFn(); if (!gz) { res.notes.push('No ground line in the design.'); return res; }
+    var temp = Number(fxS().clr.temp), bySeg = {}; dm.wires.forEach(function (w) { if (w.phase === 1) (bySeg[w.segment] = bySeg[w.segment] || []).push(w.span); });
+    var obs = fxObs().map(function (o) { return { kind: o.kind, from: Number(o.from), to: o.to === '' || o.to == null ? Number(o.from) : Number(o.to), h: PNW.num(o.h), req: o.req, name: o.name || '' }; }).filter(function (o) { return isFinite(o.from); }).concat(fxRoadIntervals());
+    var bySpan = {};
+    dm.wires.forEach(function (w) {
+      var c0 = chainOfPole(w.from.pole), c1 = chainOfPole(w.to.pole); if (c0 == null || c1 == null) return;
+      var sg = fxSagAt(w, temp, bySeg), wk = wireKind(w) === 'hv' ? 'hv' : 'lv', key = w.from.pole + '|' + w.to.pole;
+      w.fxSag = sg.sag; w.fxSrc = sg.src;
+      var lo = Math.min(c0, c1), hi = Math.max(c0, c1);
+      var checks = [{ kind: 'ground', from: lo, to: hi, h: 0 }].concat(obs.filter(function (o) { return Math.max(o.from, o.to) >= lo && Math.min(o.from, o.to) <= hi; }));
+      checks.forEach(function (o) {
+        var req = o.req != null && o.req !== '' && PNW.num(o.req) > 0 ? PNW.num(o.req) : fxReq(o.kind, wk), best = null;
+        for (var k = 0; k <= 48; k++) {
+          var t = k / 48, c = c0 + (c1 - c0) * t; if (c < Math.min(o.from, o.to) - 1e-6 || c > Math.max(o.from, o.to) + 1e-6) continue;
+          var z = w.from.elevation + (w.to.elevation - w.from.elevation) * t - (sg.sag ? 4 * sg.sag * t * (1 - t) : 0), g = gz(c), top = g + (o.kind === 'ground' || o.kind === 'road' ? 0 : (o.h > 0 ? o.h : 0)), cl = z - top;
+          if (!best || cl < best.clr) best = { clr: cl, c: c, z: z, top: top, e: w.from.easting + (w.to.easting - w.from.easting) * t, n: w.from.northing + (w.to.northing - w.from.northing) * t };
+        }
+        if (!best && o.kind !== 'ground') { // obstacle between two sample points: check it at its own chainage
+          var cm = (Math.min(o.from, o.to) + Math.max(o.from, o.to)) / 2, tm = (cm - c0) / (c1 - c0); if (tm >= 0 && tm <= 1) { var zm = w.from.elevation + (w.to.elevation - w.from.elevation) * tm - (sg.sag ? 4 * sg.sag * tm * (1 - tm) : 0), tp = gz(cm) + (o.h > 0 ? o.h : 0); best = { clr: zm - tp, c: cm, z: zm, top: tp, e: w.from.easting + (w.to.easting - w.from.easting) * tm, n: w.from.northing + (w.to.northing - w.from.northing) * tm }; }
+        }
+        if (!best) return;
+        var row = Object.assign(best, { a: w.from.pole, b: w.to.pole, kind: o.kind, name: o.name || o.src || '', code: w.conductor, wk: wk, seg: w.segment, req: req, ok: req == null ? null : best.clr >= req - 1e-9, sagSrc: sg.src, approx: !!sg.approx });
+        var kk = key + '|' + o.kind + '|' + (o.name || o.src || '') + '|' + wk;
+        if (!bySpan[kk] || row.clr - (row.req || 0) < bySpan[kk].clr - (bySpan[kk].req || 0)) bySpan[kk] = row;
+      });
+    });
+    res.rows = Object.keys(bySpan).map(function (k) { return bySpan[k]; }).sort(function (x, y) { return (x.ok === false ? 0 : 1) - (y.ok === false ? 0 : 1) || chainOfPole(x.a) - chainOfPole(y.a); });
+    res.fails = res.rows.filter(function (r) { return r.ok === false; }).length;
+    if (res.rows.some(function (r) { return r.req == null; })) res.notes.push('Some checks have no required clearance: enter it in Clearance settings.');
+    if (res.rows.some(function (r) { return r.approx; })) res.notes.push('Sections without a DCSH Part 10 table use the stringing-tension sag, which does not change with temperature: check them in PNW.');
+    return res;
+  }
+  var fxClrCache = null, fxClrAt = 0;
+  function fxClrRes() { if (!fxClrCache || fxClrAt !== calcAt) { try { fxClrCache = fxClearance(); } catch (e) { fxClrCache = { rows: [], fails: 0, notes: ['Clearance check failed: ' + e.message] }; } fxClrAt = calcAt; } return fxClrCache; }
+  function fxClrIssues() {
+    if (!project || !dm) return [];
+    return fxClrRes().rows.filter(function (r) { return r.ok === false; }).map(function (r) { return { level: 'error', poleId: r.a, message: FXK[r.kind] + ' clearance ' + r.clr.toFixed(2) + ' m at ' + r.c.toFixed(1) + ' m (' + r.a + ' → ' + r.b + ', ' + r.code + ', ' + fxS().clr.temp + ' °C); needs ' + r.req + ' m.' }; });
+  }
+  function fxClrDlg() {
+    if (!project) { setStatus('Clearance checks need a design: link a PNW project or start one from the ground profile.', 'bad'); return; }
+    var c = fxS().clr, r = fxClrRes(), obs = fxObs();
+    var reqRow = function (k) { return '<tr><th>' + FXK[k] + '</th><td><input data-fxreq="' + k + '|hv" value="' + fxEsc(c.req[k].hv) + '" inputmode="decimal" style="width:70px"></td><td><input data-fxreq="' + k + '|lv" value="' + fxEsc(c.req[k].lv) + '" inputmode="decimal" style="width:70px"></td></tr>'; };
+    var h = '<div class="fx-row"><label>Check temperature (°C) <input id="fxTemp" value="' + fxEsc(c.temp) + '" inputmode="decimal" style="width:60px" title="Maximum operating temperature for the clearance check: sag from the section’s DCSH Part 10 table at this temperature"></label>' +
+      '<label><input type="checkbox" id="fxRoadCad"' + (c.roadFromCad ? ' checked' : '') + '> Road reserve from the cadastre counts as road</label></div>' +
+      '<details class="fx-det"' + (r.rows.some(function (x) { return x.req == null; }) ? ' open' : '') + '><summary>Required clearances (m)</summary><p class="hint">Enter the values from the Distribution Overhead Line Design Manual (Clearances). Ground starts at your PNW clearance line 1 and road at clearance line 2.</p><table class="props"><tr><th></th><th>HV</th><th>LV / RE</th></tr>' + ['ground', 'road', 'building', 'other'].map(reqRow).join('') + '</table></details>' +
+      '<details class="fx-det" open><summary>Roads, buildings and obstacles along the line (' + obs.length + ')</summary><p class="hint">Chainage along the active profile. A road is an interval; a building or obstacle has a height above ground. <b>Pick on profile</b> fills the chainage from your next click in the profile.</p>' +
+      fxTable(['Type', 'Name', 'From (m)', 'To (m)', 'Height (m)', 'Required (m)', ''], obs.map(function (o, i) {
+        return '<tr><td><select data-fxob="' + i + '|kind">' + ['road', 'building', 'other'].map(function (k) { return '<option value="' + k + '"' + (o.kind === k ? ' selected' : '') + '>' + FXK[k] + '</option>'; }).join('') + '</select></td><td><input data-fxob="' + i + '|name" value="' + fxEsc(o.name) + '" style="width:110px"></td>' +
+          ['from', 'to', 'h', 'req'].map(function (f) { return '<td><input data-fxob="' + i + '|' + f + '" value="' + fxEsc(o[f]) + '" inputmode="decimal" style="width:64px"' + (f === 'h' && o.kind === 'road' ? ' disabled' : '') + (f === 'req' ? ' placeholder="default"' : '') + '></td>'; }).join('') +
+          '<td><button class="btn small ghost" data-fxpick="' + i + '" title="Pick the chainage on the profile">Pick</button><button class="btn small ghost" data-fxobdel="' + i + '" title="Remove">🗑</button></td></tr>';
+      })) + '<div class="btnrow"><button class="btn small" data-fxobadd="road">+ Road</button><button class="btn small" data-fxobadd="building">+ Building</button><button class="btn small" data-fxobadd="other">+ Other</button></div></details>';
+    h += '<div class="facts">' + fact('Checks', r.rows.length) + fact('Fails', r.fails, r.fails ? 'bad' : '') + fact('Temperature', c.temp + ' °C') + fact('Min ground clearance', n2(Math.min.apply(null, r.rows.filter(function (x) { return x.kind === 'ground'; }).map(function (x) { return x.clr; }).concat([Infinity])))) + '</div>';
+    h += r.notes.map(function (n) { return '<p class="hint">' + fxEsc(n) + '</p>'; }).join('');
+    h += r.rows.length ? fxTable(['Span', 'Check', 'Conductor', 'Lowest at (m)', 'Clearance (m)', 'Required (m)', 'Result', 'Sag source'], r.rows.map(function (x) {
+      return '<tr data-fxspan="' + fxEsc(x.a + '|' + x.b) + '" class="' + (x.ok === false ? 'fx-bad' : '') + '"><td><b>' + fxEsc(x.a) + ' → ' + fxEsc(x.b) + '</b></td><td>' + FXK[x.kind] + (x.name ? ' <small>' + fxEsc(x.name) + '</small>' : '') + '</td><td>' + fxEsc(x.code) + ' <small>' + x.wk.toUpperCase() + '</small></td><td class="num">' + n2(x.c, 1) + '</td><td class="num">' + n2(x.clr) + '</td><td class="num">' + n2(x.req) + '</td><td>' + (x.ok == null ? '<span class="pill mute">no rule</span>' : x.ok ? '<span class="pill ok">PASS</span>' : '<span class="pill bad">FAIL</span>') + '</td><td class="sagsrc">' + fxEsc(x.sagSrc) + '</td></tr>';
+    })) : '<p class="hint">No conductors are strung yet.</p>';
+    h += '<div class="btnrow"><button class="btn small" id="fxClrCsv">Export CSV</button><button class="btn small" id="fxClrPv">Show in profile</button></div>';
+    openGen('Clearance check', h, { side: true, noFocus: true });
+    var body = $('genBody');
+    var upd = function () { recompute(); fxClrDlg(); };
+    $('fxTemp').onchange = function () { var v = PNW.num(this.value); if (isFinite(v)) { c.temp = v; upd(); } };
+    $('fxRoadCad').onchange = function () { c.roadFromCad = this.checked; upd(); };
+    body.addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.dataset.fxreq) { var k = t.dataset.fxreq.split('|'); c.req[k[0]][k[1]] = t.value.trim(); upd(); }
+      if (t.dataset.fxob) { var q = t.dataset.fxob.split('|'), o = obs[+q[0]]; o[q[1]] = t.value.trim(); upd(); }
+    });
+    body.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-fxobadd],[data-fxobdel],[data-fxpick],[data-fxspan]'); if (!b) return;
+      if (b.dataset.fxobadd) { obs.push({ kind: b.dataset.fxobadd, name: '', from: '', to: '', h: '', req: '' }); upd(); }
+      else if (b.dataset.fxobdel != null) { obs.splice(+b.dataset.fxobdel, 1); upd(); }
+      else if (b.dataset.fxpick != null) { FX.pick = { i: +b.dataset.fxpick, step: 'from' }; closeGen(); if (S.view !== 'profile' && S.view !== 'split') setView('profile'); setStatus('Click the profile at the start of the ' + FXK[obs[FX.pick.i].kind].toLowerCase() + (obs[FX.pick.i].kind === 'road' ? ', then at its end' : '') + '. Esc cancels.', 'good'); }
+      else if (b.dataset.fxspan) { var s = b.dataset.fxspan.split('|'); S.selSpan = { a: s[0], b: s[1] }; S.selected = null; renderAll(); }
+    });
+    $('fxClrCsv').onclick = function () { download(new Blob([fxCsv(['From', 'To', 'Check', 'Name', 'Conductor', 'Circuit', 'Chainage m', 'Clearance m', 'Required m', 'Result', 'Temperature C', 'Sag source'], r.rows.map(function (x) { return [x.a, x.b, FXK[x.kind], x.name, x.code, x.wk.toUpperCase(), x.c.toFixed(1), x.clr.toFixed(2), x.req == null ? '' : x.req, x.ok == null ? 'no rule' : x.ok ? 'PASS' : 'FAIL', c.temp, x.sagSrc]; }))], { type: 'text/csv' }), 'Clearance - ' + fxName() + '.csv'); };
+    $('fxClrPv').onclick = function () { S.fx.clrShow = true; closeGen(); setView('profile'); };
+  }
+  // Profile overlay: wires at the check temperature, road bands, obstacles, and the failing points.
+  function fxProfile(chainOf, X, Y, x0, x1, m, H) {
+    var out = '';
+    if (FX.ep && dm) out += fxEpProfile(chainOf, X, Y);
+    if (!project || !dm || !fxS().clrShow) return out;
+    var r = fxClrRes(), gz = groundAtFn(), temp = fxS().clr.temp, bySeg = {};
+    fxObs().concat(fxRoadIntervals()).forEach(function (o) {
+      var a = Number(o.from), b = o.to === '' || o.to == null ? a : Number(o.to); if (!isFinite(a)) return;
+      if (o.kind === 'road') out += '<rect x="' + X(Math.min(a, b)) + '" y="' + m.t + '" width="' + Math.max(2, Math.abs(X(b) - X(a))) + '" height="' + (H - m.t - m.b) + '" fill="#64748b" opacity=".12"><title>' + fxEsc((o.name || o.src || 'Road') + ' ' + a.toFixed(1) + '–' + b.toFixed(1) + ' m') + '</title></rect>';
+      else if (gz) { var hh = PNW.num(o.h) > 0 ? PNW.num(o.h) : 0, x = X(Math.min(a, b)), w = Math.max(6, Math.abs(X(b) - X(a))); out += '<rect x="' + (a === b ? x - 3 : x) + '" y="' + Y(gz((a + b) / 2) + hh) + '" width="' + w + '" height="' + Math.max(1, Y(gz((a + b) / 2)) - Y(gz((a + b) / 2) + hh)) + '" fill="#a16207" opacity=".35" stroke="#a16207"><title>' + fxEsc((o.name || FXK[o.kind]) + ' ' + hh + ' m high at ' + a.toFixed(1) + ' m') + '</title></rect>'; }
+    });
+    dm.wires.forEach(function (w) {
+      var a = chainOf[w.from.pole], b = chainOf[w.to.pole]; if (a == null || b == null || w.fxSag == null) return;
+      var pts = []; for (var k = 0; k <= 20; k++) { var t = k / 20, z = w.from.elevation + (w.to.elevation - w.from.elevation) * t - 4 * w.fxSag * t * (1 - t); pts.push(X(a + (b - a) * t).toFixed(1) + ' ' + Y(z).toFixed(1)); }
+      out += '<path d="M' + pts.join(' L') + '" fill="none" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity=".8"><title>' + fxEsc(w.conductor + ' at ' + temp + ' °C: sag ' + w.fxSag.toFixed(2) + ' m (' + w.fxSrc + ')') + '</title></path>';
+    });
+    r.rows.filter(function (x) { return x.ok === false; }).forEach(function (x) {
+      out += '<line x1="' + X(x.c) + '" x2="' + X(x.c) + '" y1="' + Y(x.z) + '" y2="' + Y(x.top) + '" stroke="#dc2626" stroke-width="2"/><circle cx="' + X(x.c) + '" cy="' + Y(x.z) + '" r="4" fill="#dc2626"><title>' + fxEsc(FXK[x.kind] + ' clearance ' + x.clr.toFixed(2) + ' m, needs ' + x.req + ' m (' + x.code + ')') + '</title></circle><text x="' + (X(x.c) + 5) + '" y="' + ((Y(x.z) + Y(x.top)) / 2) + '" class="ax" fill="#dc2626" style="fill:#dc2626">' + x.clr.toFixed(2) + ' m</text>';
+    });
+    return out;
+  }
+  function fxLegend() {
+    var s = '';
+    if (project && fxS().clrShow) s += '<span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" stroke="#dc2626" stroke-dasharray="4 3"/></svg>' + fxEsc(fxS().clr.temp) + ' °C (clearance)</span><button class="ibtn fx-pvclr" data-fxpvclr title="Hide the clearance overlay">✕</button>';
+    else if (project) s += '<button class="ibtn fx-pvclr" data-fxpvclr title="Show conductors at the clearance temperature, roads, obstacles and clearance fails">Clearance</button>';
+    if (FX.ep) s += '<span class="fx-epleg"><i style="background:#16a34a"></i>New <i style="background:#ea580c"></i>Replaced <i style="background:#7c3aed"></i>Modified <i style="background:#94a3b8"></i>Existing</span>';
+    return s;
+  }
+  document.addEventListener('click', function (e) { if (e.target.closest('[data-fxpvclr]')) { fxS().clrShow = !fxS().clrShow; save(); renderProfileView(); } });
+  // Pick a chainage on the profile for an obstacle
+  $('profileView').addEventListener('click', function (e) {
+    if (!FX.pick || !pv.geom) return; var svg = $('profileView').querySelector('svg'); if (!svg) return;
+    e.stopPropagation(); e.preventDefault();
+    var r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * (svg.viewBox.baseVal.width || r.width), c = Math.round((pv.geom.x0 + (x - pv.geom.l) / pv.geom.w * (pv.geom.x1 - pv.geom.x0)) * 10) / 10, o = fxObs()[FX.pick.i];
+    if (!o) { FX.pick = null; return; }
+    if (FX.pick.step === 'from') { o.from = c; if (o.kind === 'road') { FX.pick.step = 'to'; setStatus('Start at ' + c + ' m. Now click the end of the road.', 'good'); save(); return; } o.to = ''; }
+    else o.to = c;
+    FX.pick = null; S.fx.clrShow = true; recompute(); fxClrDlg();
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && FX.pick) { FX.pick = null; setStatus('Pick cancelled.'); } });
+  /* ---------------- 6. Existing vs proposed ---------------- */
+  // "Save as existing" keeps the design as it stands (PNW XML, pole types, stays and plant). Every later change is proposed
+  // work: it drives the colours, the bill of materials, the SOW and the pole schedule. Without a saved existing design,
+  // the PNW "New" flags on poles and constructions mark what is proposed.
+  function fxCurSnap() { return { xml: projectXml(), poleTypes: JSON.parse(JSON.stringify(S.design.poleTypes || {})), extras: JSON.parse(JSON.stringify(S.design.extras || {})), poleLib: JSON.parse(JSON.stringify(S.design.poleLib || {})), link: S.design.link || '' }; }
+  // The saved existing profile stays until replaced or cleared, so a new PNW profile linked later is compared against it.
+  function fxBase() { var b = fxS().base; return b && b.xml ? b : null; }
+  function confirmInline(btn, msg) { if (btn.dataset.armed) return true; btn.dataset.armed = '1'; var t0 = btn.textContent; btn.textContent = msg + ' Click again'; setTimeout(function () { delete btn.dataset.armed; btn.textContent = t0; }, 4000); return false; }
+  function fxLoadExisting(cb) {
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.pnwx,.xml';
+    inp.onchange = function () {
+      var f = inp.files && inp.files[0]; if (!f) return;
+      f.text().then(function (xml) {
+        var p = null; try { p = M.readPnwx(xml); } catch (e) { p = null; }
+        if (!p || p.kind !== 'profile') { setStatus(f.name + ' is not a PNW profile (.pnwx).', 'bad'); return; }
+        fxS().base = { xml: xml, poleTypes: {}, extras: {}, poleLib: {}, link: '', at: new Date().toISOString(), name: f.name.replace(/\.[^.]+$/, '') };
+        fxDiffCache = null; save(); FX.ep = true; renderAll();
+        setStatus('Loaded ' + f.name + ' as the existing profile (' + p.poles.length + ' poles). SOW now compares the current design against it.', 'good'); if (cb) cb();
+      });
+    };
+    inp.click();
+  }
+  function fxSaveExisting() {
+    if (!project) { setStatus('Save as existing needs a design: link a PNW project or start one from the ground profile.', 'bad'); return; }
+    var had = fxBase(); fxS().base = Object.assign(fxCurSnap(), { at: new Date().toISOString(), name: fxName() });
+    fxVerSave('Existing design saved', false); save(); FX.ep = true; renderAll();
+    setStatus((had ? 'Replaced the saved existing design. ' : '') + 'Saved ' + fxName() + ' as the existing design. Every change from now on is proposed work (BOM, SOW, pole schedule).', 'good');
+  }
+  function fxPoleDesc(code, L, poleLib) {
+    var t = (lib && lib.poles.filter(function (x) { return x.code === code; })[0]) || null;
+    if (!t && poleLib) Object.keys(poleLib).forEach(function (k) { if (poleLib[k].code === code) t = poleLib[k]; });
+    var len = L != null ? L : t ? t.length : null, kn = t ? (t.kN != null ? t.kN : null) : null, mat = t && /conc|ssp|steel/i.test((t.material || '') + ' ' + (t.description || '')) ? (/ssp/i.test(t.description || '') ? 'SSP' : 'CONCRETE') : 'WOOD';
+    return { code: code || '', len: len, kn: kn, text: (len != null ? +Number(len).toFixed(1) + 'm' : '?m') + (kn != null ? '/' + kn + 'kN' : '') + ' ' + mat + ' POLE', desc: t ? t.description : '', calc: /^Existing-/.test(code || '') };
+  }
+  function fxPoleCU(d) {
+    if (!d || d.len == null || d.kn == null) return '';
+    var re = new RegExp('^Wood pole ' + String(+Number(d.len).toFixed(1)).replace('.', '\\.') + 'm ' + d.kn + 'kN', 'i'), hits = Object.keys(DQM_CU).filter(function (k) { return /^PO\d/.test(k) && re.test(DQM_CU[k]); });
+    var area = fxS().area === 'rural' ? /rural/i : /metro/i;
+    return hits.filter(function (k) { return area.test(DQM_CU[k]); })[0] || hits.filter(function (k) { return !/metro|rural/i.test(DQM_CU[k]); })[0] || hits[0] || '';
+  }
+  function fxStayCU(wire, wood) {
+    var m = /19\s*\/\s*2\.?(00|75)/.exec(wire || ''); if (!m) return '';
+    var k = 'ST1_19/2' + m[1] + (wood === false ? 'C' : 'W'); return DQM_CU[k] ? k : '';
+  }
+  // Design model of a snapshot: poles, constructions, spans (wires), sections, stays and plant.
+  function fxModel(snap) {
+    var p = null; try { p = snap && snap.xml ? M.readPnwx(snap.xml) : null; } catch (e) { p = null; }
+    if (!p || p.kind !== 'profile') return null;
+    var d = M.designModel(p, { file: 'snap', poleType: function () { return null; } }), poles = {}, cons = {}, spans = {}, secs = {};
+    p.poles.forEach(function (r) { poles[r.ID] = { id: r.ID, L: PNW.num(r.Length), sunk: PNW.num(r.Sunk), hag: PNW.num(r.HeightAG), e: PNW.num(r.Easting), n: PNW.num(r.Northing), isNew: r.New === 'True', type: (snap.poleTypes || {})[r.ID] || r.structure || '' }; });
+    p.constructions.forEach(function (r) { (cons[r.pole] = cons[r.pole] || []).push({ code: r.code || '', descr: r.descr || '', kb: PNW.num(r.attht), isNew: r.New === 'True', unique: r.unique }); });
+    d.wires.forEach(function (w) { var a = w.from.pole, b = w.to.pole, k = a < b ? a + '|' + b : b + '|' + a, s = spans[k] = spans[k] || { a: a, b: b, len: w.span, conds: {}, segs: {} }; s.conds[w.conductor] = (s.conds[w.conductor] || 0) + 1; s.segs[w.segment] = 1; });
+    p.segments.forEach(function (s) { secs[s.StrainSect] = { name: s.StrainSect, cond: s.Conductor, tension: s.Tension + ' ' + (s.TensionUnits || '') }; });
+    return { p: p, poles: poles, cons: cons, spans: spans, secs: secs, extras: snap.extras || {}, poleLib: snap.poleLib || {} };
+  }
+  function fxDiff(baseSnap, curSnap) {
+    var B = fxModel(baseSnap), C = fxModel(curSnap); if (!C) return null;
+    var flags = !B, out = { flags: flags, poles: {}, spans: {}, removed: [], removedSpans: [], secs: [] };
+    var st = function (id) { return out.poles[id] = out.poles[id] || { id: id, status: 'same', items: [] }; };
+    Object.keys(C.poles).forEach(function (id) {
+      var c = C.poles[id], b = B ? B.poles[id] : null, s = st(id); s.cur = c; s.base = b;
+      if (flags ? c.isNew : !b) { s.status = 'new'; return; }
+      if (!flags) {
+        var moved = isFinite(b.e) && isFinite(c.e) && Math.hypot(b.e - c.e, b.n - c.n) > 0.5, lenCh = isFinite(b.L) && isFinite(c.L) && Math.abs(b.L - c.L) > 0.01, typeCh = c.type && c.type !== b.type && !/^Existing-/.test(c.type);
+        if (moved || lenCh || typeCh || (c.isNew && !b.isNew)) { s.status = 'replace'; s.why = [lenCh ? b.L + ' m → ' + c.L + ' m' : '', typeCh ? (b.type || 'type not set') + ' → ' + c.type : '', moved ? 'moved ' + Math.hypot(b.e - c.e, b.n - c.n).toFixed(1) + ' m' : ''].filter(Boolean).join(', '); }
+      }
+    });
+    if (B) Object.keys(B.poles).forEach(function (id) { if (!C.poles[id]) out.removed.push(B.poles[id]); });
+    // constructions: matched by code; a matched code at another height is a re-attachment
+    Object.keys(C.poles).forEach(function (id) {
+      var cc = (C.cons[id] || []).slice(), bc = B ? (B.cons[id] || []).slice() : [], s = st(id);
+      if (flags) { cc.forEach(function (c) { if (s.status === 'new') s.items.push({ kind: 'add', what: 'con', code: c.code, descr: c.descr, kb: c.kb }); }); return; }
+      if (s.status === 'new' || s.status === 'replace') { cc.forEach(function (c) { s.items.push({ kind: 'add', what: 'con', code: c.code, descr: c.descr, kb: c.kb }); }); if (s.status === 'replace') ['stays', 'plant'].forEach(function (k) { ((C.extras[id] || {})[k] || []).forEach(function (x) { s.items.push({ kind: 'add', what: k, x: x }); }); }); return; }
+      cc.forEach(function (c) {
+        var i = bc.findIndex(function (b) { return b.code === c.code && Math.abs(b.kb - c.kb) < 0.01; }); if (i < 0) i = bc.findIndex(function (b) { return b.code === c.code; });
+        if (i < 0) { s.items.push({ kind: 'add', what: 'con', code: c.code, descr: c.descr, kb: c.kb }); return; }
+        var b = bc.splice(i, 1)[0]; if (Math.abs(b.kb - c.kb) >= 0.01 && s.status !== 'replace') s.items.push({ kind: 'move', what: 'con', code: c.code, descr: c.descr, kb: c.kb, from: b.kb });
+        else if (s.status === 'replace') s.items.push({ kind: 'transfer', what: 'con', code: c.code, descr: c.descr, kb: c.kb, from: b.kb });
+      });
+      bc.forEach(function (b) { s.items.push({ kind: 'remove', what: 'con', code: b.code, descr: b.descr, kb: b.kb }); });
+      // stays and plant (extras)
+      [['stays', function (x) { return (x.wire || '') + '|' + Math.round(Number(x.dir) || 0); }], ['plant', function (x) { return (x.code || '') + '|' + Math.round(Number(x.attHt) * 10 || 0); }]].forEach(function (k) {
+        var cl = ((C.extras[id] || {})[k[0]] || []).slice(), bl = ((B.extras[id] || {})[k[0]] || []).slice();
+        cl.forEach(function (x) { var i = bl.findIndex(function (y) { return k[1](y) === k[1](x); }); if (i >= 0) { bl.splice(i, 1); if (s.status === 'replace') s.items.push({ kind: 'transfer', what: k[0], x: x }); } else s.items.push({ kind: 'add', what: k[0], x: x }); });
+        bl.forEach(function (x) { s.items.push({ kind: 'remove', what: k[0], x: x }); });
+      });
+    });
+    if (flags) Object.keys(C.extras || {}).forEach(function (id) { var s = st(id); if (s.status === 'new') ['stays', 'plant'].forEach(function (k) { ((C.extras[id] || {})[k] || []).forEach(function (x) { s.items.push({ kind: 'add', what: k, x: x }); }); }); });
+    Object.keys(out.poles).forEach(function (id) { var s = out.poles[id]; if (s.status === 'same' && s.items.length) s.status = 'modify'; });
+    // spans
+    Object.keys(C.spans).forEach(function (k) {
+      var c = C.spans[k], b = B ? B.spans[k] : null, sp = out.spans[k] = { a: c.a, b: c.b, len: c.len, conds: c.conds, status: 'same', base: b ? b.conds : null };
+      var newEnd = (out.poles[c.a] || {}).status === 'new' || (out.poles[c.b] || {}).status === 'new';
+      if (flags) { if (newEnd) sp.status = 'new'; return; }
+      if (!b) sp.status = 'new';
+      else if (JSON.stringify(Object.keys(b.conds).sort().map(function (x) { return x + b.conds[x]; })) !== JSON.stringify(Object.keys(c.conds).sort().map(function (x) { return x + c.conds[x]; }))) sp.status = 'change';
+    });
+    if (B) Object.keys(B.spans).forEach(function (k) { if (!C.spans[k]) out.removedSpans.push(B.spans[k]); });
+    if (B) Object.keys(C.secs).forEach(function (k) { var b = B.secs[k], c = C.secs[k]; if (b && b.cond === c.cond && b.tension !== c.tension) out.secs.push({ name: k, from: b.tension, to: c.tension, cond: c.cond }); });
+    out.C = C; out.B = B;
+    return out;
+  }
+  var fxDiffCache = null, fxDiffAt = 0;
+  function fxD() { if (!project) return null; if (!fxDiffCache || fxDiffAt !== calcAt) { try { fxDiffCache = fxDiff(fxBase(), fxCurSnap()); } catch (e) { fxDiffCache = null; } fxDiffAt = calcAt; } return fxDiffCache; }
+  var EPC = { new: '#16a34a', replace: '#ea580c', modify: '#7c3aed', same: '#94a3b8', remove: '#dc2626', change: '#ea580c' };
+  function fxEpPole(id) { var d = FX.ep && fxD(); return d && d.poles[id] ? EPC[d.poles[id].status] : null; }
+  function fxEpProfile(chainOf, X, Y) {
+    var d = fxD(), out = ''; if (!d) return out;
+    Object.keys(d.spans).forEach(function (k) { var s = d.spans[k]; if (s.status === 'same' || chainOf[s.a] == null || chainOf[s.b] == null) return; out += '<line x1="' + X(chainOf[s.a]) + '" x2="' + X(chainOf[s.b]) + '" y1="16" y2="16" stroke="' + EPC[s.status] + '" stroke-width="5"><title>' + (s.status === 'new' ? 'New span' : 'Conductor changed') + '</title></line>'; });
+    return out;
+  }
+  var lyFx = L.layerGroup().addTo(map);
+  function fxMapLayer() {
+    lyFx.clearLayers();
+    if (FX.ep) {
+      var d = fxD();
+      if (d) {
+        Object.keys(d.poles).forEach(function (id) { var s = d.poles[id], m = markers[id]; if (m && m.setStyle) m.setStyle({ color: EPC[s.status], fillColor: s.status === 'same' ? '#e2e8f0' : EPC[s.status] }); if (m && s.status !== 'same') m.bindTooltip(esc(id) + ' · ' + ({ new: 'New pole', replace: 'Replaced pole' + (s.why ? ' (' + s.why + ')' : ''), modify: 'Modified (' + s.items.length + ' change' + (s.items.length > 1 ? 's' : '') + ')' })[s.status], S.labels ? { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' } : {}); });
+        d.removed.forEach(function (r) { var ll = toLatLng(r.e, r.n); if (ll) L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="fx-x">✕</div>', iconSize: [16, 16] }) }).bindTooltip(esc(r.id) + ' · removed').addTo(lyFx); });
+        Object.keys(d.spans).forEach(function (k) { var s = d.spans[k]; if (s.status === 'same') return; var A = poleXY(s.a), B = poleXY(s.b), a = A && toLatLng(A.e, A.n), b = B && toLatLng(B.e, B.n); if (a && b) L.polyline([a, b], { color: EPC[s.status], weight: 6, opacity: 0.55 }).bindTooltip((s.status === 'new' ? 'New span ' : 'Conductor changed ') + esc(s.a) + ' → ' + esc(s.b)).addTo(lyFx); });
+        d.removedSpans.forEach(function (s) { var A = d.B.poles[s.a], B = d.B.poles[s.b], a = A && toLatLng(A.e, A.n), b = B && toLatLng(B.e, B.n); if (a && b) L.polyline([a, b], { color: EPC.remove, weight: 3, dashArray: '4 6' }).bindTooltip('Removed span ' + esc(s.a) + ' → ' + esc(s.b)).addTo(lyFx); });
+      }
+    }
+    if (project && fxS().clrShow !== false) fxClrRes().rows.filter(function (r) { return r.ok === false; }).forEach(function (r) { var ll = toLatLng(r.e, r.n); if (ll) L.circleMarker(ll, { radius: 6, color: '#dc2626', weight: 2, fillColor: '#fecaca', fillOpacity: 0.9 }).bindTooltip(FXK[r.kind] + ' clearance ' + r.clr.toFixed(2) + ' m (needs ' + r.req + ' m)').addTo(lyFx); });
+    fxCadDraw();
+  }
+  var fxRenderMap0 = renderMap; renderMap = function () { fxRenderMap0.apply(this, arguments); try { fxMapLayer(); } catch (e) { /* overlay only */ } };
+  var fxData3d0 = data3d; data3d = function () {
+    var d = fxData3d0.apply(this, arguments); if (!FX.ep || !d) return d; var x = fxD(); if (!x) return d;
+    var hex = function (c) { return parseInt(c.slice(1), 16); };
+    d.poles = d.poles.map(function (p) { var s = x.poles[p.id]; return s ? Object.assign({}, p, { color: hex(EPC[s.status]) }) : p; });
+    d.wires = d.wires.map(function (w) { var a = w.from.pole, b = w.to.pole, s = x.spans[a < b ? a + '|' + b : b + '|' + a]; return s && s.status !== 'same' ? Object.assign({}, w, { color: hex(EPC[s.status]) }) : w; });
+    return d;
+  };
+  var fxCalcIssues0 = calcIssues; calcIssues = function () { var o = fxCalcIssues0.apply(this, arguments); try { o = o.concat(fxClrIssues(), fxCadIssues()); } catch (e) { /* not ready */ } return o; };
+  var fxPoleChecks0 = poleChecks; poleChecks = function (id) { var o = fxPoleChecks0.apply(this, arguments); try { fxCadFlags().filter(function (f) { return f.pole === id; }).forEach(function (f) { o.push({ level: f.level, text: f.text }); }); } catch (e) { /* not ready */ } return o; };
+  function fxEpToggle() { if (!project) { setStatus('Existing vs proposed needs a design.', 'bad'); return; } FX.ep = !FX.ep; U.fxEp = FX.ep; saveUi(); renderAll(); if (mounted3d) update3d(); setStatus(FX.ep ? (fxBase() ? 'Colours show proposed work against the existing design saved ' + fxBase().at.slice(0, 16).replace('T', ' ') + '.' : 'No existing design saved: colours follow the PNW New flags. Use Save as existing first.') : 'Existing vs proposed colours off.', 'good'); }
+  FX.ep = !!U.fxEp;
+
+  /* ---------------- 5. Bill of materials, SOW and pole schedule (proposed work only) ---------------- */
+  function fxRegTitle(code) { var e = M.dcshFor(dcshReg(), code)[0]; var lc = M.libraryConstruction(lib, code); return { drawing: e ? e.drawing : '', title: e ? e.title : lc ? lc.description : '' }; }
+  // Construction name for the SOW: PNW library description in capitals (e.g. HV 3PH INTERMEDIATE), else the PNW code.
+  // DQM CU for a PNW construction. DQM families carry the PNW code (HV1 -> HV1_3HS, LV1 -> LV1_W3, RE3 -> RE3_7/475AA, as in
+  // the DQM CU manual used by Quote from Drawing and DGN to SOW); the suffix is chosen from the wires on the construction
+  // (phases, conductor), the pole material, the CU area and the HV rating / pollution set in the Proposed work window.
+  function fxConCU(code, id, descr, wood) {
+    var fam = String(code || '').toUpperCase(), keys = Object.keys(DQM_CU).filter(function (k) { return (k === fam || k.indexOf(fam + '_') === 0) && !/Geraldton/i.test(DQM_CU[k]); });
+    if (!keys.length) return '';
+    var ws = (dm && dm.wires || []).filter(function (w) { return (w.from.pole === id && w.from.construction === descr) || (w.to.pole === id && w.to.construction === descr); });
+    var lc = M.libraryConstruction(lib, code), ld = (lc && lc.description) || '', ph = /3\s*PH/i.test(ld) ? 3 : /2\s*PH/i.test(ld) ? 2 : /1\s*PH|SWER/i.test(ld) ? 1 : null;
+    if (ph == null && ws.length) { var segs = {}; ws.forEach(function (w) { segs[w.segment] = (segs[w.segment] || 0) + 1; }); var nw = Math.max.apply(null, Object.keys(segs).map(function (k) { return segs[k]; })); ph = /^LV/.test(fam) ? (nw >= 4 ? 3 : 1) : Math.min(3, nw); }
+    if (ph == null && /^LV/.test(fam)) ph = 3;
+    var cd = ws.length ? conductorFor(ws[0].conductor) : null, cm = cd && /(\d+)\s*\/\s*(\d)\.(\d+)/.exec((cd.name || '') + ' ' + (cd.name2 || '') + ' ' + (cd.code || '')), ck = cm ? cm[1] + '/' + cm[2] + cm[3] : '';
+    var st = fxS(), area = st.area === 'rural' ? 'rural' : 'metro', rate = st.hvRate || 'normal', poll = st.hvPoll || 'heavy';
+    var score = function (k) {
+      var t = DQM_CU[k].toLowerCase(), sc = 0, kp = /three-phase|3 phase/.test(t) ? 3 : /two-phase|2 phase/.test(t) ? 2 : /single-phase|1 phase/.test(t) ? 1 : null;
+      if (ph && kp) sc += kp === ph ? 4 : -10;
+      if (/\bwood\b/.test(t)) sc += wood ? 2 : -10; if (/concrete/.test(t)) sc += wood ? -10 : 2;
+      if (/metro|rural/.test(t)) sc += t.indexOf(area) >= 0 ? 2 : -5;
+      var kr = /extreme/.test(t) ? 'extreme' : /\bhigh\b/.test(t) ? 'high' : /normal/.test(t) ? 'normal' : null; if (kr) sc += kr === rate ? 2 : -3;
+      var kq = /very heavy/.test(t) ? 'very heavy' : /heavy/.test(t) ? 'heavy' : null; if (kq) sc += kq === poll ? 2 : -3;
+      if (/\d\/\d/.test(k)) sc += ck && k.replace(/\./g, '').indexOf(ck) >= 0 ? 5 : -8;
+      if (/with drop-out|anti-swan|maintenance|cross-arm strap|double cross-arm/.test(t)) sc -= 2;
+      return sc;
+    };
+    var best = keys.map(function (k) { return { k: k, s: score(k) }; }).sort(function (a, b) { return b.s - a.s; })[0].k;
+    return !ck && /\d\/\d/.test(best) ? fam + '_[COND]' : best;
+  }
+  function fxConName(code, descr) { var lc = M.libraryConstruction(lib, code); return String((lc && lc.description) || descr || code).toUpperCase(); }
+  // Circuit a construction belongs to (HV, LV, RE, SL...), from the PNW code prefix.
+  function fxConGroup(code) { var m = /^[A-Z]+/i.exec(code || ''); return m ? m[0].toUpperCase() : ''; }
+  function fxCuLine(l) { if (!l.length) return ''; var n = {}; l.forEach(function (k) { n[k] = (n[k] || 0) + 1; }); return '\nCU: ' + Object.keys(n).map(function (k) { return k + 'x' + n[k]; }).join(', '); }
+  var FX_POLE_DCSH = ['R12-2', 'R13-3'];
+  // WP Distribution Design Catalogue - Transformers (31/07/2023): stock code -> [CU, CU description], catalogue order.
+  var TXC;
+  function txCat() { return TXC || (TXC = {"XT0210":[["TX1_25/11","Transformer with bare LV 25kVA 6/11kV"],["TX3_25/6","Transformer 25kVA 6kV 3 bushing"],["TX3_25/11","Transformer 25kVA 11kV 3 bushing"],["TX4_25/11","Transformer with LVABC 25kVA 6/11 kV"]],"XT0211":[["TX1_63/11","Transformer with bare LV 63kVA 6/11kV"]],"XT0215":[["TX1_25/22","Transformer with bare LV 25kVA /22kV"],["TX3_25/22","Transformer 25kVA / 22 kV 3 bushing"],["TX4_25/22","Transformer with LVABC 25kVA / 22 kV"]],"XT0216":[["TX1_63/22","Transformer with bare LV 63kVA / 22kV"],["TX3_63/22","Transformer 63kVA / 22 kV 3 bushing"],["TX4_63/22","Transformer with LVABC 63 kVA / 22 kV"]],"XT0220":[["TX1_25/33","Transformer with bare LV 25kVA 33kV"]],"XT0221":[["TX1_63/33","Transformer with bare LV 63kVA / 33kV"]],"XT0212":[["TX2_100/11","Transformer with bare LV 100kVA 6/11kV"]],"XT0213":[["TX2_200/11","Transformer with bare LV 200kVA 6/11kV"],["TX3_200/6","Transformer 200kVA 6kV 3 bushing"],["TX3_200/11","Transformer 200kVA 11 kV 3 bushing"],["TX4_200/11","Transformer with LVABC 200kVA 6/11 kV"]],"XT0217":[["TX2_100/22","Transformer with bare LV 100kVA/22kV"],["TX3_100/22","Transformer 100kVA / 22 kV 3 bushing"],["TX4_100/22","Transformer with LVABC 100 kVA / 22 kV"],["TX4_100/22S","Transformer with LVABC 100 kVA / 22 kV Sole Use"]],"XT0218":[["TX2_200/22","Transformer with bare LV 200kVA/22kV"],["TX3_200/22","Transformer 200kVA / 22 kV 3 bushing"],["TX4_200/22","Transformer with LVABC 200kVA / 22 kV"],["TX4_200/22S","Transformer with LVABC 200 kVA / 22 kV Sole Use"]],"XT0222":[["TX2_100/33","Transformer with bare LV 100kVA/33kV"]],"XT0223":[["TX2_200/33","Transformer with bare LV 200kVA/33kV"]],"XT0127":[["TX3_100/6","Transformer 100kVA 6kV 3 bushing"],["TX3_100/11","Transformer 100kVA 11 kV 3 bushing"],["TX4_100/11","Transformer with LVABC 100kVA 6/11 kV"]],"XT0184":[["TX3_315/6","Transformer 315kVA 6kV 3 bushing"],["TX3_315/11","Transformer 315kVA 11kV 3 bushing"]],"XT0219":[["TX3_315/22","Transformer 315kVA / 22 kV 3 bushing"],["TX8_1_315/22","Transformer 315kVA 22 kV"],["TX8_4_315/22","Transformer 315kVA 22kV"]],"XT0035":[["TX3_25/33","Transformer 25kVA / 33 kV 3 bushing"],["TX4_25/33","Transformer with LVABC 25kVA / 33 kV"]],"XT0141":[["TX3_63/33","Transformer 63kVA / 33 kV 3 bushing"],["TX4_63/33","Transformer with LVABC 63 kVA / 33 kV"]],"XT0038":[["TX3_100/33","Transformer 100kVA / 33 kV 3 bushing"],["TX4_100/33","Transformer with LVABC 100 kVA / 33 kV"]],"XT0039":[["TX3_200/33","Transformer 200kVA / 33 kV 3 bushing"],["TX4_200/33","Transformer with LVABC 200kVA / 33 kV"]],"XT0181":[["TX3_315/33","Transformer 315kVA 33 kV 3 bushing"]],"XT0007":[["TX3_10/6","Transformer 10kVA 6kV 2 bushing"],["TX3_10/11","Transformer 10kVA 11 kV 2 phase 2 bushing"],["TX5_10/11B2","(Old) Transformer 10 kVA / 11 kV 1 phase 2 bushing 240V"],["TX5_10/11B2P","(Old) Transformer 10 kVA / 11 kV 1 phase 2 bushing 480V"]],"XT0206":[["TX3_10/12.7","Transformer 10kVA/12.7 kV 1 phase 1 bushing"],["TX5_10/12.7","Transformer 10 kVA / 12.7kV 1 phase 1 bushing 240V"],["TX5_10/12.7P","Transformer 10 kVA / 12.7kV 1 phase 1 bushing 480V"]],"XT0207":[["TX3_25/12.7","Transformer 25kVA / 12.7 kV 1 phase 1 bushing"],["TX5_25/12.7","Transformer 25 kVA / 12.7kV 1 phase 1 bushing 240V"],["TX5_25/12.7P","Transformer 25 kVA / 12.7kV 1 phase 1 bushing 480V"]],"XT0203":[["TX3_10/22B2","Transformer 10kVA / 22 kV 2 phase 2 bushing"],["TX5_10/22B2","Transformer 10 kVA / 22 kV 1 phase 2 bushing 240V"],["TX5_10/22B2P","Transformer 10 kVA / 22 kV 1 phase 2 bushing 480V"]],"XT0204":[["TX3_25/22B2","Transformer 25kVA / 22 kV 2 phase 2 bushing"],["TX5_25/22B2","Transformer 25 kVA / 22 kV 1 phase 2 bushing 240V"],["TX5_25/22B2P","Transformer 25 kVA / 22 kV 1 phase 2 bushing 480V"]],"XT0208":[["TX3_10/19.1","Transformer 10kVA / 19.1 kV 1 phase 1 bushing"],["TX5_10/19.1","Transformer 10 kVA / 19.1kV 1 phase 1 bushing 240V"],["TX5_10/19.1P","Transformer 10 kVA / 19.1kV 1 phase 1 bushing 480V"]],"XT0209":[["TX3_25/19.1","Transformer 25kVA / 19.1 kV 1 phase 1 bushing"],["TX5_25/19.1","Transformer 25 kVA / 19.1 kV 1 phase 1 bushing 240V"],["TX5_25/19.1P","Transformer 25 kVA / 19.1 kV 1 phase 1 bushing 480V"]],"XT0040":[["TX3_25/33B2","Transformer 25kVA / 33 kV 2 phase 2 bushing"],["TX5_25/33B2","(Old) Transformer 25 kVA / 33 kV 1 phase 2 bushing 240V"],["TX5_25/33B2P","(Old) Transformer 25 kVA / 33 kV 1 phase 2 bushing 480V"]],"XT0008":[["TX4_25/11","Transformer with LVABC 25kVA 6/11 kV"]],"XT0193":[["TX6_63/22","Isolation transformer 63 kVA 22/12.7kV"]],"XT0225":[["TX6_200/22","Isolation transformer 200kVA 22/12.7kV"]],"XT0190":[["TX6_200/33","Isolation transformer 200kVA 33/12.7kV"]],"XT0201":[["TX6_33/19.1","Isolation transformer 200kVA 33/19.1kV"]],"XA2429":[["TX7_22","pole top metering outdoor 22kV"]],"XA2431":[["TX7_33","pole top metering outdoor 33kV"]],"XT0214":[["TX8_1_315/11","Transformer 315kVA 6/11 kV"],["TX8_4_315/11","Transformer 315kVA 6/11kV"]],"XT0224":[["TX8_1_315/33","Transformer 315kVA 33 kV"],["TX8_4_315/33","Transformer 315kVA 33kV"]]}); }
+  // Catalogue name and CU of a PNW plant code (e.g. "X T 0127-3Ph" -> TX3_100/6, "TX3 100kVA 6kV 3 BUSHING").
+  // A stock code used by several CUs is resolved by bushings/phases in the PNW code, then the HV voltage set in Proposed work.
+  function txInfo(code) {
+    var k = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), m = /X[TA]\d{4}/.exec(k); if (!m) return null;
+    var l = txCat()[m[0]]; if (!l) return null;
+    var ph = /3PH/.test(k) ? 3 : /1PH/.test(k) ? 1 : null, kv = (typeof fxS === 'function' && S.fx ? fxS().txKv : '') || '';
+    var sc = function (x) { var d = x[1].toLowerCase(), s = 0; if (/^\(old\)/i.test(x[1])) s -= 4; if (ph === 3) s += /3 bushing/.test(d) ? 3 : /1 phase|2 phase/.test(d) ? -3 : 0; if (ph === 1) s += /1 phase/.test(d) ? 3 : -2; if (kv) s += new RegExp('/' + kv.replace('.', '\\.') + '(\\b|[A-Z]|$)').test(x[0]) ? 5 : -5; return s; };
+    var best = l.map(function (x, i) { return { x: x, s: sc(x) - i * 0.01 }; }).sort(function (a, b) { return b.s - a.s; })[0].x;
+    var nm = best[0].split('_')[0] + ' ' + best[1].replace(/^\((new|old)\)\s*/i, '').replace(/^transformer\s*/i, '').replace(/\s+\/\s*/g, ' ').toUpperCase().replace(/(\d)\s*KVA/g, '$1kVA').replace(/(\d)\s*KV/g, '$1kV');
+    return { stock: m[0], cu: best[0], name: nm, all: l.map(function (x) { return x[0]; }) };
+  }
+  function fxWork() {
+    var d = fxD(); if (!d) return null;
+    var C = d.C, bom = {}, sow = [], sched = [], add = function (cat, key, item, qty, unit, cu, ref) { var k = cat + '|' + key; (bom[k] = bom[k] || { cat: cat, item: item, qty: 0, unit: unit, cu: cu || '', ref: ref || '', poles: [] }).qty += qty; return bom[k]; };
+    var ids = lineIds().filter(function (id) { return d.poles[id]; }).concat(Object.keys(d.poles).filter(function (id) { return lineIds().indexOf(id) < 0; }));
+    var newGroups = {};
+    ids.forEach(function (id) {
+      var s = d.poles[id], c = s.cur; if (!c) return;
+      var typ = (S.design.poleTypes || {})[id] || c.type, pd = fxPoleDesc(typ, c.L, S.design.poleLib), cu = fxPoleCU(pd);
+      var consHere = (C.cons[id] || []).map(function (x) { return x.code; });
+      if (s.status === 'new' || s.status === 'replace') {
+        add('Poles', pd.text, pd.text + (pd.code ? ' (' + pd.code + ')' : ''), 1, 'ea', cu, 'Pole schedule').poles.push(id);
+        sched.push({ id: s.status === 'new' ? id : id, status: s.status === 'new' ? 'NEW' : 'REPLACEMENT', replaces: s.status === 'replace' && s.base ? fxPoleDesc(s.base.type, s.base.L, (d.B || {}).poleLib).text.replace(/ POLE$/, '') : '', details: pd.text, e: c.e, n: c.n, L: c.L, sunk: c.sunk, hag: c.hag, cu: cu, cons: consHere.join(', '), dcsh: (/conc|ssp/i.test(pd.text) ? [] : FX_POLE_DCSH).concat(consHere.map(function (k) { return fxRegTitle(k).drawing; }).filter(Boolean)).join(', '), stays: ((S.design.extras || {})[id] || {}).stays ? S.design.extras[id].stays.length : 0 });
+        if (s.status === 'new') (newGroups[pd.text] = newGroups[pd.text] || []).push(id);
+      }
+      var lines = [], cus = [], dc = [], addCu = function (k) { if (k) cus.push(k); }, addDc = function (code) { var t = fxRegTitle(code).drawing; if (t && dc.indexOf(t) < 0) dc.push(t); };
+      if (s.status === 'replace' && !/conc|ssp/i.test(pd.text)) FX_POLE_DCSH.forEach(function (x) { dc.push(x); });
+      if (s.status === 'replace') { lines.push('- REPLACE EXISTING ' + (s.base ? fxPoleDesc(s.base.type, s.base.L, (d.B || {}).poleLib).text : 'POLE') + ' WITH NEW ' + pd.text + ' AS PER POLE SCHEDULE.'); addCu(cu); }
+      // an existing construction swapped for another on the same circuit (e.g. intermediate to strain) reads as one replacement
+      var adds = s.items.filter(function (it) { return it.what === 'con' && it.kind === 'add'; }), rems = s.items.filter(function (it) { return it.what === 'con' && it.kind === 'remove'; }), pair = new Map();
+      if (s.status === 'modify') rems.forEach(function (r) { var g = fxConGroup(r.code), j = adds.findIndex(function (x) { return !pair.has(x) && fxConGroup(x.code) === g; }); if (j >= 0) { pair.set(adds[j], r); pair.set(r, adds[j]); } });
+      s.items.forEach(function (it) {
+        if (it.what === 'con') {
+          var nm = fxConName(it.code, it.descr);
+          if (it.kind === 'add') {
+            var t = fxRegTitle(it.code), ccu = fxConCU(it.code, id, it.descr, !/conc|ssp/i.test(pd.text)); add('Constructions', it.code + '|' + ccu, it.code + (t.title ? ' – ' + t.title : ''), 1, 'ea', ccu, t.drawing ? 'DCSH ' + t.drawing : '').poles.push(id); addDc(it.code); addCu(ccu);
+            var was = pair.get(it); lines.push(was ? '- REPLACE EXISTING ' + fxConName(was.code, was.descr) + ' WITH NEW ' + nm + '.' : '- INSTALL NEW ' + nm + '.');
+          } else if (it.kind === 'remove') { if (!pair.has(it)) lines.push('- REMOVE EXISTING ' + nm + '.'); }
+          else if (it.kind === 'move') { lines.push('- RE-ATTACH EXISTING ' + nm + ' AT ' + n2(it.kb) + 'm (WAS ' + n2(it.from) + 'm).'); addDc(it.code); }
+        } else if (it.what === 'stays') {
+          var x = it.x, scu = fxStayCU(x.wire, !/conc|ssp/i.test(pd.text));
+          if (it.kind === 'add') { add('Stays', 'stay|' + (x.wire || ''), 'Ground stay ' + (x.wire || '(wire not set)'), 1, 'ea', scu, '').poles.push(id); addCu(scu); lines.push('- INSTALL NEW GROUND STAY' + (x.wire ? ' (' + x.wire + ')' : '') + '.'); }
+          else if (it.kind === 'remove') lines.push('- REMOVE EXISTING GROUND STAY' + (x.wire ? ' (' + x.wire + ')' : '') + '.');
+        } else if (it.what === 'plant') {
+          var y = it.x;
+          var ti = txInfo(y.code), pn = ti ? ti.name : (y.code || 'PLANT');
+          if (it.kind === 'add') { add('Transformers and plant', 'plant|' + (y.code || ''), ti ? ti.name + ' (' + ti.stock + ')' : (y.code || 'Plant'), 1, 'ea', ti ? ti.cu : '', y.arr || '').poles.push(id); if (ti) addCu(ti.cu); var dw = String(y.drawing || '').replace(/^DCSH[-\s]*/i, ''); if (dw && dc.indexOf(dw) < 0) dc.push(dw); lines.push('- INSTALL NEW ' + pn + '.'); }
+          else if (it.kind === 'remove') lines.push('- REMOVE EXISTING ' + pn + '.');
+        }
+      });
+      var tail = fxCuLine(cus) + (dc.length ? '\nDCSH: ' + dc.join(', ') : '');
+      if (lines.length && s.status !== 'new') sow.push({ key: 'pole', pole: id, text: 'AT POLE ' + id + ',\n' + lines.join('\n') + tail });
+      else if (lines.length) sow.push({ key: 'newpole-fit', pole: id, text: 'AT NEW POLE ' + id + ',\n' + lines.join('\n') + tail });
+    });
+    Object.keys(newGroups).forEach(function (k) { var l = newGroups[k], pc = fxPoleCU(fxPoleDesc((S.design.poleTypes || {})[l[0]] || (C.poles[l[0]] || {}).type, (C.poles[l[0]] || {}).L, S.design.poleLib)); sow.unshift({ key: 'newpole', poles: l, text: 'INSTALL ' + (l.length > 1 ? l.length + 'x ' : '') + 'NEW ' + k + ' AS PER POLE SCHEDULE.' + (pc ? '\nCU: ' + pc + 'x' + l.length : '') + (/conc|ssp/i.test(k) ? '' : '\nDCSH: ' + FX_POLE_DCSH.join(', ')) }); });
+    // conductors: new or changed spans, per conductor, plan length × number of wires (no sag or jumper allowance)
+    var byCond = {};
+    Object.keys(d.spans).forEach(function (k) { var s = d.spans[k]; if (s.status === 'same') return; Object.keys(s.conds).forEach(function (cd) { var n = s.conds[cd]; (byCond[cd] = byCond[cd] || []).push({ a: s.a, b: s.b, n: n, len: s.len, status: s.status }); }); });
+    Object.keys(byCond).forEach(function (cd) {
+      var l = byCond[cd], tot = l.reduce(function (t, x) { return t + x.len * x.n; }, 0), lc = conductorFor ? conductorFor(cd) : null, nm = lc && lc.name ? cd + ' (' + lc.name + ')' : cd;
+      add('Conductor', cd, nm, Math.round(tot * 10) / 10, 'm', '', 'plan length × wires, no sag/jumper allowance');
+      l.forEach(function (x) { sow.push({ key: 'string', text: (x.status === 'new' ? 'STRING NEW ' : 'REPLACE CONDUCTOR WITH NEW ') + x.n + 'x' + nm.toUpperCase() + ' BETWEEN POLE#' + x.a + ' AND POLE#' + x.b + ' (' + x.len.toFixed(1) + 'm).' }); });
+    });
+    d.removedSpans.forEach(function (s) { sow.push({ key: 'remove', text: 'REMOVE EXISTING CONDUCTORS BETWEEN POLE#' + s.a + ' AND POLE#' + s.b + '.' }); });
+    d.secs.forEach(function (s) { sow.push({ key: 'tension', text: 'RE-TENSION ' + s.cond + ' IN SECTION ' + s.name + ' FROM ' + s.from + ' TO ' + s.to + '.' }); });
+    d.removed.forEach(function (r) { sow.push({ key: 'remove', text: 'REMOVE AND RECOVER EXISTING POLE#' + r.id + '.' }); });
+    var order = { newpole: 0, pole: 1, 'newpole-fit': 1, string: 2, tension: 3, remove: 4 };
+    sow.sort(function (a, b) { return (order[a.key] || 9) - (order[b.key] || 9); });
+    var cats = ['Poles', 'Constructions', 'Stays', 'Transformers and plant', 'Conductor'];
+    return { d: d, bom: Object.keys(bom).map(function (k) { return bom[k]; }).sort(function (a, b) { return cats.indexOf(a.cat) - cats.indexOf(b.cat) || String(a.item).localeCompare(String(b.item)); }), sow: sow, sched: sched };
+  }
+  // Western Power drawing pole schedule (as on SP053196 Rev A): POLE ID | POLE DETAILS | POLE LOCATION (EASTING, NORTHING) | STRUCTURE MATERIALS / CU'S | DCSH REFERENCE | AS CON CHECK
+  var SCHED_HEAD = ['POLE ID', 'POLE DETAILS', 'EASTING', 'NORTHING', "STRUCTURE MATERIALS / CU'S", 'DCSH REFERENCE', 'AS CON CHECK'];
+  function fxSchedRows(w) {
+    return w.sched.map(function (r) {
+      var refs = []; w.sow.forEach(function (s, i) { if (s.pole === r.id || (s.poles || []).indexOf(r.id) >= 0 || new RegExp('(POLE#|POLE )' + r.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(s.text)) refs.push(i + 1); });
+      var id = r.status === 'NEW' && !/^S\d{5,}$/i.test(r.id) ? 'NEW POLE' : r.id;
+      return [id, r.details, n2(r.e, 3), n2(r.n, 3), refs.length ? 'REFER TO WP SOW ' + refs.join(',') : r.cu, r.dcsh, ''];
+    });
+  }
+  function fxBomRows(w) { return w.bom.map(function (b) { return [b.cat, b.item, b.qty, b.unit, b.cu, b.ref, b.poles.join(', ')]; }); }
+  function fxWorkDlg(tabName) {
+    var w = fxWork(); if (!w) { setStatus('BOM, SOW and pole schedule need a design: link a PNW project or start one from the ground profile.', 'bad'); return; }
+    var base = fxBase(), t = tabName || 'bom';
+    var h = '<div class="hint ' + (base ? 'ok' : 'warn') + '">' + (base ? 'Compared with existing profile <b>' + fxEsc(base.name || '') + '</b> (saved ' + fxEsc(base.at.slice(0, 16).replace('T', ' ')) + ').' : '<b>No existing profile saved.</b> Save the existing profile (before you change anything) or load the existing .pnwx, then the SOW lists only what changed. Until then only poles flagged New in PNW are listed.') +
+      '<div class="btnrow"><button class="btn small' + (base ? '' : ' primary') + '" id="fxWkSave">Save current as existing</button><button class="btn small" id="fxWkLoad">Load existing profile (.pnwx)</button>' + (base ? '<button class="btn small" id="fxWkClr">Clear existing</button>' : '') + '</div></div>' +
+      '<div class="fx-tabs">' + [['bom', 'Bill of materials (' + w.bom.length + ')'], ['sow', 'Scope of works (' + w.sow.length + ')'], ['sched', 'Pole schedule (' + w.sched.length + ')']].map(function (x) { return '<button class="btn small' + (x[0] === t ? ' primary' : '') + '" data-fxwt="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '<span style="flex:1"></span><label class="meta">Pole CU area <select id="fxArea"><option value="metro"' + (fxS().area === 'metro' ? ' selected' : '') + '>Metro</option><option value="rural"' + (fxS().area === 'rural' ? ' selected' : '') + '>Rural painted</option></select></label><label class="meta">HV rating <select id="fxRate">' + ['normal', 'high', 'extreme'].map(function (v) { return '<option' + ((fxS().hvRate || 'normal') === v ? ' selected' : '') + '>' + v + '</option>'; }).join('') + '</select></label><label class="meta">TX HV <select id="fxTxKv">' + [['', 'catalogue first'], ['6', '6kV'], ['11', '11kV'], ['22', '22kV'], ['33', '33kV'], ['12.7', '12.7kV'], ['19.1', '19.1kV']].map(function (v) { return '<option value="' + v[0] + '"' + ((fxS().txKv || '') === v[0] ? ' selected' : '') + '>' + v[1] + '</option>'; }).join('') + '</select></label><label class="meta">Pollution <select id="fxPoll">' + ['heavy', 'very heavy'].map(function (v) { return '<option' + ((fxS().hvPoll || 'heavy') === v ? ' selected' : '') + '>' + v + '</option>'; }).join('') + '</select></label></div>';
+    if (t === 'bom') h += w.bom.length ? fxTable(['Category', 'Item', 'Qty', 'Unit', 'CU (DQM)', 'Reference', 'Poles'], fxBomRows(w).map(function (r) { return '<tr>' + r.map(function (v, i) { return '<td' + (i === 2 ? ' class="num"' : '') + '>' + fxEsc(v) + '</td>'; }).join('') + '</tr>'; })) + '<p class="hint">CU codes come from the DQM CU manual (rev 40) where the item matches one exactly (poles by length/kN, stays by wire); constructions map to the DQM family of the same PNW code (e.g. LV1 → LV1_W3), suffix from the wires, pole material, area, HV rating and pollution. Conductor = plan span × wires, with no sag, jumper or wastage allowance.</p>' : '<p class="hint">No proposed work yet.</p>';
+    if (t === 'sow') h += w.sow.length ? '<ol class="fx-sow">' + w.sow.map(function (s) { return '<li>' + fxEsc(s.text).replace(/\n/g, '<br>') + '</li>'; }).join('') + '</ol>' : '<p class="hint">No changes to the existing design yet.</p>';
+    if (t === 'sched') h += w.sched.length ? fxTable(SCHED_HEAD, fxSchedRows(w).map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + fxEsc(v) + '</td>'; }).join('') + '</tr>'; })) + '<p class="hint">Same columns as the pole schedule on WP design drawings (e.g. SP053196 Rev A). New poles show as NEW POLE until they get an S-number; materials refer to the SOW items for that pole.</p>' : '<p class="hint">No new or replaced poles.</p>';
+    h += '<div class="btnrow"><button class="btn small primary" id="fxWorkX">Export Excel (BOM, SOW, pole schedule)</button><button class="btn small" id="fxWorkCopy">Copy SOW text</button></div>';
+    openGen('Proposed work', h, { side: true, noFocus: true });
+    $('genBody').addEventListener('click', function (e) { var b = e.target.closest('[data-fxwt]'); if (b) fxWorkDlg(b.dataset.fxwt); });
+    $('fxArea').onchange = function () { fxS().area = this.value; save(); fxWorkDlg(t); };
+    $('fxRate').onchange = function () { fxS().hvRate = this.value; save(); fxWorkDlg(t); };
+    $('fxTxKv').onchange = function () { fxS().txKv = this.value; save(); fxWorkDlg(t); };
+    $('fxPoll').onchange = function () { fxS().hvPoll = this.value; save(); fxWorkDlg(t); };
+    $('fxWorkX').onclick = function () { fxWorkExport(w); };
+    $('fxWkSave').onclick = function () { if (fxBase() && !confirmInline(this, 'Replace the saved existing profile?')) return; fxSaveExisting(); fxDiffCache = null; fxWorkDlg(t); };
+    $('fxWkLoad').onclick = function () { fxLoadExisting(function () { fxWorkDlg(t); }); };
+    if ($('fxWkClr')) $('fxWkClr').onclick = function () { if (!confirmInline(this, 'Clear the existing profile?')) return; fxS().base = null; fxDiffCache = null; save(); renderAll(); fxWorkDlg(t); };
+    $('fxWorkCopy').onclick = function () { var txt = w.sow.map(function (s, i) { return (i + 1) + '. ' + s.text; }).join('\n'); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { setStatus('SOW copied.', 'good'); }, function () { setStatus('Copy is blocked here: use Export Excel.', 'bad'); }); };
+  }
+  function fxWorkExport(w) {
+    w = w || fxWork(); if (!w) return;
+    download(fxWb([['Bill of materials', ['Category', 'Item', 'Qty', 'Unit', 'CU (DQM)', 'Reference', 'Poles'], fxBomRows(w)], ['Scope of works', ['#', 'Scope'], w.sow.map(function (s, i) { return [i + 1, s.text]; })], ['Pole schedule', SCHED_HEAD, fxSchedRows(w)]]), 'Proposed work - ' + fxName() + '.xlsx');
+  }
+  /* ---------------- 2. Batch tipload and strength ---------------- */
+  function fxStrEnt(id, r, c) { // same pole type as the Strength button (strApply)
+    var spd = SPECIES[r.species] || [], D = +r.D, Lh = +r.L, sk = +r.sunk, hg = +r.hag, tp = spd[3] || 10, dens = spd[2] || 1100, dT = D - tp * hg, dB = D + tp * sk, fr = function (a, b, len) { return Math.PI / 12 * len * (a * a + a * b + b * b) / 1e6; };
+    return { code: strCode(id), description: 'Existing ' + (SPECIES[r.species] ? SPECIES[r.species][0] : r.species || 'wood') + ' ' + Lh + 'm/' + c.t1.toFixed(2) + 'kN (pole strength ' + fxToday() + ')', length: Lh, sinking: sk, height: hg, material: 'Wood',
+      diamTip: Math.round(dT), diamGL: D, diamButt: Math.round(dB), diamAvg: Math.round(D - tp * hg / 2), weight: Math.round(dens * (fr(D, dT, hg) + fr(dB, D, sk))), ultimate: Math.round(c.t1 * 100) / 100, vertical: null, kN: Math.round(c.t1 * 100) / 100,
+      selfSupporting: false, strength: { m1: c.m1, m2: c.m2, t1: c.t1, t2: c.t2, inputs: r } };
+  }
+  function fxBatchRows() {
+    var d = fxD(), ids = dm ? dm.allPoles.map(function (p) { return p.id; }) : [];
+    return ids.map(function (id) {
+      var st = d && d.poles[id] ? d.poles[id].status : 'same', existing = st !== 'new' && st !== 'replace', ty = (S.design.poleTypes || {})[id] || '', q = dm.allPoles.filter(function (p) { return p.id === id; })[0];
+      var sr = null, sc = null; try { sr = strRow(id); sc = sr && !sr.concrete ? strCalc(sr) : null; } catch (e) { sr = null; }
+      var str = !existing ? { s: 'new pole: library type', ok: true } : /^Existing-/.test(ty) ? { s: 'calculated (' + n2(((S.design.poleLib || {})[id] || {}).ultimate) + ' kN)', ok: true } : sr && sr.concrete ? { s: 'concrete: library type', ok: true } : sc && !sc.miss ? { s: 'can calculate: ' + n2(sc.t1) + ' kN', can: true } : { s: 'missing ' + (sc && sc.miss ? sc.miss.join(', ') : 'inspection data'), need: true };
+      var tr = null; try { tr = q && q.height > 0 && tipSet().cases.length ? tipCalc(id) : null; } catch (e) { tr = null; }
+      var w = tr && tr.results.length ? tr.results.slice().sort(function (a, b) { return (b.pctHor != null ? b.pctHor : b.load) - (a.pctHor != null ? a.pctHor : a.load); })[0] : null;
+      var fail = tr && tr.results.some(function (x) { return x.pass === false; });
+      return { id: id, ep: st, type: ty, str: str, w: w, pass: !w ? null : fail ? false : w.pass, stays: tr && tr.results.length ? Math.max.apply(null, tr.results.map(function (x) { return Math.max.apply(null, (x.stays || []).map(function (s) { return s.pct || 0; }).concat([0])); })) : null };
+    });
+  }
+  function fxStrAll() {
+    var todo = fxBatchRows().filter(function (r) { return r.str.can; }); if (!todo.length) { setStatus('No more existing poles can be calculated from the inspection data.', 'bad'); return 0; }
+    var types = S.design.poleTypes = S.design.poleTypes || {}, pl = S.design.poleLib = S.design.poleLib || {}, n = 0;
+    commit(function (p) {
+      var log = [];
+      todo.forEach(function (row) {
+        var id = row.id, r = strRow(id), c = strCalc(r); if (c.miss) return;
+        var ent = fxStrEnt(id, r, c), before = types[id] || ''; pl[id] = ent;
+        try { if (p.poles.some(function (x) { return x.ID === id; })) M.updatePole(p, id, { length: +r.L, sunk: +r.sunk }); } catch (e) { return; }
+        types[id] = ent.code; n++; log.push(logEntry(id, '', 'Pole type', before, ent.code + ' (' + ent.description + ')', 'calculated', 'PNW Pole Strength, limit state method (batch)'));
+      });
+      return log;
+    });
+    return n;
+  }
+  function fxBatchDlg() {
+    if (!project || !dm) { setStatus('Batch tipload needs a design: link a PNW project or start one from the ground profile.', 'bad'); return; }
+    var rows = fxBatchRows(), noCases = !tipSet().cases.length, fails = rows.filter(function (r) { return r.pass === false; }).length, pass = rows.filter(function (r) { return r.pass === true; }).length, can = rows.filter(function (r) { return r.str.can; }).length, need = rows.filter(function (r) { return r.str.need; }).length;
+    var h = '<div class="facts">' + fact('Poles', rows.length) + fact('Pass', pass) + fact('Fail', fails, fails ? 'bad' : '') + fact('Not checked', rows.length - pass - fails, rows.length - pass - fails ? 'warn' : '') + fact('Strength to calculate', can, can ? 'warn' : '') + fact('Strength inputs missing', need, need ? 'warn' : '') + '</div>';
+    if (noCases) h += '<p class="hint bad">No load combinations yet: open Tipload and choose the option set first.</p>';
+    h += '<div class="btnrow"><button class="btn small primary" id="fxStrAll"' + (can ? '' : ' disabled') + '>Calculate strength of ' + can + ' existing pole' + (can === 1 ? '' : 's') + ' and recheck</button><button class="btn small" id="fxBatchX">Export Excel</button></div>';
+    h += fxTable(['Pole', 'Work', 'Pole type', 'Strength', 'Worst load case', 'Load (kN)', 'Dir (°)', '% strength', 'Stay %', 'Result'], rows.map(function (r) {
+      return '<tr data-fxpole="' + fxEsc(r.id) + '" class="' + (r.pass === false ? 'fx-bad' : '') + '"><td><b>' + fxEsc(r.id) + '</b></td><td>' + ({ new: 'new', replace: 'replace', modify: 'modify', same: '' })[r.ep] + '</td><td>' + fxEsc(r.type || '–') + '</td><td>' + fxEsc(r.str.s) + '</td><td>' + (r.w ? fxEsc(r.w.name) : '<span class="muted">' + (noCases ? 'no load cases' : 'not calculated') + '</span>') + '</td><td class="num">' + (r.w ? n2(r.w.load) : '') + '</td><td class="num">' + (r.w ? n2(r.w.dir, 0) : '') + '</td><td class="num">' + (r.w && r.w.pctHor != null ? n2(r.w.pctHor, 0) : '') + '</td><td class="num">' + (r.stays ? n2(r.stays, 0) : '') + '</td><td>' + (r.pass == null ? (r.w ? '<span class="pill mute">no strength</span>' : '') : r.pass ? '<span class="pill ok">PASS</span>' : '<span class="pill bad">FAIL</span>') + '</td></tr>';
+    }));
+    openGen('Check all poles', h, { side: true, noFocus: true });
+    $('fxStrAll').onclick = function () { var n = fxStrAll(); fxBatchDlg(); setStatus('Calculated the strength of ' + n + ' existing pole' + (n === 1 ? '' : 's') + ' and rechecked the tipload of every pole.', 'good'); };
+    $('fxBatchX').onclick = function () { download(fxWb([['Tipload and strength', ['Pole', 'Work', 'Pole type', 'Strength', 'Worst load case', 'Load kN', 'Direction deg', '% strength', 'Max stay %', 'Result'], rows.map(function (r) { return [r.id, r.ep === 'same' ? '' : r.ep, r.type, r.str.s, r.w ? r.w.name : '', r.w ? +r.w.load.toFixed(2) : '', r.w ? Math.round(r.w.dir) : '', r.w && r.w.pctHor != null ? Math.round(r.w.pctHor) : '', r.stays ? Math.round(r.stays) : '', r.pass == null ? '' : r.pass ? 'PASS' : 'FAIL']; })]]), 'Tipload and strength - ' + fxName() + '.xlsx'); };
+    $('genBody').addEventListener('click', function (e) { var t = e.target.closest('[data-fxpole]'); if (t) select(t.dataset.fxpole); });
+  }
+
+  /* ---------------- 3. Design report PDF ---------------- */
+  function fxScript(src) { return new Promise(function (ok, no) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = function () { no(new Error('Could not load ' + src)); }; document.head.appendChild(s); }); }
+  var fxPdfLib = null;
+  function fxPdf() { if (!fxPdfLib) fxPdfLib = (window.jspdf ? Promise.resolve() : fxScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js')).then(function () { return fxScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js'); }).then(function () { return window.jspdf.jsPDF; }); fxPdfLib.catch(function () { fxPdfLib = null; }); return fxPdfLib; }
+  // A clean, full-line profile for the report (independent of the on-screen zoom).
+  function fxProfileSvg(W, H) {
+    var poles = lineRows(); if (poles.length < 2 || !dm) return null;
+    var gz = groundAtFn(), x0 = poles[0].chainage, x1 = poles[poles.length - 1].chainage, m = { l: 50, r: 16, t: 16, b: 30 }, chainOf = {}; poles.forEach(function (p) { chainOf[p.id] = p.chainage; });
+    var lo = Math.min.apply(null, poles.map(function (p) { return p.ground; })) - 1, hi = Math.max.apply(null, poles.map(function (p) { return p.ground + (p.height || 0); })) + 1.5;
+    var X = function (c) { return m.l + (c - x0) / (x1 - x0 || 1) * (W - m.l - m.r); }, Y = function (z) { return H - m.b - (z - lo) / (hi - lo) * (H - m.t - m.b); };
+    var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" font-family="Arial" font-size="11"><rect width="100%" height="100%" fill="#fff"/>';
+    for (var v = Math.ceil(lo); v <= hi; v += Math.max(1, Math.round((hi - lo) / 6))) s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#e5e7eb"/><text x="' + (m.l - 4) + '" y="' + (Y(v) + 4) + '" text-anchor="end" fill="#555">' + v + '</text>';
+    if (gz) { var gp = []; for (var k = 0; k <= 200; k++) { var c = x0 + (x1 - x0) * k / 200; gp.push(X(c).toFixed(1) + ' ' + Y(gz(c)).toFixed(1)); } s += '<path d="M' + gp.join(' L') + '" fill="none" stroke="#2f6ea4" stroke-width="2"/>'; }
+    var obs = fxObs().concat(fxRoadIntervals()); obs.filter(function (o) { return o.kind === 'road'; }).forEach(function (o) { var a = Number(o.from), b = Number(o.to === '' ? o.from : o.to); if (isFinite(a)) s += '<rect x="' + X(Math.min(a, b)) + '" y="' + m.t + '" width="' + Math.max(2, Math.abs(X(b) - X(a))) + '" height="' + (H - m.t - m.b) + '" fill="#64748b" opacity=".12"/>'; });
+    var ep = fxD();
+    poles.forEach(function (p) { var col = ep && ep.poles[p.id] ? EPC[ep.poles[p.id].status] : '#8b6b4a'; if (col === EPC.same) col = '#8b6b4a'; s += '<line x1="' + X(p.chainage) + '" x2="' + X(p.chainage) + '" y1="' + Y(p.ground) + '" y2="' + Y(p.ground + (p.height || 0)) + '" stroke="' + col + '" stroke-width="3"/><text x="' + X(p.chainage) + '" y="' + (Y(p.ground + (p.height || 0)) - 5) + '" text-anchor="middle" fill="#111">' + esc(p.id) + '</text>'; });
+    dm.wires.forEach(function (w) { var a = chainOf[w.from.pole], b = chainOf[w.to.pole]; if (a == null || b == null) return; [[w.sag, WCOL[wireKind(w)], ''], [w.fxSag, '#dc2626', '4 3']].forEach(function (q) { if (q[0] == null && q[2]) return; var pts = []; for (var k = 0; k <= 20; k++) { var t = k / 20; pts.push(X(a + (b - a) * t).toFixed(1) + ' ' + Y(w.from.elevation + (w.to.elevation - w.from.elevation) * t - 4 * (q[0] || 0) * t * (1 - t)).toFixed(1)); } s += '<path d="M' + pts.join(' L') + '" fill="none" stroke="' + q[1] + '" stroke-width="1.2"' + (q[2] ? ' stroke-dasharray="' + q[2] + '"' : '') + '/>'; }); });
+    fxClrRes().rows.filter(function (r) { return r.ok === false; }).forEach(function (r) { s += '<circle cx="' + X(r.c) + '" cy="' + Y(r.z) + '" r="4" fill="#dc2626"/><text x="' + (X(r.c) + 5) + '" y="' + (Y(r.z) + 12) + '" fill="#dc2626">' + r.clr.toFixed(2) + ' m</text>'; });
+    for (var c2 = 0; c2 <= 8; c2++) { var cc = x0 + (x1 - x0) * c2 / 8; s += '<text x="' + X(cc) + '" y="' + (H - 12) + '" text-anchor="middle" fill="#555">' + cc.toFixed(0) + '</text>'; }
+    s += '<text x="' + (W / 2) + '" y="' + (H - 1) + '" text-anchor="middle" fill="#555">Chainage (m) · blue = ground · solid = conductors at ' + esc(S.sagTemp || 15) + ' °C · red dashed = ' + esc(fxS().clr.temp) + ' °C (clearance)</text></svg>';
+    return s;
+  }
+  function fxSvgPng(svg, W, H) { return new Promise(function (ok, no) { var im = new Image(); im.onload = function () { var c = document.createElement('canvas'); c.width = W * 2; c.height = H * 2; var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.scale(2, 2); g.drawImage(im, 0, 0); ok(c.toDataURL('image/jpeg', 0.9)); }; im.onerror = function () { no(new Error('profile image')); }; im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); }); }
+  function fxJpeg(png) { try { var im = new Image(); im.src = png; if (!im.width) return png; var c = document.createElement('canvas'); c.width = im.width; c.height = im.height; var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0); return c.toDataURL('image/jpeg', 0.85); } catch (e) { return png; } }
+  function fxPhotos() {
+    var ids = lineIds(), out = [];
+    ids.forEach(function (id) { var l = photosOf(id); if (!l.length) return; var p = l.filter(function (x) { return /street/i.test(x.source || ''); }).slice(-1)[0] || l[l.length - 1]; out.push({ id: id, rec: p }); });
+    return Promise.all(out.slice(0, 24).map(function (o) { return photoData(o.rec).then(function (d) { o.data = d; return o; }); })).then(function (l) { return l.filter(function (o) { return o.data; }); });
+  }
+  function fxReport() {
+    if (!project || !dm) { setStatus('The design report needs a design: link a PNW project or start one from the ground profile.', 'bad'); return; }
+    setStatus('Building the design report…');
+    var W = 1600, H = 520, svg = fxProfileSvg(W, H);
+    Promise.all([fxPdf(), svg ? fxSvgPng(svg, W, H).catch(function () { return null; }) : null, fxPhotos().catch(function () { return []; })]).then(function (r) {
+      var jsPDF = r[0], prof = r[1], photos = r[2], doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' }), PW = 297, y = 16;
+      var head = function (t) { doc.setFontSize(13); doc.setTextColor(20); doc.text(t, 12, y); y += 4; };
+      var table = function (title, hd, body, opts) { if (y > 170) { doc.addPage(); y = 16; } head(title); doc.autoTable(Object.assign({ startY: y, head: [hd], body: body.length ? body : [hd.map(function (_, i) { return i ? '' : 'None'; })], styles: { fontSize: 7, cellPadding: 1.2 }, headStyles: { fillColor: [23, 38, 56] }, margin: { left: 12, right: 12 } }, opts || {})); y = doc.lastAutoTable.finalY + 8; };
+      var clr = fxClrRes(), bat = fxBatchRows(), work = fxWork(), errs = allIssues.filter(function (i) { return i.level === 'error'; });
+      doc.setFontSize(20); doc.text('Design report', 12, y); y += 8; doc.setFontSize(11);
+      [['Project', fxName()], ['Design file', linked ? linked.name : ''], ['Designer', S.settings.createdBy || ''], ['Date', fxToday()], ['Existing design', fxBase() ? 'saved ' + fxBase().at.slice(0, 16).replace('T', ' ') : 'not saved (PNW New flags)'],
+        ['Summary', dm.allPoles.length + ' poles, ' + spanList().length + ' spans, ' + project.segments.length + ' strain sections; tipload ' + bat.filter(function (x) { return x.pass === true; }).length + ' pass / ' + bat.filter(function (x) { return x.pass === false; }).length + ' fail; clearance ' + clr.fails + ' fail at ' + fxS().clr.temp + ' °C; ' + errs.length + ' errors']].forEach(function (k) { doc.setTextColor(90); doc.text(k[0], 12, y); doc.setTextColor(20); doc.text(doc.splitTextToSize(String(k[1]), PW - 60), 50, y); y += 6; });
+      if (prof) { y += 2; doc.addImage(prof, 'JPEG', 12, y, PW - 24, (PW - 24) * H / W); y += (PW - 24) * H / W + 6; }
+      if (mounted3d && window.PNW3D && window.PNW3D.snapshot) { try { var im3 = fxJpeg(window.PNW3D.snapshot()); if (im3 && im3.length > 2000) { doc.addPage(); y = 16; head('3D view'); doc.addImage(im3, 'JPEG', 12, y, PW - 24, (PW - 24) * 0.5); y += (PW - 24) * 0.5 + 6; } } catch (e) { /* no 3D */ } }
+      doc.addPage(); y = 16;
+      table('Clearance check (' + fxS().clr.temp + ' °C)', ['Span', 'Check', 'Conductor', 'Chainage m', 'Clearance m', 'Required m', 'Result', 'Sag source'], clr.rows.map(function (x) { return [x.a + ' -> ' + x.b, FXK[x.kind] + (x.name ? ' ' + x.name : ''), x.code + ' ' + x.wk.toUpperCase(), x.c.toFixed(1), x.clr.toFixed(2), x.req == null ? '' : x.req, x.ok == null ? 'no rule' : x.ok ? 'PASS' : 'FAIL', x.sagSrc]; }), { didParseCell: function (dt) { if (dt.section === 'body' && dt.column.index === 6 && dt.cell.raw === 'FAIL') dt.cell.styles.textColor = [200, 30, 30]; } });
+      table('Tipload and pole strength', ['Pole', 'Work', 'Pole type', 'Strength', 'Worst load case', 'Load kN', 'Dir °', '% strength', 'Max stay %', 'Result'], bat.map(function (r) { return [r.id, r.ep === 'same' ? '' : r.ep, r.type, r.str.s, r.w ? r.w.name : '', r.w ? r.w.load.toFixed(2) : '', r.w ? Math.round(r.w.dir) : '', r.w && r.w.pctHor != null ? Math.round(r.w.pctHor) : '', r.stays ? Math.round(r.stays) : '', r.pass == null ? '' : r.pass ? 'PASS' : 'FAIL']; }), { didParseCell: function (dt) { if (dt.section === 'body' && dt.column.index === 9 && dt.cell.raw === 'FAIL') dt.cell.styles.textColor = [200, 30, 30]; } });
+      if (work) { table('Scope of works', ['#', 'Scope'], work.sow.map(function (s, i) { return [i + 1, s.text]; }), { columnStyles: { 0: { cellWidth: 10 } } }); table('Pole schedule', SCHED_HEAD, fxSchedRows(work)); table('Bill of materials (proposed)', ['Category', 'Item', 'Qty', 'Unit', 'CU (DQM)', 'Reference', 'Poles'], fxBomRows(work)); }
+      var cf = fxCadFlags(); if (fxCad().polys.length) table('Cadastre and easements', ['Pole', 'Check', 'Result'], cf.map(function (f) { return [f.pole, f.text, f.level === 'error' ? 'FLAG' : 'note']; }));
+      table('Design checks (errors and warnings)', ['Level', 'Pole', 'Message'], allIssues.filter(function (i) { return i.level === 'error' || i.level === 'warning'; }).map(function (i) { return [i.level, i.poleId || '', i.message || i.text || '']; }));
+      if (photos.length) {
+        doc.addPage(); y = 16; head('Pole photos and Street View'); y += 2; var cw = (PW - 24 - 12) / 4, ch = cw * 0.75, i = 0;
+        photos.forEach(function (o) { if (i && i % 8 === 0) { doc.addPage(); y = 20; } var cx = 12 + (i % 4) * (cw + 4), cy = y + Math.floor((i % 8) / 4) * (ch + 10); try { doc.addImage('data:image/jpeg;base64,' + o.data, 'JPEG', cx, cy, cw, ch); } catch (e) { /* skip */ } doc.setFontSize(8); doc.text(o.id + ' · ' + (o.rec.source || 'photo') + ' · ' + String(o.rec.at || '').slice(0, 10), cx, cy + ch + 4); i++; });
+      }
+      var n = doc.getNumberOfPages(); for (var p = 1; p <= n; p++) { doc.setPage(p); doc.setFontSize(8); doc.setTextColor(120); doc.text(fxName() + ' · design report · ' + fxToday() + ' · page ' + p + ' of ' + n, 12, 205); }
+      download(doc.output('blob'), 'Design report - ' + fxName() + '.pdf');
+    }).catch(function (e) { setStatus('Could not build the report: ' + e.message, 'bad'); });
+  }
+
+  /* ---------------- 11. Version history (this browser) ---------------- */
+  var VDB = 'eve-pnw-versions';
+  function fxVdb(mode, fn) {
+    return new Promise(function (ok) {
+      try { var rq = indexedDB.open(VDB, 1); rq.onupgradeneeded = function () { rq.result.createObjectStore('v', { keyPath: 'id' }); }; rq.onerror = function () { ok(null); };
+        rq.onsuccess = function () { try { var tx = rq.result.transaction('v', mode), q = fn(tx.objectStore('v')); tx.oncomplete = function () { ok(q && q.result !== undefined ? q.result : true); }; tx.onerror = function () { ok(null); }; } catch (e) { ok(null); } };
+      } catch (e) { ok(null); }
+    });
+  }
+  var fxLastVer = { snap: null, at: 0 };
+  function fxVerSave(name, auto) {
+    if (!S.files.length) return Promise.resolve(null);
+    var snap = snapState(), rec = { id: 'v' + Date.now().toString(36), name: name || 'Version', auto: !!auto, at: new Date().toISOString(), profile: fxName(), snap: snap, xml: projectXml(), extras: S.design.extras || {}, poleTypes: S.design.poleTypes || {}, poleLib: S.design.poleLib || {}, link: S.design.link || '', summary: (dm ? dm.allPoles.length + ' poles, ' + (project ? project.constructions.length : 0) + ' constructions, ' + (project ? project.segments.length : 0) + ' sections' : prof().poleIds.length + ' poles') };
+    fxLastVer = { snap: snap, at: Date.now() };
+    return fxVdb('readwrite', function (st) { return st.put(rec); }).then(function () {
+      if (auto) fxVdb('readonly', function (st) { return st.getAll(); }).then(function (all) { var a = (all || []).filter(function (v) { return v.auto; }).sort(function (x, y) { return x.at < y.at ? 1 : -1; }); a.slice(40).forEach(function (v) { fxVdb('readwrite', function (st) { return st.delete(v.id); }); }); });
+      return rec;
+    });
+  }
+  // A version is kept automatically every 10 minutes while the design changes.
+  var fxSave0 = save; save = function () { fxSave0.apply(this, arguments); try { if (!restoring && Date.now() - fxLastVer.at > 600000) { var s = snapState(); if (s !== fxLastVer.snap) { if (fxLastVer.at) fxVerSave('Autosave', true); else fxLastVer = { snap: s, at: Date.now() }; } } } catch (e) { /* storage */ } };
+  function fxVerRestore(v) {
+    undoStack.push(snapState()); redoStack = [];
+    restore([v.snap], []); renderHistory();
+    setStatus('Restored the version “' + v.name + '” (' + v.at.slice(0, 16).replace('T', ' ') + '). Undo (Ctrl+Z) goes back.', 'good');
+  }
+  function fxVerDlg(sel) {
+    fxVdb('readonly', function (st) { return st.getAll(); }).then(function (all) {
+      var l = (all || []).sort(function (a, b) { return a.at < b.at ? 1 : -1; }); sel = sel || [];
+      var h = '<p class="hint">Versions are kept in this browser: one every 10 minutes while you work, and whenever you save one or save as existing. Restore is undoable. Tick two versions (or one, to compare with now) and Compare.</p><div class="btnrow"><input id="fxVerName" placeholder="Version name" style="width:200px"><button class="btn small primary" id="fxVerAdd">Save version</button><button class="btn small" id="fxVerCmp">Compare ticked</button><span class="meta">Undo history: ' + undoStack.length + ' step' + (undoStack.length === 1 ? '' : 's') + '</span></div>';
+      h += l.length ? fxTable(['', 'Saved', 'Name', 'Profile', 'Contents', ''], l.map(function (v) { return '<tr><td><input type="checkbox" data-fxvsel="' + v.id + '"' + (sel.indexOf(v.id) >= 0 ? ' checked' : '') + '></td><td>' + fxEsc(v.at.slice(0, 16).replace('T', ' ')) + '</td><td>' + (v.auto ? '<span class="muted">' + fxEsc(v.name) + '</span>' : '<b>' + fxEsc(v.name) + '</b>') + '</td><td>' + fxEsc(v.profile) + '</td><td>' + fxEsc(v.summary) + '</td><td><button class="btn small" data-fxvres="' + v.id + '">Restore</button><button class="btn small ghost" data-fxvdel="' + v.id + '" title="Delete">🗑</button></td></tr>'; })) : '<p class="hint">No versions yet.</p>';
+      h += '<div id="fxCmpOut"></div>';
+      openGen('Version history', h, { side: true, noFocus: true });
+      var byId = {}; l.forEach(function (v) { byId[v.id] = v; });
+      $('fxVerAdd').onclick = function () { fxVerSave($('fxVerName').value.trim() || 'Version ' + fxToday(), false).then(function () { fxVerDlg(); setStatus('Version saved.', 'good'); }); };
+      $('fxVerCmp').onclick = function () {
+        var t = Array.prototype.slice.call(document.querySelectorAll('[data-fxvsel]:checked')).map(function (c) { return byId[c.dataset.fxvsel]; }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+        if (!t.length || t.length > 2) { setStatus('Tick one or two versions to compare.', 'bad'); return; }
+        var A = t[0], B = t[1] || Object.assign(fxCurSnap(), { name: 'Now', at: new Date().toISOString() }), d = fxDiff(A, B);
+        $('fxCmpOut').innerHTML = '<h4>' + fxEsc(A.name) + ' (' + fxEsc(A.at.slice(0, 16).replace('T', ' ')) + ') → ' + fxEsc(B.name) + '</h4>' + fxDiffHtml(d);
+      };
+      $('genBody').addEventListener('click', function (e) {
+        var b = e.target.closest('[data-fxvres],[data-fxvdel]'); if (!b) return;
+        if (b.dataset.fxvres) { fxVerRestore(byId[b.dataset.fxvres]); closeGen(); }
+        else fxVdb('readwrite', function (st) { return st.delete(b.dataset.fxvdel); }).then(function () { fxVerDlg(); });
+      });
+    });
+  }
+  function fxDiffHtml(d) {
+    if (!d) return '<p class="hint">One of the versions has no design to compare.</p>';
+    var li = [];
+    Object.keys(d.poles).forEach(function (id) { var s = d.poles[id]; if (s.status === 'same') return; li.push('<li><b>' + fxEsc(id) + '</b> ' + ({ new: 'new pole', replace: 'replaced' + (s.why ? ' (' + fxEsc(s.why) + ')' : ''), modify: 'modified' })[s.status] + (s.items.length ? ': ' + s.items.map(function (it) { return it.kind + ' ' + (it.code || (it.x && (it.x.wire || it.x.code)) || it.what) + (it.kind === 'move' ? ' ' + n2(it.from) + ' → ' + n2(it.kb) + ' m' : ''); }).map(fxEsc).join('; ') : '') + '</li>'); });
+    d.removed.forEach(function (r) { li.push('<li><b>' + fxEsc(r.id) + '</b> removed</li>'); });
+    Object.keys(d.spans).forEach(function (k) { var s = d.spans[k]; if (s.status !== 'same') li.push('<li>Span ' + fxEsc(s.a + ' → ' + s.b) + ': ' + (s.status === 'new' ? 'new' : 'conductor changed') + ' (' + fxEsc(Object.keys(s.conds).map(function (c) { return s.conds[c] + '×' + c; }).join(', ')) + ')</li>'); });
+    d.removedSpans.forEach(function (s) { li.push('<li>Span ' + fxEsc(s.a + ' → ' + s.b) + ' removed</li>'); });
+    d.secs.forEach(function (s) { li.push('<li>Section ' + fxEsc(s.name) + ' tension ' + fxEsc(s.from) + ' → ' + fxEsc(s.to) + '</li>'); });
+    return li.length ? '<ul class="fx-diff">' + li.join('') + '</ul>' : '<p class="hint">No design differences.</p>';
+  }
+  /* ---------------- 13. Cadastre and easement layer ---------------- */
+  // Lots, road reserve and easements from a file (Landgate cadastre GeoJSON / KML / zipped Shapefile, or a DXF / DGN
+  // cadastre). Poles, stay anchors and spans are tested against them; anything on a lot without an easement is flagged.
+  function fxCad() { var f = fxS(); return f.cad = f.cad || { polys: [], files: [], show: true }; }
+  var fxCanvas = L.canvas ? L.canvas({ padding: 0.3 }) : undefined, lyCad = L.layerGroup().addTo(map);
+  function fxCadDraw() {
+    lyCad.clearLayers(); var cd = fxCad(); if (!cd.show) return;
+    var sty = { lot: { color: '#64748b', weight: 1, fillOpacity: 0.03 }, road: { color: '#0891b2', weight: 1, fillOpacity: 0.06, dashArray: '2 4' }, easement: { color: '#ea580c', weight: 1.5, fillOpacity: 0.12, dashArray: '6 4' } };
+    cd.polys.forEach(function (p) { L.polygon(p.ll, Object.assign({ renderer: fxCanvas, interactive: true }, sty[p.kind] || sty.lot)).bindTooltip(({ lot: 'Lot ', road: 'Road reserve ', easement: 'Easement ' })[p.kind] + esc(p.label || ''), { sticky: true }).addTo(lyCad); });
+  }
+  function fxInPoly(ll, ring) { var x = ll.lng, y = ll.lat, ins = false; for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) { var xi = ring[i][1], yi = ring[i][0], xj = ring[j][1], yj = ring[j][0]; if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) ins = !ins; } return ins; }
+  function fxPolyAt(ll, kind) { var cd = fxCad(); for (var i = 0; i < cd.polys.length; i++) { var p = cd.polys[i]; if (p.kind !== kind) continue; var b = p.bb; if (ll.lat < b[0] || ll.lat > b[2] || ll.lng < b[1] || ll.lng > b[3]) continue; if (fxInPoly(ll, p.ll)) return p; } return null; }
+  var fxCadCache = null, fxCadAt = 0;
+  function fxCadFlags() {
+    var cd = fxCad(); if (!cd.polys.length) return [];
+    if (fxCadCache && fxCadAt === calcAt) return fxCadCache;
+    var out = [], hasLots = cd.polys.some(function (p) { return p.kind === 'lot'; }), ex = S.design.extras || {};
+    var where = function (e, n) { var ll = toLatLng(e, n); if (!ll) return null; return { lot: fxPolyAt(ll, 'lot'), road: fxPolyAt(ll, 'road'), ease: fxPolyAt(ll, 'easement') }; };
+    var ids = lineIds();
+    ids.forEach(function (id) {
+      var P = poleXY(id); if (!P) return; var w = where(P.e, P.n); if (!w) return;
+      if (w.lot && !w.ease && !w.road) out.push({ pole: id, level: 'error', text: 'Pole ' + id + ' is on lot ' + (w.lot.label || '?') + ' (private land) with no easement: needs an easement or a road reserve position.' });
+      else if (w.ease) out.push({ pole: id, level: 'info', text: 'Pole ' + id + ' is inside easement ' + (w.ease.label || '') + '.' });
+      else if (hasLots || w.road) out.push({ pole: id, level: 'info', text: 'Pole ' + id + ' is in the road reserve.' });
+      ((ex[id] || {}).stays || []).forEach(function (st, i) {
+        var ht = PNW.num(st.attHt), ang = PNW.num(st.angle) > 0 ? PNW.num(st.angle) : 45, dir = PNW.num(st.dir); if (!(ht > 0) || !isFinite(dir)) return;
+        var lead = ht / Math.tan(ang * Math.PI / 180), ae = P.e + lead * Math.sin(dir * Math.PI / 180), an = P.n + lead * Math.cos(dir * Math.PI / 180), wa = where(ae, an);
+        if (wa && wa.lot && !wa.ease && !wa.road) out.push({ pole: id, level: 'error', text: 'Stay ' + (i + 1) + ' anchor of ' + id + ' (lead ' + lead.toFixed(1) + ' m at ' + dir + '°) is on lot ' + (wa.lot.label || '?') + ' with no easement.' });
+      });
+    });
+    for (var i = 1; i < ids.length; i++) {
+      var A = poleXY(ids[i - 1]), B = poleXY(ids[i]); if (!A || !B) continue; var lots = {};
+      for (var k = 1; k < 30; k++) { var t = k / 30, w2 = where(A.e + (B.e - A.e) * t, A.n + (B.n - A.n) * t); if (w2 && w2.lot && !w2.ease && !w2.road) lots[w2.lot.label || '?'] = 1; }
+      if (Object.keys(lots).length) out.push({ pole: ids[i - 1], level: 'warning', text: 'Span ' + ids[i - 1] + ' → ' + ids[i] + ' passes over lot ' + Object.keys(lots).join(', ') + ' with no easement (conductor corridor).' });
+    }
+    fxCadCache = out; fxCadAt = calcAt; return out;
+  }
+  function fxCadIssues() { return fxCadFlags().filter(function (f) { return f.level !== 'info'; }).map(function (f) { return { level: f.level, poleId: f.pole, message: f.text }; }); }
+  function fxCls(attrs, def) { var s = Object.keys(attrs || {}).map(function (k) { return k + '=' + attrs[k]; }).join(' '); return /easement/i.test(s) ? 'easement' : /\broad\b|road reserve|\bROW\b|reserve.*road|\bRD\b/i.test(s) ? 'road' : def || 'lot'; }
+  function fxLabel(a) { if (!a) return ''; var k = Object.keys(a), l = k.filter(function (x) { return /lot.?(no|num|number)?$|^lot/i.test(x); })[0] || k.filter(function (x) { return /^(name|label|title|pin|land_id|id)$/i.test(x); })[0]; return l ? String(a[l]) : ''; }
+  function fxRing(coords) { var mga = coords.length && Math.abs(coords[0][0]) > 360; return coords.map(function (c) { if (mga) { var ll = toLatLng(c[0], c[1]); return ll ? [ll.lat, ll.lng] : null; } return [c[1], c[0]]; }).filter(Boolean); }
+  function fxGeojson(j) { var out = []; (j.features || (j.type === 'Feature' ? [j] : [])).forEach(function (f) { var g = f.geometry; if (!g) return; var polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []; polys.forEach(function (pc) { if (pc[0] && pc[0].length > 2) out.push({ ring: fxRing(pc[0]), attrs: f.properties || {} }); }); }); return out; }
+  function fxKml(text) {
+    var doc = new DOMParser().parseFromString(text, 'text/xml'), out = [];
+    Array.prototype.forEach.call(doc.getElementsByTagName('Placemark'), function (pm) {
+      var a = {}, nm = pm.getElementsByTagName('name')[0]; if (nm) a.name = nm.textContent.trim();
+      Array.prototype.forEach.call(pm.getElementsByTagName('SimpleData'), function (d) { a[d.getAttribute('name')] = d.textContent.trim(); });
+      Array.prototype.forEach.call(pm.getElementsByTagName('Data'), function (d) { var v = d.getElementsByTagName('value')[0]; a[d.getAttribute('name')] = v ? v.textContent.trim() : ''; });
+      Array.prototype.forEach.call(pm.getElementsByTagName('outerBoundaryIs'), function (ob) { var c = ob.getElementsByTagName('coordinates')[0]; if (!c) return; var ring = c.textContent.trim().split(/\s+/).map(function (t) { var v = t.split(',').map(Number); return [v[0], v[1]]; }).filter(function (v) { return isFinite(v[0]) && isFinite(v[1]); }); if (ring.length > 2) out.push({ ring: fxRing(ring), attrs: a }); });
+    });
+    return out;
+  }
+  function fxShp(shp, dbf) {
+    var v = new DataView(shp), out = [], recs = [], o = 100;
+    while (o + 8 <= v.byteLength) { var len = v.getInt32(o + 4) * 2, s = o + 8, t = v.getInt32(s, true); if (t === 5 || t === 15 || t === 25) { var np = v.getInt32(s + 36, true), npt = v.getInt32(s + 40, true), parts = [], pts = []; for (var i = 0; i < np; i++) parts.push(v.getInt32(s + 44 + 4 * i, true)); var p0 = s + 44 + 4 * np; for (var j = 0; j < npt; j++) pts.push([v.getFloat64(p0 + 16 * j, true), v.getFloat64(p0 + 16 * j + 8, true)]); recs.push(pts.slice(parts[0], parts.length > 1 ? parts[1] : npt)); } else recs.push(null); o = s + len; }
+    var attrs = [];
+    if (dbf) { var d = new DataView(dbf), n = d.getUint32(4, true), hl = d.getUint16(8, true), rl = d.getUint16(10, true), fl = [], q = 32, dec = new TextDecoder('latin1'); while (d.getUint8(q) !== 0x0d && q < hl) { fl.push({ name: dec.decode(new Uint8Array(dbf, q, 11)).replace(/\0.*$/, '').trim(), len: d.getUint8(q + 16) }); q += 32; } for (var r = 0; r < n; r++) { var ro = hl + r * rl + 1, a = {}; fl.forEach(function (f) { a[f.name] = dec.decode(new Uint8Array(dbf, ro, f.len)).trim(); ro += f.len; }); attrs.push(a); } }
+    recs.forEach(function (ring, i) { if (ring && ring.length > 2) out.push({ ring: fxRing(ring), attrs: attrs[i] || {} }); });
+    return out;
+  }
+  function fxCadElems(res) {
+    var els = res.elements || [], polys = [], texts = els.filter(function (e) { return e.kind === 'text' && e.origin && e.text; });
+    els.forEach(function (e) { if (e.kind !== 'line' || !e.points || e.points.length < 4) return; var a = e.points[0], b = e.points[e.points.length - 1]; if (!e.closed && Math.hypot(a[0] - b[0], a[1] - b[1]) > 0.05) return; polys.push({ ring: e.points, attrs: { level: e.level } }); });
+    polys.forEach(function (p) { var t = texts.filter(function (x) { return fxInPoly({ lat: x.origin[1], lng: x.origin[0] }, p.ring.map(function (c) { return [c[1], c[0]]; })); })[0]; if (t) p.attrs.lot = t.text; p.ring = fxRing(p.ring); });
+    return polys;
+  }
+  function fxCadImport(files) {
+    var cd = fxCad(), ext = null, ll = lineIds().map(function (id) { var P = poleXY(id); return P && toLatLng(P.e, P.n); }).filter(Boolean);
+    if (ll.length) { var b = L.latLngBounds(ll).pad(0.2); ext = [b.getSouth() - 0.003, b.getWest() - 0.003, b.getNorth() + 0.003, b.getEast() + 0.003]; }
+    Promise.all(Array.prototype.map.call(files, function (f) {
+      var nm = f.name, low = nm.toLowerCase();
+      var p = /\.zip$/.test(low) ? JSZip.loadAsync(f).then(function (z) { var shp = z.file(/\.shp$/i)[0], dbf = z.file(/\.dbf$/i)[0], gj = z.file(/\.(geo)?json$/i)[0], kml = z.file(/\.kml$/i)[0]; if (shp) return Promise.all([shp.async('arraybuffer'), dbf ? dbf.async('arraybuffer') : null]).then(function (r) { return fxShp(r[0], r[1]); }); if (gj) return gj.async('string').then(function (t) { return fxGeojson(JSON.parse(t)); }); if (kml) return kml.async('string').then(fxKml); throw new Error('no .shp, .geojson or .kml inside'); })
+        : /\.kmz$/.test(low) ? JSZip.loadAsync(f).then(function (z) { return z.file(/\.kml$/i)[0].async('string').then(fxKml); })
+        : /\.kml$/.test(low) ? f.text().then(fxKml)
+        : /\.(geo)?json$/.test(low) ? f.text().then(function (t) { return fxGeojson(JSON.parse(t)); })
+        : /\.dxf$/.test(low) ? f.text().then(function (t) { return fxCadElems(SOW.readDXF(t)); })
+        : /\.dgn$/.test(low) ? f.arrayBuffer().then(function (ab) { return SOW.readDGN(new Uint8Array(ab), cadInflate); }).then(fxCadElems)
+        : Promise.reject(new Error('use GeoJSON, KML/KMZ, a zipped Shapefile, DXF or DGN'));
+      return p.then(function (polys) {
+        var kept = 0;
+        polys.forEach(function (q) { if (q.ring.length < 3) return; var la = q.ring.map(function (c) { return c[0]; }), lo = q.ring.map(function (c) { return c[1]; }), bb = [Math.min.apply(null, la), Math.min.apply(null, lo), Math.max.apply(null, la), Math.max.apply(null, lo)]; if (ext && (bb[2] < ext[0] || bb[0] > ext[2] || bb[3] < ext[1] || bb[1] > ext[3])) return; cd.polys.push({ file: nm, kind: fxCls(q.attrs, /easement/i.test(nm) ? 'easement' : /road/i.test(nm) ? 'road' : 'lot'), label: fxLabel(q.attrs), ll: q.ring.map(function (c) { return [Math.round(c[0] * 1e7) / 1e7, Math.round(c[1] * 1e7) / 1e7]; }), bb: bb }); kept++; });
+        cd.files = cd.files.filter(function (x) { return x.name !== nm; }).concat([{ name: nm, n: kept, of: polys.length }]);
+        return nm + ': ' + kept + ' of ' + polys.length + ' parcels near the line';
+      }, function (e) { return nm + ': ' + e.message; });
+    })).then(function (msgs) { cd.show = true; recompute(); fxCadDlg(); setStatus('Cadastre: ' + msgs.join('; ') + '.', 'good'); });
+  }
+  function fxCadDlg() {
+    var cd = fxCad(), fl = fxCadFlags(), bad = fl.filter(function (f) { return f.level !== 'info'; });
+    var cnt = function (file, k) { return cd.polys.filter(function (p) { return p.file === file && p.kind === k; }).length; };
+    var h = '<p class="hint">Load the cadastre for the job: the Landgate cadastre (data.wa.gov.au / SLIP, GeoJSON, KML or zipped Shapefile), or a DXF / DGN cadastre in MGA. Only parcels near the line are kept. Poles, stay anchors and spans on a lot without an easement are flagged in the pole’s design checks, the Issues list and the report.</p>' +
+      '<div class="btnrow"><button class="btn small primary" id="fxCadLoad">Load cadastre or easement file…</button><label><input type="checkbox" id="fxCadShow"' + (cd.show ? ' checked' : '') + '> Show on the plan</label><input type="file" id="fxCadFile" multiple accept=".geojson,.json,.kml,.kmz,.zip,.dxf,.dgn" hidden></div>';
+    if (cd.files.length) h += fxTable(['File', 'Parcels', 'Lots', 'Road reserve', 'Easements', 'Set all to', ''], cd.files.map(function (f, i) { return '<tr><td>' + fxEsc(f.name) + '</td><td class="num">' + f.n + '</td><td class="num">' + cnt(f.name, 'lot') + '</td><td class="num">' + cnt(f.name, 'road') + '</td><td class="num">' + cnt(f.name, 'easement') + '</td><td><select data-fxcadk="' + i + '"><option value="">Keep</option><option value="lot">Lots</option><option value="road">Road reserve</option><option value="easement">Easements</option></select></td><td><button class="btn small ghost" data-fxcaddel="' + i + '">🗑</button></td></tr>'; }));
+    h += cd.polys.length ? '<h4>Checks (' + bad.length + ' flagged)</h4>' + fxTable(['Pole', 'Result', 'Check'], fl.map(function (f) { return '<tr data-fxpole="' + fxEsc(f.pole) + '" class="' + (f.level === 'error' ? 'fx-bad' : '') + '"><td><b>' + fxEsc(f.pole) + '</b></td><td>' + (f.level === 'info' ? '<span class="pill ok">OK</span>' : f.level === 'error' ? '<span class="pill bad">FLAG</span>' : '<span class="pill warn">CHECK</span>') + '</td><td>' + fxEsc(f.text) + '</td></tr>'; })) : '';
+    openGen('Cadastre and easements', h, { side: true, noFocus: true });
+    $('fxCadLoad').onclick = function () { $('fxCadFile').click(); };
+    $('fxCadFile').onchange = function () { if (this.files.length) fxCadImport(this.files); };
+    $('fxCadShow').onchange = function () { cd.show = this.checked; save(); fxCadDraw(); };
+    $('genBody').addEventListener('change', function (e) { var t = e.target; if (t.dataset.fxcadk && t.value) { var f = cd.files[+t.dataset.fxcadk]; cd.polys.forEach(function (p) { if (p.file === f.name) p.kind = t.value; }); recompute(); fxCadDlg(); } });
+    $('genBody').addEventListener('click', function (e) { var b = e.target.closest('[data-fxcaddel],[data-fxpole]'); if (!b) return; if (b.dataset.fxpole) { select(b.dataset.fxpole); return; } var f = cd.files.splice(+b.dataset.fxcaddel, 1)[0]; cd.polys = cd.polys.filter(function (p) { return p.file !== f.name; }); recompute(); fxCadDlg(); });
+  }
+
+  /* ---------------- 25. Typed and spoken commands ---------------- */
+  // "set S802233 to 12.5 m H05 and rerun tipload": simple commands are read here; anything else goes to Claude (sample),
+  // which turns it into the same small set of actions. Every change goes through the normal edit path (undo, change log).
+  var FXCMD_VERB = /^(set|change|make|replace|add|install|remove|delete|run|rerun|re-run|check|calc|calculate|recalculate|show|open|select|go|zoom|export|save|create|generate|undo|redo|view|switch|string|put)\b/i;
+  function fxFindPole(t) { if (!t) return null; var u = String(t).toUpperCase().replace(/[^A-Z0-9_-]/g, ''); if (!u) return null; var all = lineIds().concat(Object.keys(merged.poles)); if (all.indexOf(u) >= 0) return u; if (/^\d+$/.test(u) && all.indexOf('S' + u) >= 0) return 'S' + u; var m = all.filter(function (x) { return x.toUpperCase().slice(-u.length) === u && u.length >= 4; }); return m.length === 1 ? m[0] : null; }
+  function fxResolveCode(tok, L) {
+    var u = String(tok || '').toUpperCase(); if (!u) return null;
+    var pole = lib && lib.poles.filter(function (x) { return String(x.code).toUpperCase() === u; })[0]; if (pole) return { pole: pole };
+    var kn = /^(\d+(?:\.\d+)?)KN$/.exec(u); if (kn && lib && L) { var pk = lib.poles.filter(function (x) { return x.length === L && x.kN === +kn[1] && !/^Existing-/.test(x.code); })[0]; if (pk) return { pole: pk }; }
+    var lc = lib && lib.constructions.filter(function (x) { return String(x.code).toUpperCase() === u; })[0]; if (lc) return { con: lc.code };
+    var reg = dcshReg(), e = reg && reg.entries.filter(function (x) { return String(x.drawing || '').toUpperCase() === u; })[0] || (reg && reg.entries.filter(function (x) { return String(x.drawing || '').toUpperCase().indexOf(u + '-') === 0; })[0]);
+    if (e && e.pnwCode) return { con: e.pnwCode, dcsh: e.drawing };
+    return null;
+  }
+  function fxLocalParse(text) {
+    var acts = [], left = [];
+    String(text).split(/\s*(?:,|;|\band then\b|\bthen\b|\band\b)\s*/i).filter(Boolean).forEach(function (cl) {
+      var m;
+      if ((m = /^(?:set|change|make|replace)\s+(?:pole\s+)?(\S+)\s+(?:to|with|as)?\s*(?:a\s+)?(\d+(?:\.\d+)?)\s*m\b\s*(.*)$/i.exec(cl))) { acts.push({ do: 'setLength', pole: m[1], length: +m[2] }); m[3].split(/\s+/).filter(Boolean).forEach(function (t) { if (!/^(pole|wood|metre|meter|m|new|with|a|an|the|and)$/i.test(t)) acts.push({ do: 'code', pole: m[1], code: t.replace(/[.,]$/, ''), length: +m[2] }); }); }
+      else if ((m = /^(?:add|install|put)\s+(?:an?\s+)?(\S+)\s+(?:to|on|at)\s+(?:pole\s+)?(\S+)(?:\s+at\s+(\d+(?:\.\d+)?)\s*m?)?$/i.exec(cl))) acts.push({ do: 'addConstruction', pole: m[2], code: m[1], kingbolt: m[3] ? +m[3] : null });
+      else if ((m = /^(?:remove|delete)\s+(?:the\s+)?(\S+)\s+(?:from|on)\s+(?:pole\s+)?(\S+)$/i.exec(cl))) acts.push({ do: 'removeConstruction', pole: m[2], code: m[1] });
+      else if ((m = /^(?:re-?run|run|check|calc\w*|recalc\w*)\s+(?:the\s+)?tip\s?load(?:\s+(?:on|for|of)\s+(?:pole\s+)?(\S+))?$/i.exec(cl))) acts.push({ do: 'tipload', pole: m[1] || null });
+      else if ((m = /^(?:calc\w*|run|check)\s+(?:the\s+)?(?:pole\s+)?strength(?:\s+(?:on|for|of)\s+(?:pole\s+)?(\S+))?$/i.exec(cl))) acts.push(m[1] ? { do: 'strength', pole: m[1] } : { do: 'run', id: 'fxBatch' });
+      else if ((m = /^(?:select|go to|show|zoom to|find)\s+(?:pole\s+)?(\S+)$/i.exec(cl)) && fxFindPole(m[1])) acts.push({ do: 'select', pole: m[1] });
+      else if (/^(?:check|run)\s+(?:all|every)\b|batch/i.test(cl)) acts.push({ do: 'run', id: 'fxBatch' });
+      else if (/clearance/i.test(cl)) acts.push({ do: 'run', id: 'fxClr' });
+      else if (/report|pdf/i.test(cl)) acts.push({ do: 'run', id: 'fxRep' });
+      else if (/bill of materials|\bbom\b/i.test(cl)) acts.push({ do: 'run', id: 'fxBom' });
+      else if (/scope of works?|\bsow\b/i.test(cl)) acts.push({ do: 'run', id: 'fxSow' });
+      else if (/pole schedule/i.test(cl)) acts.push({ do: 'run', id: 'fxSched' });
+      else if (/save (?:this )?as existing/i.test(cl)) acts.push({ do: 'run', id: 'fxSaveEx' });
+      else if (/existing (?:vs|and|versus) proposed/i.test(cl)) acts.push({ do: 'run', id: 'fxEp' });
+      else if ((m = /^save (?:a )?version(?: (?:as|called|named) (.+))?$/i.exec(cl))) acts.push({ do: 'version', name: m[1] || '' });
+      else if (/^undo$/i.test(cl)) acts.push({ do: 'undo' }); else if (/^redo$/i.test(cl)) acts.push({ do: 'redo' });
+      else if ((m = /\b(plan|profile|3d)\b(?:\s+view)?$/i.exec(cl)) && /^(show|open|go|switch|view)/i.test(cl)) acts.push({ do: 'view', view: m[1].toLowerCase() });
+      else left.push(cl);
+    });
+    return { acts: acts, left: left };
+  }
+  function fxAskClaude(text) {
+    if (!sampleP) return Promise.reject(new Error('Asking Claude is not available in this view of the page.'));
+    var poles = lineIds().slice(0, 300), pt = lib ? lib.poles.filter(function (x) { return !/^Existing-/.test(x.code); }).slice(0, 120).map(function (x) { return x.code + ' (' + x.length + 'm/' + x.kN + 'kN)'; }) : [], cons = lib ? lib.constructions.slice(0, 200).map(function (x) { return x.code; }) : [], reg = dcshReg();
+    var map0 = reg ? reg.entries.filter(function (e) { return e.pnwCode; }).map(function (e) { return e.drawing + '=' + e.pnwCode; }) : [];
+    var prompt = 'You turn an overhead line designer\'s instruction into actions for a Poles & Wires design tool. Instruction: "' + text + '"\n' +
+      'Return JSON only: {"actions":[...], "reply": short sentence}. Allowed actions:\n' +
+      '{"do":"setLength","pole":ID,"length":metres} · {"do":"setPoleType","pole":ID,"type":pole type code} · {"do":"addConstruction","pole":ID,"code":PNW construction code,"kingbolt":metres or null} · {"do":"removeConstruction","pole":ID,"code":code} · {"do":"tipload","pole":ID or null} · {"do":"strength","pole":ID} · {"do":"select","pole":ID} · {"do":"view","view":"plan"|"profile"|"3d"} · {"do":"run","id":one of fxBatch (check all poles), fxClr (clearance), fxRep (report PDF), fxBom, fxSow, fxSched, fxSaveEx (save as existing), fxEp (existing vs proposed), fxVer (versions), fxCad (cadastre)} · {"do":"undo"} · {"do":"redo"}.\n' +
+      'Pole IDs in the design: ' + poles.join(', ') + '\nPole types: ' + pt.join(', ') + '\nConstruction codes: ' + cons.join(', ') + '\nDCSH drawing = PNW code: ' + map0.join(', ') + '\n' +
+      'Use only these IDs and codes. A DCSH drawing (e.g. H05-5) maps to its PNW code. A pole length with a kN rating means the matching pole type. If the instruction is unclear or asks for something not in the list, return no actions and say why in reply. Never invent values.';
+    return sampleP.then(function (s) { if (!s) throw new Error('Asking Claude is not available here.'); return s.json(prompt, { modelTier: 'default' }); });
+  }
+  function fxExec(acts) {
+    var log = [], bad = function (t) { log.push({ ok: false, t: t }); }, good = function (t) { log.push({ ok: true, t: t }); }, lastPole = null;
+    acts.forEach(function (a) {
+      var id = a.pole ? fxFindPole(a.pole) : lastPole; if (a.pole && !id) { bad('No pole ' + a.pole + ' in this design.'); return; } if (id) lastPole = id;
+      try {
+        if (a.do === 'setLength') {
+          var L0 = +a.length; if (!(L0 > 0)) { bad('No length.'); return; }
+          if (!project || !project.poles.some(function (r) { return r.ID === id; })) { bad(id + ' is not in the design.'); return; }
+          commit(function (p) { var r = p.poles.filter(function (x) { return x.ID === id; })[0], from = r.Length; M.updatePole(p, id, { length: L0, sunk: defaultSunk(L0) }); if (S.design.poleTypes && !/^Existing-/.test(S.design.poleTypes[id] || '')) delete S.design.poleTypes[id]; return [logEntry(id, '', 'Pole length', from + ' m', L0 + ' m', 'command', 'Command bar')]; });
+          good(id + ' set to ' + L0 + ' m (setting depth ' + defaultSunk(L0) + ' m).');
+        } else if (a.do === 'code' || a.do === 'setPoleType') {
+          var rc = a.do === 'setPoleType' ? { pole: lib && lib.poles.filter(function (x) { return x.code === a.type; })[0] } : fxResolveCode(a.code, a.length);
+          if (rc && rc.pole) { var ty = rc.pole, types = S.design.poleTypes = S.design.poleTypes || {}; commit(function (p) { var before = types[id] || ''; M.updatePole(p, id, { length: ty.length, sunk: ty.sinking != null ? ty.sinking : defaultSunk(ty.length) }); types[id] = ty.code; return [logEntry(id, '', 'Pole type', before, ty.code, 'command', 'PNW library ' + ty.code)]; }); good(id + ' pole type ' + ty.code + '.'); }
+          else if (rc && rc.con) fxExec([{ do: 'addConstruction', pole: id, code: rc.con, dcsh: rc.dcsh }]).forEach(function (x) { log.push(x); });
+          else bad('“' + (a.code || a.type) + '” is not a pole type or construction code in the library.');
+        } else if (a.do === 'addConstruction') {
+          var code = (fxResolveCode(a.code) || {}).con || a.code, ck = conChecks(id, { pole: id, code: code, kb: '' }), kb = a.kingbolt != null && a.kingbolt !== '' ? +a.kingbolt : ck.def ? ck.def.value : null;
+          if (kb == null) { bad('No default king bolt height for ' + code + ' on ' + id + ': say “at 7.2 m”.'); return; }
+          var lay = knownLayout(code), lc = M.libraryConstruction(lib, code);
+          commit(function (p) { var row = M.addConstruction(p, id, { code: code, kingbolt: kb, voltage: lc && lc.voltageLL != null ? lc.voltageLL : 0, attachments: lay ? lay.attachments : [], isNew: true }); return [logEntry(id, row.descr, 'Construction', '', 'added at ' + kb + ' m', 'command', (a.dcsh ? 'DCSH ' + a.dcsh + '; ' : '') + (ck.def && a.kingbolt == null ? 'king bolt from ' + ck.def.source : 'king bolt from the command'))]; });
+          good('Added ' + code + (a.dcsh ? ' (DCSH ' + a.dcsh + ')' : '') + ' to ' + id + ' at ' + kb + ' m.');
+        } else if (a.do === 'removeConstruction') {
+          var cu = (fxResolveCode(a.code) || {}).con || a.code, row = project && project.constructions.filter(function (c) { return c.pole === id && String(c.code).toUpperCase() === String(cu).toUpperCase(); })[0];
+          if (!row) { bad('No ' + a.code + ' on ' + id + '.'); return; }
+          if (!commit(function (p) { M.removeConstruction(p, row.unique); return [logEntry(id, row.descr, 'Construction', row.descr, 'removed', 'command')]; })) { bad($('status').textContent || ('Could not remove ' + row.code + ' from ' + id + '.')); return; } good('Removed ' + row.code + ' from ' + id + '.');
+        } else if (a.do === 'tipload') {
+          if (id) { var r = tipCalc(id); if (!r || !r.results.length) { bad('Tipload of ' + id + ' could not be calculated (see the pole’s Loading section).'); return; } var w = r.results.slice().sort(function (x, y) { return (y.pctHor || 0) - (x.pctHor || 0); })[0]; select(id); good('Tipload ' + id + ': ' + w.name + ' ' + w.load.toFixed(2) + ' kN' + (w.pctHor != null ? ', ' + Math.round(w.pctHor) + '% of strength' : '') + ' → ' + (r.results.some(function (x) { return x.pass === false; }) ? 'FAIL' : w.pass ? 'PASS' : 'no strength') + '.'); }
+          else { $('tbTip').click(); good('Tipload opened.'); }
+        } else if (a.do === 'strength') { strApply(id); good('Strength of ' + id + ' calculated (see Pole details).'); }
+        else if (a.do === 'select') { select(id); showPole(id); good('Selected ' + id + '.'); }
+        else if (a.do === 'view') { setView(a.view === '3d' ? '3d' : a.view); good('View: ' + a.view + '.'); }
+        else if (a.do === 'run' && FN[a.id]) { setTimeout(FN[a.id], 0); good('Opened ' + a.id.replace(/^fx/, '') + '.'); }
+        else if (a.do === 'version') { fxVerSave(a.name || 'Version ' + fxToday(), false); good('Version saved.'); }
+        else if (a.do === 'undo') { $('tbUndo').click(); good('Undone.'); } else if (a.do === 'redo') { $('tbRedo').click(); good('Redone.'); }
+        else bad('Unknown action ' + a.do + '.');
+      } catch (e) { bad((a.do || '') + ': ' + e.message); }
+    });
+    return log;
+  }
+  var FXH = [];
+  function fxCmdRun(text, done) {
+    text = String(text || '').trim(); if (!text) return;
+    var lp = fxLocalParse(text), go = function (acts, reply) { var log = fxExec(acts); FXH.unshift({ q: text, log: log, reply: reply || '' }); FXH = FXH.slice(0, 20); setStatus(log.map(function (x) { return x.t; }).join(' ') || reply || 'Nothing to do.', log.some(function (x) { return !x.ok; }) ? 'bad' : 'good'); if (done) done(); };
+    if (lp.acts.length && !lp.left.length) { go(lp.acts); return; }
+    setStatus('Asking Claude to read “' + text + '”…');
+    fxAskClaude(text).then(function (j) { go((j && j.actions) || [], j && j.reply); }, function (e) { if (lp.acts.length) go(lp.acts, 'Did not understand: ' + lp.left.join(', ')); else { FXH.unshift({ q: text, log: [{ ok: false, t: e.message }] }); setStatus('Could not read the command: ' + e.message, 'bad'); if (done) done(); } });
+  }
+  var fxRec = null;
+  function fxListen(input, onEnd) {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) { setStatus('Voice input is not available in this browser: type the command.', 'bad'); return; }
+    if (fxRec) { fxRec.stop(); return; }
+    fxRec = new SR(); fxRec.lang = 'en-AU'; fxRec.interimResults = true;
+    fxRec.onresult = function (e) { var t = ''; for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; input.value = t; };
+    fxRec.onerror = function (e) { setStatus(e.error === 'not-allowed' ? 'The microphone is blocked for this page: type the command instead.' : 'Voice input stopped (' + e.error + ').', 'bad'); };
+    fxRec.onend = function () { fxRec = null; document.querySelectorAll('.fx-mic').forEach(function (b) { b.classList.remove('on'); }); if (onEnd && input.value.trim()) onEnd(input.value); };
+    document.querySelectorAll('.fx-mic').forEach(function (b) { b.classList.add('on'); });
+    try { fxRec.start(); setStatus('Listening… say the command.', 'good'); } catch (e) { fxRec = null; setStatus('Voice input could not start: ' + e.message, 'bad'); }
+  }
+  function fxCmdDlg() {
+    var h = '<div class="fx-cmd"><input id="fxCmdIn" placeholder="e.g. set S802233 to 12.5 m H05 and rerun tipload" autocomplete="off"><button class="btn small ghost fx-mic" id="fxCmdMic" title="Speak the command">🎤</button><button class="btn small primary" id="fxCmdGo">Run</button></div>' +
+      '<p class="hint">Examples: <i>set S120776 to 12.5 m 8kN</i> · <i>add H05-5 to S120776</i> · <i>remove LV1 from S119850</i> · <i>rerun tipload on S120776</i> · <i>calculate strength of S119850</i> · <i>check all poles</i> · <i>clearance</i> · <i>report</i> · <i>bill of materials</i> · <i>save as existing</i>. Anything else is read by Claude. Every change can be undone (Ctrl+Z). You can also type a command in the search box at the top and press Enter.</p>' +
+      (FXH.length ? '<h4>Recent</h4><ul class="fx-diff">' + FXH.map(function (x) { return '<li><b>' + fxEsc(x.q) + '</b>' + (x.reply ? '<br><span class="meta">' + fxEsc(x.reply) + '</span>' : '') + x.log.map(function (l) { return '<br><span class="' + (l.ok ? 'ok' : 'bad') + '">' + (l.ok ? '✓ ' : '✕ ') + fxEsc(l.t) + '</span>'; }).join('') + '</li>'; }).join('') + '</ul>' : '');
+    openGen('Command', h, { narrow: true });
+    var run = function () { var v = $('fxCmdIn').value; $('fxCmdIn').value = ''; fxCmdRun(v, function () { if (!$('genDlg').hidden && $('fxCmdIn')) fxCmdDlg(); }); };
+    $('fxCmdGo').onclick = run; $('fxCmdIn').onkeydown = function (e) { if (e.key === 'Enter') run(); };
+    $('fxCmdMic').onclick = function () { fxListen($('fxCmdIn'), function () { run(); }); };
+  }
+  // The top search box: a sentence that starts with a verb runs as a command on Enter.
+  $('gsearch').addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return; var v = this.value.trim();
+    if (!FXCMD_VERB.test(v) || v.split(/\s+/).length < 2) return;
+    e.preventDefault(); e.stopImmediatePropagation(); this.value = ''; this.blur(); fxCmdRun(v);
+  }, true);
+  (function () { var g = $('gsearch'), b = document.createElement('button'); b.className = 'fx-mic fx-mictop'; b.type = 'button'; b.title = 'Speak a command'; b.setAttribute('aria-label', 'Speak a command'); b.textContent = '🎤'; if (g && g.parentNode) { g.parentNode.style.position = 'relative'; g.parentNode.appendChild(b); } b.onclick = function () { fxListen(g, function (v) { g.value = ''; fxCmdRun(v); }); }; })();
+
+  /* ---------------- ribbon ---------------- */
+  Object.assign(ICONS, {
+    layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+    'list-checks': '<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+    package: '<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+    'clipboard-list': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+    table: '<path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
+    'file-text': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    'land-plot': '<path d="m12 8 6-3-6-3v10"/><path d="m8 11.99-5.5 3.14a1 1 0 0 0 0 1.74l8.5 4.86a2 2 0 0 0 2 0l8.5-4.86a1 1 0 0 0 0-1.74L16 12"/><path d="m6.49 12.85 11.02 6.3"/><path d="M17.51 12.85 6.5 19.15"/>',
+    history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+    'message-square': '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+  });
+  RIB.splice(2, 0, ['Deliver', [
+    ['Existing', [['fxSaveEx', 'Save existing profile', 'save', 'fn', 'Keep the profile as it stands as the existing network. The SOW compares the new profile against it.'], ['fxLoadEx', 'Load existing .pnwx', 'folder-open', 'fn', 'Use a saved PNW profile file as the existing network'], ['fxEp', 'Existing vs proposed', 'layers', 'fn', 'Colour new, replaced and modified poles and spans in plan, profile, 3D and Street View']]],
+    ['Checks', [['fxClr', 'Clearance', 'ruler', 'fn', 'Conductor clearance at maximum sag to ground, roads, buildings and obstacles'], ['fxBatch', 'Check all poles', 'list-checks', 'fn', 'Tipload and strength of every pole in one pass/fail table']]],
+    ['Outputs', [['fxBom', 'Bill of materials', 'package', 'fn', 'Materials for the proposed work only'], ['fxSow', 'Scope of works', 'clipboard-list', 'fn', 'SOW from the changes to the existing design'], ['fxSched', 'Pole schedule', 'table', 'fn', 'New and replaced poles in the Western Power pole schedule layout'], ['fxRep', 'Design report', 'file-text', 'fn', 'One PDF: profile, clearance, tipload, strength, SOW, BOM and photos']]],
+    ['Land', [['fxCad', 'Cadastre', 'land-plot', 'fn', 'Lots, road reserve and easements: check poles, stay anchors and spans']]],
+    ['History', [['fxVer', 'Versions', 'history', 'fn', 'Saved versions of the project, restore and compare']]],
+    ['Ask', [['fxCmd', 'Command', 'message-square', 'fn', 'Type or speak a command, e.g. “set S802233 to 12.5 m H05 and rerun tipload”']]]]]);
+  RIB[0][1].forEach(function (g) { if (g[0] === 'Check') g[1].splice(1, 0, ['fxBatch', 'Check all', 'list-checks', 'fn', 'Tipload and strength of every pole in one pass/fail table'], ['fxClr', 'Clearance', 'ruler', 'fn', 'Conductor clearance at maximum sag to ground, roads, buildings and obstacles']); if (g[0] === 'History') g[1].push(['fxVer', 'Versions', 'history', 'fn', 'Saved versions: restore and compare']); });
+  Object.assign(FN, { fxSaveEx: fxSaveExisting, fxLoadEx: function () { fxLoadExisting(); }, fxEp: fxEpToggle, fxClr: fxClrDlg, fxBatch: fxBatchDlg, fxBom: function () { fxWorkDlg('bom'); }, fxSow: function () { fxWorkDlg('sow'); }, fxSched: function () { fxWorkDlg('sched'); }, fxRep: fxReport, fxCad: fxCadDlg, fxVer: function () { fxVerDlg(); }, fxCmd: fxCmdDlg });
+  var fxSyncRib0 = syncRibbon; syncRibbon = function () { fxSyncRib0.apply(this, arguments); var b = document.querySelector('#rbody .rbt[data-rid="fxEp"]'); if (b) b.classList.toggle('on', !!FX.ep); };
   ribTab = 'Home'; U.rtab = 'Home'; U.ribMin = false;
   renderMenus();
 
