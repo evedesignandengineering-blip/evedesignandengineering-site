@@ -90,7 +90,7 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function () {
-  var VERSION = '202611070721-ac552e1a', ENC = 'app-202611070721-ac552e1a.bin';
+  var VERSION = '202611072208-b4556b90', ENC = 'app-202611072208-b4556b90.bin';
   var $ = function (id) { return document.getElementById(id); };
   var views = ['vBusy', 'vSignin', 'vSignup', 'vRequest', 'vSetpw', 'vDenied'];
   function show(v, msg, cls) { views.forEach(function (x) { $(x).hidden = x !== v; }); var s = $('status'); s.textContent = msg || ''; s.className = 'status' + (cls ? ' ' + cls : ''); }
@@ -115,7 +115,7 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
       var who = (session.user && session.user.email) || '';
       html = html.replace('<head>', '<head><script>window.__LVD_LICENSEE=' + JSON.stringify(who).replace(/</g, '\\u003c') + ';<\/script>');
       // Citrix transfer: send .net/.lvd from a Citrix session, import them on the desktop (kept 24 hours).
-      var tx = '<script src="/lvdesign/citrix-transfer.js?v=20261102"><\/script>';
+      var tx = '<script src="/lvdesign/citrix-transfer.js?v=20261107"><\/script>';
       var at = html.toLowerCase().lastIndexOf('</body>');
       html = at < 0 ? html + tx : html.slice(0, at) + tx + html.slice(at);
       document.open(); document.write(html); document.close();
