@@ -4678,7 +4678,7 @@
   // Project summary folds to a slim bar once steps 1-5 are done and nothing is selected; the bar unfolds it.
   function sumDone() { return !!(S.files.length && built && built.rows.length > 1 && project && project.constructions.length && project.segments.length); }
   function syncFold() {
-    var none = !S.selected && !S.selSpan && !(S.multi && S.multi.length > 1), fold = none && U.right && sumDone() && U.sumFold !== false, ws = $('workspace');
+    var none = !S.selected && !S.selSpan && !(S.multi && S.multi.length > 1), fold = none && U.right && !(U.pl && U.pl.inspector && U.pl.inspector !== 'home') && sumDone() && U.sumFold !== false, ws = $('workspace');
     var was = ws.classList.contains('sum-fold'); ws.classList.toggle('sum-fold', fold);
     var b = $('insFold'); if (!b) { $('insTitle').insertAdjacentHTML('afterend', '<button class="ibtn" id="insFold" aria-label="Fold the summary"></button>'); b = $('insFold'); b.onclick = function () { U.sumFold = !$('workspace').classList.contains('sum-fold'); saveUi(); syncFold(); }; }
     b.hidden = !none || !sumDone();
@@ -5457,7 +5457,7 @@
     var x = U.ix != null ? U.ix : innerWidth - w - 16, y = U.iy != null ? U.iy : 110;
     ins.style.left = Math.max(0, Math.min(innerWidth - 120, x)) + 'px'; ins.style.top = Math.max(0, Math.min(innerHeight - 60, y)) + 'px'; ins.style.width = w + 'px'; ins.style.height = h + 'px';
   }
-  $('insFloat').onclick = function () { U.insFloat = !U.insFloat; saveUi(); insPlace(); applyLayout(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); if (S.view !== 'plan') renderViews(); }, 30); };
+  $('insFloat').onclick = function () { if (window.plSetHook) return window.plSetHook(); U.insFloat = !U.insFloat; saveUi(); insPlace(); applyLayout(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); if (S.view !== 'plan') renderViews(); }, 30); };
   insHead.addEventListener('pointerdown', function (e) {
     if (!U.insFloat || e.button !== 0 || e.target.closest('button,a,input,select')) return;
     var r = ins.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top; insHead.setPointerCapture(e.pointerId); e.preventDefault();
@@ -5468,7 +5468,7 @@
   if (window.ResizeObserver) new ResizeObserver(function () { if (!U.insFloat || ins.offsetWidth < 50) return; U.iw = ins.offsetWidth; U.ih = ins.offsetHeight; clearTimeout(insPlace.t); insPlace.t = setTimeout(saveUi, 300); }).observe(ins);
   var _applyLayout = applyLayout;
   // Floating: shown while a pole, span or multi-selection is picked (✕ hides it until the next pick).
-  function insShow() { var any = !!(S.selected || S.selSpan || (S.multi && S.multi.length > 1)); if (U.insFloat) { $('workspace').classList.add('no-right'); ins.hidden = !(U.right && any); document.body.classList.remove('sum-fold'); } else ins.hidden = false; }
+  function insShow() { var any = !!(S.selected || S.selSpan || (S.multi && S.multi.length > 1)); if (U.pl && U.pl.inspector === 'float' && innerWidth >= 900) { ins.hidden = !(U.right && any); return; } if (U.insFloat) { $('workspace').classList.add('no-right'); ins.hidden = !(U.right && any); document.body.classList.remove('sum-fold'); } else ins.hidden = false; }
   applyLayout = function () { _applyLayout.apply(this, arguments); insShow(); };
   var _renderSelected = renderSelected;
   renderSelected = function () { if (U.insFloat && (S.selected || S.selSpan) && !U.right) { U.right = true; } _renderSelected.apply(this, arguments); insShow(); };
@@ -5488,16 +5488,19 @@
     var hd = P0.el.querySelector(P0.head); if (!hd) return;
     hd.insertAdjacentHTML('afterbegin', '<button class="plgrip" data-plgrip="' + k + '" title="Move ' + P0.name + ': drag to an edge to snap it, or anywhere to float it. Tap for options." aria-label="Move or dock ' + P0.name + '">⠿</button>');
   });
-  function plOf(k) { if (k === 'inspector' && !U.pl.inspector) return U.insFloat ? 'float' : 'home'; return U.pl[k] || 'home'; }
+  // Pole Details (inspector) now uses the same placement as the other panels; its old float setting carries over once.
+  if (!U.pl.inspector && U.insFloat) { U.pl.inspector = 'float'; if (U.ix != null) U.plFloat.inspector = { x: U.ix, y: U.iy, w: U.iw || 420, h: U.ih || 560 }; }
+  U.insFloat = false; insPlace(); U.plSlot = U.plSlot || {}; U.plSplit = U.plSplit || {};
+  function plOf(k) { return U.pl[k] || 'home'; }
   var plGrips = {};
   function plLayout() {
     var ws = $('workspace'), phone = innerWidth < 900, r0 = ws.getBoundingClientRect(), edges = { left: [], right: [], top: [], bottom: [] };
     Object.keys(PLP).forEach(function (k) {
-      var P0 = PLP[k], el = P0.el, where = phone ? (k === 'inspector' ? plOf(k) : 'home') : plOf(k); if (!el) return;
+      var P0 = PLP[k], el = P0.el, where = phone ? 'home' : plOf(k); if (!el) return;
       el.classList.remove('pl-snap', 'pl-float'); el.dataset.pl = where;
-      if (where === 'home' || (k === 'inspector' && where === 'float')) {
-        if (k !== 'inspector' && el.parentNode !== P0.home.parentNode) P0.home.parentNode.insertBefore(el, P0.home.nextSibling);
-        if (k !== 'inspector') ['position', 'left', 'top', 'width', 'height'].forEach(function (x) { el.style[x] = ''; });
+      if (where === 'home') {
+        if (el.parentNode !== P0.home.parentNode) P0.home.parentNode.insertBefore(el, P0.home.nextSibling);
+        ['position', 'left', 'top', 'width', 'height'].forEach(function (x) { el.style[x] = ''; });
         return;
       }
       if (el.parentNode !== document.body) document.body.appendChild(el);
@@ -5505,8 +5508,10 @@
         var f = U.plFloat[k] || { x: innerWidth / 2 - 260, y: 140, w: 520, h: 340 };
         el.classList.add('pl-float'); el.style.position = 'fixed';
         el.style.left = Math.max(0, Math.min(innerWidth - 120, f.x)) + 'px'; el.style.top = Math.max(0, Math.min(innerHeight - 60, f.y)) + 'px'; el.style.width = f.w + 'px'; el.style.height = f.h + 'px';
-      } else { el.classList.add('pl-snap'); edges[where].push(el); }
+      } else { el.classList.add('pl-snap'); el.dataset.plk = k; edges[where].push(el); }
     });
+    // Two panels can share an edge: on the left / right one above the other, at the top / bottom side by side, in slot order.
+    Object.keys(edges).forEach(function (e) { edges[e].sort(function (a, b) { return (U.plSlot[a.dataset.plk] || 0) - (U.plSlot[b.dataset.plk] || 0); }); });
     if (plOf('side') !== 'home' && !phone) ws.classList.add('no-left');
     if (plOf('inspector') !== 'home' && !phone) ws.classList.add('no-right');
     var c = $('center'), dockOut = plOf('dock') !== 'home' && !phone;
@@ -5515,11 +5520,20 @@
     ws.style.paddingLeft = pad.left ? pad.left + 'px' : ''; ws.style.paddingRight = pad.right ? pad.right + 'px' : ''; ws.style.paddingTop = pad.top ? pad.top + 'px' : ''; ws.style.paddingBottom = pad.bottom ? pad.bottom + 'px' : '';
     var r = ws.getBoundingClientRect(), X = r.left + scrollX, Y = r.top + scrollY, W = r.width, H = r.height;
     var put = function (el, x, y, w, h) { el.style.position = 'absolute'; el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = Math.max(40, w) + 'px'; el.style.height = Math.max(37, h) + 'px'; };
-    edges.left.forEach(function (el, i, a) { put(el, X, Y + H * i / a.length, pad.left, H / a.length); });
-    edges.right.forEach(function (el, i, a) { put(el, X + W - pad.right, Y + H * i / a.length, pad.right, H / a.length); });
-    var iw = W - pad.left - pad.right;
-    edges.top.forEach(function (el, i, a) { put(el, X + pad.left + iw * i / a.length, Y, iw / a.length, pad.top); });
-    edges.bottom.forEach(function (el, i, a) { put(el, X + pad.left + iw * i / a.length, Y + H - pad.bottom, iw / a.length, pad.bottom); });
+    // Share of the edge for each panel: two panels split at U.plSplit[edge] (dragged), more split evenly.
+    var cuts = function (e, n) { if (n === 2) { var f = Math.max(0.15, Math.min(0.85, U.plSplit[e] || 0.5)); return [0, f, 1]; } var c = []; for (var i = 0; i <= n; i++) c.push(i / n); return c; };
+    var iw = W - pad.left - pad.right, splits = [];
+    ['left', 'right'].forEach(function (e) { var a = edges[e], c = cuts(e, a.length), x = e === 'left' ? X : X + W - pad.right; a.forEach(function (el, i) { put(el, x, Y + H * c[i], pad[e], H * (c[i + 1] - c[i])); }); if (a.length === 2) splits.push({ e: e, v: true, x: x, y: Y + H * c[1] - 4, w: pad[e], h: 8, len: H }); });
+    ['top', 'bottom'].forEach(function (e) { var a = edges[e], c = cuts(e, a.length), y = e === 'top' ? Y : Y + H - pad.bottom; a.forEach(function (el, i) { put(el, X + pad.left + iw * c[i], y, iw * (c[i + 1] - c[i]), pad[e]); }); if (a.length === 2) splits.push({ e: e, v: false, x: X + pad.left + iw * c[1] - 4, y: y, w: 8, h: pad[e], len: iw }); });
+    Array.prototype.forEach.call(document.querySelectorAll('.plsplit'), function (d) { d.remove(); });
+    splits.forEach(function (sp) {
+      var d = document.createElement('div'); d.className = 'plsplit ' + (sp.v ? 'v' : 'h'); d.title = 'Drag to share the edge between the two panels';
+      Object.assign(d.style, { left: sp.x + 'px', top: sp.y + 'px', width: sp.w + 'px', height: sp.h + 'px' }); document.body.appendChild(d);
+      d.addEventListener('pointerdown', function (ev) { ev.preventDefault(); d.setPointerCapture(ev.pointerId); var p0 = sp.v ? ev.clientY : ev.clientX, f0 = U.plSplit[sp.e] || 0.5;
+        function mv(m) { U.plSplit[sp.e] = Math.max(0.15, Math.min(0.85, f0 + ((sp.v ? m.clientY : m.clientX) - p0) / sp.len)); plLayout(); }
+        function up() { d.removeEventListener('pointermove', mv); d.removeEventListener('pointerup', up); saveUi(); }
+        d.addEventListener('pointermove', mv); d.addEventListener('pointerup', up); });
+    });
     // Resize handles on the inner edge of each occupied edge.
     ['left', 'right', 'top', 'bottom'].forEach(function (e) {
       var g = plGrips[e]; if (!g) { g = plGrips[e] = document.createElement('div'); g.className = 'plsize ' + e; g.setAttribute('role', 'separator'); g.title = 'Drag to resize'; document.body.appendChild(g); plSizer(g, e); }
@@ -5539,11 +5553,16 @@
       g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up);
     });
   }
-  function plSet(k, where, rect) {
-    if (k === 'inspector') { if (where === 'float' || where === 'home') { delete U.pl.inspector; U.insFloat = where === 'float'; } else { U.pl.inspector = where; U.insFloat = false; } insPlace(); }
-    else { if (where === 'home') delete U.pl[k]; else U.pl[k] = where; if (rect) U.plFloat[k] = rect; }
-    if (k === 'side' && where !== 'home') U.left = true;
-    if (k === 'inspector' && where !== 'home' && where !== 'float') U.right = true;
+  function plSet(k, where, rect, slot) {
+    if (where === 'home') delete U.pl[k]; else U.pl[k] = where; if (rect) U.plFloat[k] = rect;
+    if (/^(left|right|top|bottom)$/.test(where)) {
+      // Slot 0 = top (left/right edges) or left (top/bottom edges), slot 1 = the other half; a dropped panel takes the half it was dropped on.
+      var others = Object.keys(PLP).filter(function (o) { return o !== k && plOf(o) === where; });
+      if (slot == null) slot = others.some(function (o) { return (U.plSlot[o] || 0) === 0; }) ? 1 : 0;
+      U.plSlot[k] = slot; others.forEach(function (o) { if ((U.plSlot[o] || 0) === slot) U.plSlot[o] = 1 - slot; });
+    }
+    if (k === 'side') U.left = true;
+    if (k === 'inspector') U.right = true;
     if (k === 'dock') { U.dock = true; U.dockMin = false; }
     if (k === 'analysis') PLP.analysis.el.classList.remove('min');
     saveUi(); applyLayout(); setTimeout(function () { if (S.view !== 'plan') renderViews(); }, 40);
@@ -5561,29 +5580,34 @@
   // Drag a grip: near a workspace edge snaps there, elsewhere floats; a tap opens the menu.
   document.addEventListener('pointerdown', function (e) {
     var gb = e.target.closest('[data-plgrip]'); if (!gb || e.button > 0) return;
-    e.preventDefault(); var k = gb.dataset.plgrip, el = PLP[k].el, x0 = e.clientX, y0 = e.clientY, moved = false, ghost = null, zone = null, er = el.getBoundingClientRect();
+    e.preventDefault(); var k = gb.dataset.plgrip, el = PLP[k].el, x0 = e.clientX, y0 = e.clientY, moved = false, ghost = null, zone = null, slot = null, er = el.getBoundingClientRect();
     gb.setPointerCapture(e.pointerId);
     function edgeAt(x, y) { if (innerWidth < 900) return null; var r = $('workspace').getBoundingClientRect(), t = Math.min(90, r.width * 0.12); if (y < r.top - 20 || y > r.bottom + 20) return null; if (x - r.left < t) return 'left'; if (r.right - x < t) return 'right'; if (y - r.top < t) return 'top'; if (r.bottom - y < t) return 'bottom'; return null; }
     function mv(ev) {
       if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return; moved = true;
       if (!ghost) { ghost = document.createElement('div'); ghost.className = 'plghost'; document.body.appendChild(ghost); }
       zone = edgeAt(ev.clientX, ev.clientY); var r = $('workspace').getBoundingClientRect(), w = Math.min(er.width, 520), h = Math.min(er.height, 360);
-      if (zone === 'left') Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: U.plSize.left + 'px', height: r.height + 'px' });
-      else if (zone === 'right') Object.assign(ghost.style, { left: r.right - U.plSize.right + 'px', top: r.top + 'px', width: U.plSize.right + 'px', height: r.height + 'px' });
-      else if (zone === 'top') Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: U.plSize.top + 'px' });
-      else if (zone === 'bottom') Object.assign(ghost.style, { left: r.left + 'px', top: r.bottom - U.plSize.bottom + 'px', width: r.width + 'px', height: U.plSize.bottom + 'px' });
+      // Which half of the edge: shown as half the edge when another panel is already there.
+      var shared = zone && Object.keys(PLP).some(function (o) { return o !== k && plOf(o) === zone; });
+      slot = zone === 'left' || zone === 'right' ? (ev.clientY > r.top + r.height / 2 ? 1 : 0) : zone ? (ev.clientX > r.left + r.width / 2 ? 1 : 0) : null;
+      var hy = shared && (zone === 'left' || zone === 'right') ? r.height / 2 : r.height, hx = shared && (zone === 'top' || zone === 'bottom') ? r.width / 2 : r.width, oy = shared && slot ? r.height / 2 : 0, ox = shared && slot ? r.width / 2 : 0;
+      if (zone === 'left') Object.assign(ghost.style, { left: r.left + 'px', top: r.top + (zone === 'left' ? oy : 0) + 'px', width: U.plSize.left + 'px', height: hy + 'px' });
+      else if (zone === 'right') Object.assign(ghost.style, { left: r.right - U.plSize.right + 'px', top: r.top + oy + 'px', width: U.plSize.right + 'px', height: hy + 'px' });
+      else if (zone === 'top') Object.assign(ghost.style, { left: r.left + ox + 'px', top: r.top + 'px', width: hx + 'px', height: U.plSize.top + 'px' });
+      else if (zone === 'bottom') Object.assign(ghost.style, { left: r.left + ox + 'px', top: r.bottom - U.plSize.bottom + 'px', width: hx + 'px', height: U.plSize.bottom + 'px' });
       else Object.assign(ghost.style, { left: ev.clientX - 20 + 'px', top: ev.clientY - 14 + 'px', width: w + 'px', height: h + 'px' });
       ghost.classList.toggle('edge', !!zone);
     }
     function up(ev) {
       gb.removeEventListener('pointermove', mv); gb.removeEventListener('pointerup', up); if (ghost) ghost.remove();
       if (!moved) { plMenu(k, gb); return; }
-      if (zone) plSet(k, zone); else plSet(k, 'float', { x: ev.clientX - 20, y: Math.max(0, ev.clientY - 14), w: Math.min(er.width, 520), h: Math.min(er.height, 360) });
+      if (zone) plSet(k, zone, null, slot); else plSet(k, 'float', { x: ev.clientX - 20, y: Math.max(0, ev.clientY - 14), w: Math.min(er.width, 520), h: Math.min(er.height, 360) });
     }
     gb.addEventListener('pointermove', mv); gb.addEventListener('pointerup', up);
   });
   // Floating panels keep their size when resized by the corner.
-  if (window.ResizeObserver) Object.keys(PLP).forEach(function (k) { if (k === 'inspector' || !PLP[k].el) return; new ResizeObserver(function () { var el = PLP[k].el; if (plOf(k) !== 'float' || el.offsetWidth < 50) return; var f = U.plFloat[k] = U.plFloat[k] || {}; f.w = el.offsetWidth; f.h = el.offsetHeight; f.x = parseFloat(el.style.left) || 0; f.y = parseFloat(el.style.top) || 0; clearTimeout(plSizer.t); plSizer.t = setTimeout(saveUi, 300); }).observe(PLP[k].el); });
+  if (window.ResizeObserver) Object.keys(PLP).forEach(function (k) { if (!PLP[k].el) return; new ResizeObserver(function () { var el = PLP[k].el; if (plOf(k) !== 'float' || el.offsetWidth < 50) return; var f = U.plFloat[k] = U.plFloat[k] || {}; f.w = el.offsetWidth; f.h = el.offsetHeight; f.x = parseFloat(el.style.left) || 0; f.y = parseFloat(el.style.top) || 0; clearTimeout(plSizer.t); plSizer.t = setTimeout(saveUi, 300); }).observe(PLP[k].el); });
+  window.plSetHook = function () { plSet('inspector', plOf('inspector') === 'float' ? 'home' : 'float'); };
   var _applyLayout2 = applyLayout;
   applyLayout = function () { _applyLayout2.apply(this, arguments); plLayout(); };
   window.addEventListener('resize', function () { clearTimeout(plLayout.t); plLayout.t = setTimeout(plLayout, 80); });
