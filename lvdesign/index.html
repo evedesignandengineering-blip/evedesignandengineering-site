@@ -115,7 +115,7 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
       var who = (session.user && session.user.email) || '';
       html = html.replace('<head>', '<head><script>window.__LVD_LICENSEE=' + JSON.stringify(who).replace(/</g, '\\u003c') + ';<\/script>');
       // Citrix transfer: send .net/.lvd from a Citrix session, import them on the desktop (kept 24 hours).
-      var tx = '<script src="/lvdesign/citrix-transfer.js?v=20261102"><\/script>';
+      var tx = '<script src="/lvdesign/citrix-transfer.js?v=20261107"><\/script>';
       var at = html.toLowerCase().lastIndexOf('</body>');
       html = at < 0 ? html + tx : html.slice(0, at) + tx + html.slice(at);
       document.open(); document.write(html); document.close();
