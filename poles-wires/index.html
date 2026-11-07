@@ -14,14 +14,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261115"></script>
-<script src="pnw-model.js?v=20261115"></script>
-<script src="builtin-data.js?v=20261115"></script>
-<script src="pnw-tipload.js?v=20261115"></script>
-<script src="hvlv-rules.js?v=20261115"></script>
-<script src="ai-guide.js?v=20261115"></script>
+<script src="pnw-core.js?v=20261116"></script>
+<script src="pnw-model.js?v=20261116"></script>
+<script src="builtin-data.js?v=20261116"></script>
+<script src="pnw-tipload.js?v=20261116"></script>
+<script src="hvlv-rules.js?v=20261116"></script>
+<script src="ai-guide.js?v=20261116"></script>
+<script src="cad-read.js?v=20261116"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<script type="module" src="view3d.js?v=20261115"></script>
+<script type="module" src="view3d.js?v=20261116"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#a1c5ef;--ink:#b6c8de;--muted:#79879b;--line:#243342;--bg:#162533;--blue:#2f6ea4;--teal:#0f766e;--white:#171c24;--bad:#df5b51;--warn:#ee884e;--ok:#80d8a5;--ground:#2f6ea4;--pole:#c2410c;--sel:#f59e0b;--focus:#2563eb;color-scheme:dark}
@@ -305,6 +306,32 @@ body:not(.help-on) .explain{display:none}
 .dispop select{max-width:none!important;width:100%}
 .ctxbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--line);background:#433204}
 .ctxbar[hidden]{display:none}
+/* Touch screens: bigger targets, wider gutters, no hover-only controls */
+@media (pointer:coarse){
+.btn,.btn.small,.ibtn,.seg button,.viewhead select,.tabs button,.antabs button,.toolbar button,.tb-menus button{min-height:38px;min-width:38px}
+.btn.small{padding:7px 11px}.seg button{padding:7px 11px}
+input[type=checkbox],input[type=radio]{width:20px;height:20px}
+.xi{padding-top:7px;padding-bottom:7px}#explorer summary{padding-top:7px;padding-bottom:7px}
+.workspace{grid-template-columns:var(--lw,300px) 14px minmax(0,1fr) 14px var(--rw,380px)}
+.workspace.no-left{grid-template-columns:0 0 minmax(0,1fr) 14px var(--rw,380px)}
+.workspace.no-right{grid-template-columns:var(--lw,300px) 14px minmax(0,1fr) 0 0}
+.center{grid-template-rows:minmax(0,1fr) 14px var(--dh,250px)}
+.gutter:after{background:#385574!important}
+.plgrip{font-size:22px;padding:8px 10px}.plsize.left,.plsize.right{width:18px!important;margin-left:-5px}.plsize.top,.plsize.bottom{height:18px!important;margin-top:-5px}
+.anres{height:14px}.leaflet-touch .leaflet-bar a{width:40px;height:40px;line-height:40px}
+.sv3wrap .btn,.sv3bar .btn{min-height:40px}
+table.grid td,table.grid th{padding-top:8px;padding-bottom:8px}
+}
+.plgrip{flex:none;align-self:center;background:transparent;border:0;color:#7f93ad;cursor:grab;font-size:15px;line-height:1;padding:4px 5px;margin-right:2px;border-radius:5px;touch-action:none}.plgrip:hover{color:#cfe0f5;background:#22314a}
+.plmenu{display:flex;flex-direction:column;gap:4px;min-width:180px;z-index:3000}.plmenu b{font-size:12px;margin-bottom:2px}.plmenu .btn.on{border-color:#3f6db3;color:#cfe0f5}
+.plghost{position:fixed;z-index:3000;border:2px dashed #7fb2ff;background:#3f6db322;border-radius:8px;pointer-events:none}.plghost.edge{background:#3f6db344}
+.pl-snap,.pl-float{z-index:1400;display:flex;flex-direction:column;overflow:hidden;background:#11161f;border:1px solid #2f4466;box-sizing:border-box}
+.pl-float{resize:both;border-radius:10px;box-shadow:0 16px 44px rgba(0,0,0,.55);min-width:260px;min-height:120px}
+.pl-snap.analysis,.pl-float.analysis{height:auto}.pl-snap .anres,.pl-float .anres{display:none}.pl-snap>.anbody,.pl-float>.anbody,.pl-snap>.tablewrap,.pl-float>.tablewrap,.pl-snap>.pbody,.pl-float>.pbody{flex:1;min-height:0;overflow:auto;display:block}
+.plsize{position:absolute;z-index:1450;touch-action:none}.plsize.left,.plsize.right{cursor:col-resize}.plsize.top,.plsize.bottom{cursor:row-resize}.plsize:hover,.plsize:active{background:#3f6db355}
+.workspace{box-sizing:border-box}
+.cadtxt span{font:600 10px/1 'DM Sans',Arial,sans-serif;white-space:nowrap;text-shadow:0 0 2px #000,0 0 2px #000;pointer-events:none}
+.viewhead .ctxbar.inhead{flex:0 1 auto;min-width:0;padding:0 0 0 6px;margin-left:2px;border:0;border-left:1px solid #2b3a52;background:transparent;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;gap:4px}.viewhead .ctxbar.inhead .sp{display:none}.viewhead .ctxbar.inhead .who small{display:none}.viewhead .ctxbar.inhead>*{flex:none}
 .ctxbar .who{font:800 12.5px Manrope,"DM Sans",Arial,sans-serif;color:var(--navy);margin-right:4px}
 .ctxbar .who small{font:600 11px "DM Sans",Arial,sans-serif;color:var(--muted);margin-left:4px}
 .ctxbar .sp{flex:1}
@@ -846,7 +873,7 @@ body:not(.help-on) #secFormBox :is(.meta,.hint,ul.msgs li.info){display:none}
   <div class="tb-brand"><span class="tb-logo">⏚</span><div><b>Poles &amp; Wires</b><small>HV / LV Distribution Design</small></div></div>
   <div class="tb-file" title="Active profile"><select id="projTitle" aria-label="Active profile"></select></div>
   <span class="grow"></span>
-  <div class="gsearch combo" data-combo="gs"><input id="gsearch" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="comboList" spellcheck="false" placeholder="Type a pole, span or command…" autocomplete="off" aria-label="Search poles, spans and commands"></div>
+  <div class="gsearch combo" data-combo="gs"><input id="gsearch" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="comboList" spellcheck="false" placeholder="Type a pole, span, address or command…" autocomplete="off" aria-label="Search poles, spans and commands"></div>
   <button class="tbi" id="bell" title="Issues" aria-label="Issues">🔔<span class="n" id="bellN" hidden>0</span></button>
   <button class="tbi" id="themeBtn" aria-label="Light or dark mode">☀ <span class="tbl">Light</span></button><button class="tbi infob" id="infoBtn" aria-pressed="false" aria-label="Extra information">ⓘ <span class="tbl">Info</span></button>
   <button class="tbi" id="helpBtn" title="Shortcuts and help" aria-label="Help">?</button>
@@ -920,7 +947,7 @@ body:not(.help-on) #secFormBox :is(.meta,.hint,ul.msgs li.info){display:none}
   <span class="grow"></span>
   <button class="btn" id="tbIssues" title="Show data-quality issues"><span class="ic">⚠</span><span class="lbl">Issues</span> <span class="pill mute" id="issueCount">0</span></button>
   <input type="file" id="projInput" accept=".json" hidden>
-  <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv,.pnwx,.txt,.json,.jpg,.jpeg,.png,.webp" hidden>
+  <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv,.pnwx,.txt,.json,.jpg,.jpeg,.png,.webp,.dgn,.dxf" hidden>
   <input type="file" id="photoInput" multiple accept="image/jpeg,image/png,image/webp" hidden>
   <div class="pop" id="layersPop" hidden role="dialog" aria-label="Map layers">
     <label><input type="checkbox" id="lySurvey" checked> LiDAR surveyed poles</label>
@@ -992,11 +1019,11 @@ body:not(.help-on) #secFormBox :is(.meta,.hint,ul.msgs li.info){display:none}
         <button data-cam="iso" title="Isometric view">Iso</button><button data-cam="side" title="Side view, square to the line">Side</button><button data-cam="front" title="Front view, looking along the line">Front</button><button data-cam="top" title="Top view (plan), with the line across the screen; the compass shows north">Top</button>
         <button id="v3reset" title="Reset the camera to the isometric view of the whole line (R)">Reset</button>
       </div>
+      <div class="ctxbar inhead" id="ctxBar" hidden role="toolbar" aria-label="Selected pole or span"></div>
       <span class="grow"></span>
       <button class="btn small" id="vHelp" aria-pressed="false" title="Show the help and explanations in every panel" aria-label="Help">?</button><button class="btn small" id="vFull" data-full="mapWrap" aria-pressed="false" title="Expand this view to the whole browser window (Esc to restore)">⛶</button>
       <span class="nonplan dispwrap"><button class="btn small" id="dispBtn" aria-haspopup="true" aria-expanded="false" title="How sag and temperature are drawn">⚙ Display</button><span class="pop dispop" id="dispPop" hidden><select id="sagMode" aria-label="Sag" title="How conductor sag is drawn"><option value="auto">Sag: DCSH table, else w·L²/8T</option><option value="none">No sag (chords)</option><option value="dcsh">Sag from DCSH Part 10 tables</option><option value="illustrative">Illustrative sag (w·L²/8T)</option></select><select id="sagTemp" aria-label="Temperature" hidden></select></span></span>
     </div>
-    <div class="ctxbar" id="ctxBar" hidden role="toolbar" aria-label="Selected pole or span"></div>
     <div class="stage" id="stage">
       <div id="map"></div>
       <div id="view3d"><div id="v3host" aria-label="3D view. Drag to orbit, right-drag, middle-drag or shift-drag to pan, wheel to zoom towards the cursor."></div><p class="v3msg" id="v3empty" hidden>No poles with coordinates and ground levels yet.</p>
@@ -1079,12 +1106,12 @@ body:not(.help-on) #secFormBox :is(.meta,.hint,ul.msgs li.info){display:none}
 </div>
 <div id="dcshPop" hidden role="dialog" aria-label="DCSH drawing"></div>
 <script>if (!window.L || !window.proj4 || !window.XLSX) document.body.insertAdjacentHTML('afterbegin', '<div class="cdn-fail" role="alert">The map and spreadsheet libraries did not load (no internet, or a blocked CDN). Check your connection and reload the page.</div>');</script>
-<script src="app.js?v=20261115"></script>
+<script src="app.js?v=20261116"></script>
 <script>
 // DCSH drawing thumbnails: fetched only after the page has fully loaded, then the images are warmed in idle time.
 window.addEventListener('load', function () {
   setTimeout(function () {
-    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261115';
+    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261116';
     sc.onload = function () {
       var keys = Object.keys(window.PNW_DCSH_IMG || {}), idle = window.requestIdleCallback || function (f) { return setTimeout(f, 200); };
       (function next() { var k = keys.shift(); if (!k) return; var im = new Image(); im.onload = im.onerror = function () { idle(next); }; im.src = window.PNW_DCSH_IMG[k].src; })();
