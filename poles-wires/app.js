@@ -163,7 +163,7 @@
   /* Website: Street View straight from Google with the designer's key (their own key from the Street View panel, else the
      LVDesign default for signed-in users). Metadata through the Maps JavaScript API, photos from the Street View Static API.
      The Supabase route (webMaps) is only the fallback; inside Claude the PNW Maps connector is used instead. */
-  var webKeyP = null, directBad = false;
+  var webKeyP = null, directBad = false, imgBad = false;
   function webKey() {
     var k = gmKey(); if (k) return Promise.resolve(k);
     if (webKeyP) return webKeyP;
@@ -191,7 +191,7 @@
     });
   }
   var directMaps = { callTool: function (srv, tool, input) {
-    if (directBad || (tool !== 'street_view' && tool !== 'street_view_metadata')) return webMaps.callTool(srv, tool, input);
+    if (directBad || (tool !== 'street_view' && tool !== 'street_view_metadata') || (imgBad && tool === 'street_view')) return webMaps.callTool(srv, tool, input);
     var k = 'g' + tool + JSON.stringify(input); if (webCache[k]) return webCache[k];
     var a = input || {};
     var pr = webKey().then(function (key) {
@@ -204,9 +204,9 @@
         return gImg('https://maps.googleapis.com/maps/api/streetview?size=' + w + 'x' + h + '&pano=' + encodeURIComponent(m.pano) + '&heading=' + heading.toFixed(1) + '&pitch=' + pitch.toFixed(1) + '&fov=' + fov.toFixed(0) + '&key=' + encodeURIComponent(key)).then(function (img) {
           var info = Object.assign({}, m, { heading: Math.round(heading * 10) / 10, pitch: Math.round(pitch * 10) / 10, fov: fov, width: w, height: h });
           return { content: [{ type: 'image', data: img.data, mimeType: img.mimeType }, { type: 'text', text: JSON.stringify(info) }], structuredContent: info };
-        });
+        }, function (e) { e = e || {}; e.img = true; throw e; });
       });
-    }).catch(function (e) { delete webCache[k]; directBad = true; return webMaps.callTool(srv, tool, input); }); // no key or Google refused: the Supabase route
+    }).catch(function (e) { delete webCache[k]; if (e && e.img) imgBad = true; else directBad = true; return webMaps.callTool(srv, tool, input); }); // no key or Google refused: the Supabase route (a photo that can't be read back only moves photos there; metadata and the live panorama stay on Google)
     webCache[k] = pr; return pr;
   } };
   function webMapsOn() { return !IN_CLAUDE && !WEB_MAPS_DOWN; }
@@ -3859,6 +3859,8 @@
     if (llo) { $('svCap').hidden = true; sv.free = true; }
     var noRoute = function () { if (sv.id !== id) return; if (key) { sv.mode = 'api'; svStartApi(id, ll, key); } else svStartEmbed(id, ll); };
     if (IN_CLAUDE) { if (key) svStartApi(id, ll, key); else svStartMcp(id, ll); }
+    else if (key) svStartApi(id, ll, key); // website: Google's live panorama with the designer's key
+    else if (!key) { sv.mode = 'api'; $('svBody').innerHTML = '<p class="hint" style="padding:12px">Loading Google Street View near ' + esc(id) + '…</p>'; webKey().then(function (k) { if (sv.id !== id) return; if (k) { sv.key = k; svStartApi(id, ll, k); } else if (webMapsOn()) { sv.mode = 'mcp'; mapsCall('street_view_metadata', { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50 }).then(function () { if (sv.id === id) svStartMcp(id, ll); }, function () { if (sv.id === id) svStartEmbed(id, ll); }); } else svStartEmbed(id, ll); }); }
     else if (webMapsOn()) { sv.mode = 'mcp'; $('svBody').innerHTML = '<p class="hint" style="padding:12px">Finding Street View near ' + esc(id) + '…</p>'; mapsCall('street_view_metadata', { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50 }).then(function () { if (sv.id === id) svStartMcp(id, ll); }, noRoute); }
     else noRoute();
     if (!llo && S.selected !== id) select(id);
@@ -3905,6 +3907,15 @@
     // Both sides at once; if both land on the same panorama, look again behind (that pano is now marked used).
     return Promise.all([find(fwd, 'ahead'), find(back, 'behind')]).then(function (x) { return x[0] && x[1] && x[0].pano === x[1].pano ? find(back, 'behind').then(function (b) { return [x[0], b].filter(Boolean); }) : x.filter(Boolean); });
   }
+  // Website: Google's Maps JavaScript API with the designer's key, or null (then the photo route is used).
+  var liveGmP = null;
+  function liveGm() { if (IN_CLAUDE) return Promise.resolve(null); return liveGmP || (liveGmP = webKey().then(function (key) { return key ? loadGmaps(key) : null; }).catch(function () { return null; }).then(function (gm) { if (!gm) liveGmP = null; return gm; })); }
+  function svMetaShot(id, ll, pano) { // camera only (no photo): the live panorama shows the imagery at full resolution
+    return liveGm().then(function (gm) { return gm ? gMeta(gm, { pano: pano, lat: ll.lat, lng: ll.lng }) : null; }).then(function (m) {
+      if (!m || !m.found) return null; var pitch = Math.max(0, Math.min(40, Math.atan2(poleHag(id) * 0.6 - 2.5, Math.max(3, m.distance_m)) * 180 / Math.PI));
+      return { file: null, cam: { heading: m.heading, pitch: pitch, fov: 45, dist: m.distance_m, lat: m.lat, lng: m.lng, date: m.date || '' }, meta: { pov: { heading: m.heading, pitch: pitch, fov: 45, pano: m.pano } } };
+    }, function () { return null; });
+  }
   function svShot(id, ll, pano, side) {
     var inp = { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50, height_m: poleHag(id), width: 640, height: 640, fov: pano ? 45 : 70 }; if (pano) inp.pano = pano;
     return mapsCall('street_view', inp).then(function (r) {
@@ -3942,7 +3953,8 @@
     SV3.id = id; var req = ++SV3.req; $('sv3t').textContent = id; sv3Msg('Loading Street View for ' + id + '…');
     (SV3.panosFor === id ? Promise.resolve(SV3.panos) : svStepPanos(id, ll)).then(function (ps) {
       SV3.panos = ps; SV3.panosFor = id; var p = ps.length ? ps[SV3.side % ps.length] : null;
-      return svShot(id, ll, p && p.pano, p ? p.side : '').then(function (sh) { return { sh: sh, p: p, n: ps.length }; });
+      return (p && !IN_CLAUDE ? liveGm().then(function (gm) { return gm ? svMetaShot(id, ll, p.pano) : null; }) : Promise.resolve(null))
+        .then(function (sh) { return sh || svShot(id, ll, p && p.pano, p ? p.side : ''); }).then(function (sh) { return { sh: sh, p: p, n: ps.length }; });
     }).then(function (x) {
       if (req !== SV3.req) return;
       if (!x.sh) { sv3Msg('No Street View near ' + id + '.'); return; }
@@ -3954,8 +3966,8 @@
       if (!ce) ce = [pole.easting - Math.sin(hr) * c.dist, pole.northing - Math.cos(hr) * c.dist];
       SV3.cam = { e: ce[0], n: ce[1], heading: hg, pitch: c.pitch, fov: c.fov, side: x.p ? x.p.side : '', count: x.n, date: c.date, dist: c.dist };
       SV3.view = { pano: x.sh.meta.pov.pano, lat: c.lat != null ? Number(c.lat) : null, lng: c.lng != null ? Number(c.lng) : null, th: c.heading, pitch: c.pitch, fov: c.fov, date: c.date, gam: gam };
-      if (SV3.url) URL.revokeObjectURL(SV3.url); SV3.url = URL.createObjectURL(x.sh.file);
-      sv3Img(SV3.url); if (!IN_CLAUDE) sv3Live(req);
+      if (x.sh.file) { if (SV3.url) URL.revokeObjectURL(SV3.url); SV3.url = URL.createObjectURL(x.sh.file); sv3Img(SV3.url); }
+      if (!IN_CLAUDE) sv3Live(req, !x.sh.file);
       $('sv3side').disabled = x.n < 2; sv3Msg(''); sv3Title();
     }, function (e) { if (req === SV3.req) sv3Msg('Street View: ' + mapsErr(e)); });
   }
@@ -4036,9 +4048,11 @@
   /* Website: Google's own interactive panorama (full 360°, drag, zoom, arrows to walk) with the design drawn over it.
      The overlay follows the panorama's position and point of view; Google zoom z shows a horizontal field of 180/2^z degrees. */
   function sv3LiveOff() { var el = $('sv3pano'); if (el) el.remove(); if (window.PNW3D && PNW3D.street) PNW3D.street(null, null); SV3.live = null; $('sv3img').hidden = false; $('sv3svg').style.zIndex = ''; }
-  function sv3Live(req) {
+  function sv3Live(req, noPhoto) {
     var v = SV3.view; if (!v || !v.pano) return;
-    webKey().then(function (key) { return key ? loadGmaps(key) : null; }).then(function (gm) { // the live panorama needs only the Maps JavaScript API, even when the Static API photo fell back
+    var photo = function () { if (noPhoto && req === SV3.req && SV3.on) { noPhoto = false; sv3Load(0); } }; // the live panorama did not start: fall back to the photo
+    liveGm().then(function (gm) {
+      if (!gm) return photo(); // the live panorama needs only the Maps JavaScript API, even when the Static API photo fell back
       if (!gm || req !== SV3.req || !SV3.on) return;
       var wrap = document.querySelector('#v3svp .sv3wrap'), el = $('sv3pano');
       if (!el) { el = document.createElement('div'); el.id = 'sv3pano'; el.style.cssText = 'position:absolute;inset:0;z-index:0'; wrap.insertBefore(el, $('sv3svg')); }
@@ -4057,7 +4071,7 @@
       } else { SV3.live.setPano(v.pano); SV3.live.setPov(pov); SV3.live.setZoom(zoom); }
       $('sv3img').hidden = true; var h = wrap.querySelector('.sv3hint'); if (h) h.textContent = 'Drag to look around · wheel to zoom · click the road arrows to walk';
       setTimeout(sv3Draw, 60);
-    }, function () { /* keep the photo view */ });
+    }).catch(function () { if (!SV3.live) { var el = $('sv3pano'); if (el) el.remove(); $('sv3svg').style.zIndex = ''; $('sv3img').hidden = false; } photo(); });
   }
   function sv3LiveWalk(back) { // to the linked panorama closest to the view direction (or behind it)
     var pn = SV3.live, links = (pn.getLinks() || []).filter(Boolean); if (!links.length) { sv3Msg('No Street View further this way.'); return; }
@@ -4197,7 +4211,7 @@
     if (sv.mode === 'mcp') { if (!sv.img) return fail(new Error('No Street View image yet.')); return done(b64Blob(sv.img.b64, sv.img.type), 'PNW Maps', { heading: Math.round(sv.pov.heading), pitch: Math.round(sv.pov.pitch), fov: Math.round(sv.pov.fov), pano: sv.pov.pano }); }
     if (sv.mode === 'api' && sv.panorama) {
       var pov = sv.panorama.getPov(), z = sv.panorama.getZoom ? sv.panorama.getZoom() : 1, fov = Math.max(10, Math.min(120, 180 / Math.pow(2, z))), pano = sv.panorama.getPano();
-      var url = 'https://maps.googleapis.com/maps/api/streetview?size=1280x960&pano=' + encodeURIComponent(pano) + '&heading=' + pov.heading.toFixed(1) + '&pitch=' + pov.pitch.toFixed(1) + '&fov=' + fov.toFixed(0) + '&key=' + encodeURIComponent(gmKey());
+      var url = 'https://maps.googleapis.com/maps/api/streetview?size=1280x960&pano=' + encodeURIComponent(pano) + '&heading=' + pov.heading.toFixed(1) + '&pitch=' + pov.pitch.toFixed(1) + '&fov=' + fov.toFixed(0) + '&key=' + encodeURIComponent(gmKey() || sv.key || '');
       return fetch(url, { mode: 'cors' }).then(function (r) { if (!r.ok) throw new Error('Street View Static API answered ' + r.status + ' (is it enabled for the key?).'); return r.blob(); })
         .then(function (b) { done(b, 'Static API', { heading: Math.round(pov.heading), pitch: Math.round(pov.pitch), fov: fov, pano: pano }); }).catch(fail);
     }
