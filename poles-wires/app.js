@@ -3977,6 +3977,7 @@
     clearTimeout(sv3T); sv3T = setTimeout(function () {
       var v = SV3.view, ll = poleLL(SV3.id); if (!v || !ll) return; var req = ++SV3.req;
       var inp = { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50, heading: +(((v.th % 360) + 360) % 360).toFixed(1), pitch: +v.pitch.toFixed(1), fov: +v.fov.toFixed(1), width: 640, height: 640 }; if (v.pano) inp.pano = v.pano;
+      var wr = document.querySelector('#v3svp .sv3wrap'); if (wr && wr.clientWidth > 50 && wr.clientHeight > 50) { var ar = wr.clientHeight / wr.clientWidth; if (ar <= 1) inp.height = Math.max(64, Math.round(640 * ar)); else inp.width = Math.max(64, Math.round(640 / ar)); } // photo in the panel's shape: no black bars beside it
       mapsCall('street_view', inp).then(function (r) {
         if (req !== SV3.req) return; var im = mapsImg(r), info = mapsInfo(r); if (!im) { sv3Msg('No Street View image here.'); return; }
         if (info.date) v.date = info.date; sv3Img(im.url); sv3Title(); sv3Msg('');
@@ -4074,7 +4075,13 @@
     var out = '', col = { hv: '#fb923c', lv: '#60a5fa', earth: '#cbd5e1', other: '#2dd4bf' };
     var show = $('sv3ov').checked;
     // Live panorama (website): the 3D view's own model is drawn from the Street View camera; the SVG keeps labels and click targets.
-    var gl = !!(lv && show && window.PNW3D && PNW3D.street && PNW3D.street(document.querySelector('#v3svp .sv3wrap'), { e: c.e, n: c.n, z: cz, heading: c.heading, pitch: c.pitch, fov: c.fov, w: W, h: H }));
+    // Live panorama: the canvas fills the panorama. Photo (artifact, or no browser key): the canvas sits over the photo as drawn
+    // (object-fit: contain), so poles, cross-arms and conductors look the same in both modes.
+    var svWrap = document.querySelector('#v3svp .sv3wrap'), gl = false;
+    if (show && window.PNW3D && PNW3D.street && svWrap) {
+      if (lv) gl = !!PNW3D.street(svWrap, { e: c.e, n: c.n, z: cz, heading: c.heading, pitch: c.pitch, fov: c.fov, w: W, h: H });
+      else { var ww = svWrap.clientWidth || W, wh = svWrap.clientHeight || H, sc = Math.min(ww / W, wh / H), dw = W * sc, dh = H * sc; gl = !!PNW3D.street(svWrap, { e: c.e, n: c.n, z: cz, heading: c.heading, pitch: c.pitch, fov: c.fov, w: dw, h: dh, x: (ww - dw) / 2, y: (wh - dh) / 2 }); if (gl) svg.style.zIndex = '2'; }
+    }
     if (!gl && window.PNW3D && PNW3D.street) PNW3D.street(null, null);
     if (show && gl) {
       d.wires.forEach(function (w) {
@@ -4147,7 +4154,8 @@
     })(12);
   }
   function svMcpLoad() {
-    var id = sv.id, p = sv.pov, inp = { lat: +sv.ll.lat.toFixed(7), lng: +sv.ll.lng.toFixed(7), radius: 80, height_m: sv.hag, width: 640, height: 480 };
+    var id = sv.id, p = sv.pov, inp = { lat: +sv.ll.lat.toFixed(7), lng: +sv.ll.lng.toFixed(7), radius: 80, height_m: sv.hag, width: 640, height: 480 }, sb = $('svBody');
+    if (sb && sb.clientWidth > 50 && sb.clientHeight > 50) { var ar = sb.clientHeight / sb.clientWidth; if (ar <= 1) inp.height = Math.max(64, Math.round(640 * ar)); else inp.width = Math.max(64, Math.round(640 / ar)); } // photo in the panel's shape
     if (p) { inp.pano = p.pano; if (!p.face) { inp.heading = Math.round(p.heading); inp.pitch = Math.round(p.pitch); } inp.fov = Math.round(p.fov); }
     $('svCap').disabled = true; $('svHint').textContent = 'Loading Street View through PNW Maps…';
     mapsCall('street_view', inp).then(function (r) {
