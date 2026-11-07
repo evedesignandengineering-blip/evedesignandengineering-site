@@ -129,7 +129,24 @@
   };
   // Inside Claude (window.PNW_ARTIFACT) the page cannot load map tiles from other hosts; the PNW Maps connector supplies the basemap there.
   var activeBase = IN_CLAUDE ? null : bases.street.addTo(map);
-  $('basemap').onchange = function () { if (IN_CLAUDE) { gBase.type = this.value === 'esri' ? 'satellite' : this.value === 'hybrid' ? 'hybrid' : 'roadmap'; gBase.on = this.value !== 'none'; if (!gBase.on && gBase.ov) { map.removeLayer(gBase.ov); gBase.ov = null; } gBase.err = false; gBaseRefresh(); return; } if (activeBase) map.removeLayer(activeBase); activeBase = bases[this.value] ? bases[this.value].addTo(map) : null; };
+  /* Website: Google basemaps through the Maps JavaScript API (GoogleMutant), with the designer's key (see webKey).
+     Road map shows street names and house numbers when zoomed in; Hybrid = satellite with streets and addresses. */
+  var gmMutantP = null;
+  function googleBase(type) {
+    if (!gmMutantP) gmMutantP = webKey().then(function (key) {
+      if (!key) throw new Error('Add a Google Maps key (Street View panel › API key…) or sign in to LVDesign to use Google maps.');
+      return loadGmaps(key);
+    }).then(function () {
+      if (L.gridLayer && L.gridLayer.googleMutant) return;
+      return new Promise(function (res, rej) { var sc = document.createElement('script'); sc.src = 'https://unpkg.com/leaflet.gridlayer.googlemutant@0.14.1/dist/Leaflet.GoogleMutant.js'; sc.onload = res; sc.onerror = function () { rej(new Error('The Google map layer could not be loaded.')); }; document.head.appendChild(sc); });
+    }).catch(function (e) { gmMutantP = null; throw e; });
+    return gmMutantP.then(function () { return L.gridLayer.googleMutant({ type: type, maxZoom: 22 }); });
+  }
+  if (!IN_CLAUDE) $('basemap').insertAdjacentHTML('afterbegin', '<option value="g:roadmap">Google road map (addresses)</option><option value="g:hybrid">Google satellite + streets</option><option value="g:satellite">Google satellite</option>');
+  try { var bmPref = localStorage.getItem('eve-pnw-basemap'); if (!IN_CLAUDE && bmPref && $('basemap').querySelector('option[value="' + bmPref + '"]')) setTimeout(function () { $('basemap').value = bmPref; $('basemap').onchange(); }, 0); } catch (e) { /* storage blocked */ }
+  $('basemap').onchange = function () { try { localStorage.setItem('eve-pnw-basemap', this.value); } catch (e) { /* ignore */ } if (IN_CLAUDE) { gBase.type = this.value === 'esri' ? 'satellite' : this.value === 'hybrid' ? 'hybrid' : 'roadmap'; gBase.on = this.value !== 'none'; if (!gBase.on && gBase.ov) { map.removeLayer(gBase.ov); gBase.ov = null; } gBase.err = false; gBaseRefresh(); return; } var v = this.value, sel = this; if (activeBase) map.removeLayer(activeBase); activeBase = null;
+    if (/^g:/.test(v)) { setStatus('Loading the Google map…'); googleBase(v.slice(2)).then(function (lay) { if (sel.value !== v) return; activeBase = lay.addTo(map); setStatus('Google ' + (v === 'g:roadmap' ? 'road map' : v === 'g:hybrid' ? 'satellite with streets' : 'satellite') + ' basemap.', 'good'); }, function (e) { setStatus(e.message, 'bad'); sel.value = 'street'; activeBase = bases.street.addTo(map); }); return; }
+    activeBase = bases[v] ? bases[v].addTo(map) : null; };
   /* PNW Maps connector (MCP proxy on Supabase that holds the Google key): inside Claude it gives the basemap
      (Google Static Maps under the plan) and Street View images, because the page itself cannot reach other hosts. */
   var MAPS_SRV = 'PNW Maps', mapsMcp = null;
@@ -331,6 +348,8 @@
     if (pj.length) { openProjectFile(pj[0]); arr = arr.filter(function (f) { return pj.indexOf(f) < 0; }); }
     // Pole photos dropped together with the spreadsheets: attached after the import (matched by file name), then Auto design runs.
     var imgs = arr.filter(function (f) { return /\.(jpe?g|png|webp)$/i.test(f.name); }); arr = arr.filter(function (f) { return imgs.indexOf(f) < 0; });
+    var cads = arr.filter(function (f) { return /\.(dgn|dxf)$/i.test(f.name); }); arr = arr.filter(function (f) { return cads.indexOf(f) < 0; }); cads.forEach(cadAdd);
+    if (!arr.length && cads.length) { if (imgs.length) dropPhotos(imgs); return; }
     if (!arr.length) { if (imgs.length) dropPhotos(imgs); return; }
     var existed = {}; S.files.forEach(function (f) { existed[f.name] = 1; });
     var jobs = arr.map(function (f) {
@@ -1549,6 +1568,15 @@
     for (var i = 1; i < ids.length; i++) { var A = project.poles.filter(function (r) { return r.ID === ids[i - 1]; })[0], B = project.poles.filter(function (r) { return r.ID === ids[i]; })[0]; if (A && B) out.push(Math.hypot(PNW.num(B.Easting) - PNW.num(A.Easting), PNW.num(B.Northing) - PNW.num(A.Northing))); }
     return out;
   }
+  // Edit the poles of an existing strain section: pick the first and last pole; the run between them is used.
+  var secEdit = null;
+  function secPolesEditor(n, mem) {
+    var ids = project.poles.map(function (r) { return r.ID; }), f = secEdit;
+    var sel = function (k, cur) { return '<select data-secedit="' + k + '" aria-label="' + (k === 'from' ? 'First' : 'Last') + ' pole of ' + esc(n) + '">' + ids.map(function (i) { return '<option' + (i === cur ? ' selected' : '') + '>' + esc(i) + '</option>'; }).join('') + '</select>'; };
+    var run = sectionMembers({ from: f.from, to: f.to, level: f.level, pick: f.pick });
+    return '<div class="secedit">' + sel('from', f.from) + ' → ' + sel('to', f.to) + '<div class="muted" style="margin:4px 0">' + (run.length ? run.map(function (m) { return esc(m.id) + (m.c ? '' : ' <b class="bad">(no ' + esc(f.level) + ' construction)</b>'); }).join(' → ') : 'Pick two different poles.') + '</div>' +
+      '<button class="btn small primary" data-secsave="' + esc(n) + '">Save poles</button> <button class="btn small" data-seccancel="1">Cancel</button></div>';
+  }
   function parsedCon(id, unique) { return ((dm && dm.byPole[id]) || []).filter(function (c) { return c.unique === unique; })[0] || null; }
   function renderSections() {
     if (!project) { $('tableWrap').innerHTML = '<div style="padding:14px">' + startDesignHint() + '<p class="hint explain">The conductor schedule lists the strain sections of the linked PNW project.</p></div>'; return; }
@@ -1561,7 +1589,7 @@
       shown++;
       var pick = (S.design.tables || {})[n] || '', sug = suggestTable(sg)[0], c = conductorFor(sg.Conductor), lvl = mem[0] ? levelOf(mem[0].constr) : '';
       h += '<tr data-sec="' + esc(n) + '" class="' + (S.selSection === n ? 'sel' : '') + '"><td><b>' + esc(n) + '</b>' + (sg.New === 'True' ? ' <span class="pill info">New</span>' : '') + '</td>' +
-        '<td style="white-space:normal;min-width:180px">' + mem.map(function (x) { return esc(x.id) + ' <small class="muted">' + esc(x.constr) + '</small>'; }).join(' → ') + '</td>' +
+        '<td style="white-space:normal;min-width:180px">' + (secEdit && secEdit.n === n ? secPolesEditor(n, mem) : mem.map(function (x) { return esc(x.id) + ' <small class="muted">' + esc(x.constr) + '</small>'; }).join(' → ') + ' <button class="ibtn" data-secpoles="' + esc(n) + '" title="Change the poles of ' + esc(n) + '" aria-label="Change the poles of ' + esc(n) + '">✎</button>') + '</td>' +
         '<td class="fitc">' + combo('seccond|' + n, { value: sg.Conductor, placeholder: 'Search conductor…', aria: 'Conductor of ' + n, groups: function () { return conductorGroups(mem[0] && mem[0].id, lvl); }, onPick: function (v) {
           var cc = conductorFor(v); if (!cc) { setStatus(v + ' is not in the PNW library or this project.', 'bad'); renderTable(); return; }
           commit(function (p) { var s0 = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = s0.Conductor; M.updateSection(p, n, { conductor: cc }); return [logEntry('', n, 'Conductor', from, cc.code, 'manual', lib && lib.conductors.indexOf(cc) >= 0 ? 'PNW library ' + cc.code : '')]; });
@@ -1692,6 +1720,7 @@
     $('tableWrap').innerHTML = '<table class="grid"><thead><tr><th>Pole</th><th>Construction</th><th>Code</th><th class="num">King bolt AG (m)</th><th class="num">#</th><th class="num">Height AG (m)</th><th class="num">Elevation (m)</th><th>Carries</th><th>King bolt source</th><th></th></tr></thead><tbody>' + h + '</tbody></table>';
   }
   $('tableWrap').addEventListener('change', secChange);
+  $('tableWrap').addEventListener('change', function (e) { var k = e.target.dataset && e.target.dataset.secedit; if (!k || !secEdit) return; secEdit[k] = e.target.value; renderTable(); });
   function secChange(e) {
     var t = e.target, d = t.dataset;
     if (d.secf) {
@@ -1724,6 +1753,15 @@
       (S.design.tensionAuto = S.design.tensionAuto || {})[an] = true; recompute(); setStatus(an + ' now follows its ruling span.', 'good'); return; }
     if (b.dataset.chip) { condFilter = b.dataset.chip.split(':')[1]; refreshSecForm(); return; }
     if (b.dataset.tpick != null) { var ts = tensionSuggestions(secForm.cond)[+b.dataset.tpick]; if (ts) { secForm.tension = String(ts.value); secForm.units = ts.units; secForm.table = ts.table || ''; secForm.tsrc = ts.note; secForm.tensionUser = true; } refreshSecForm(); return; }
+    if (b.dataset.secpoles != null) { var sn = b.dataset.secpoles, sm = project.segPoles.filter(function (x) { return x.strsection === sn; }), pk = {};
+      project.constructions.forEach(function (c) { if (c.segment === sn) pk[c.pole] = c.unique; });
+      secEdit = { n: sn, from: sm[0] ? sm[0].id : '', to: sm.length ? sm[sm.length - 1].id : '', level: sm[0] ? levelOf(sm[0].constr) : '', pick: pk }; renderTable(); return; }
+    if (b.dataset.seccancel) { secEdit = null; renderTable(); return; }
+    if (b.dataset.secsave != null) { var en = b.dataset.secsave, run = sectionMembers({ from: secEdit.from, to: secEdit.to, level: secEdit.level, pick: secEdit.pick });
+      var miss = run.filter(function (m) { return !m.c; }); if (run.length < 2 || miss.length) { setStatus(run.length < 2 ? 'A strain section needs at least two poles.' : miss.map(function (m) { return m.id; }).join(', ') + ' has no ' + secEdit.level + ' construction to carry the conductors. Add one first.', 'bad'); return; }
+      var before = project.segPoles.filter(function (x) { return x.strsection === en; }).map(function (x) { return x.id; }).join('-'); secEdit = null;
+      if (commit(function (p) { M.setSectionPoles(p, en, run.map(function (m) { return { id: m.id, unique: m.c.unique }; })); return [logEntry(run[0].id + '→' + run[run.length - 1].id, en, 'Strain section poles', before, run.map(function (m) { return m.id; }).join('-'), 'manual')]; }))
+      setStatus(en + ' now runs ' + run.map(function (m) { return m.id; }).join(' → ') + '.', 'good'); return; }
     if (b.dataset.secdel != null) { var n = b.dataset.secdel; if (S.selSection === n) S.selSection = null; commit(function (p) { M.removeSection(p, n); return [logEntry('', n, 'Strain section', n, 'removed', 'manual')]; }); return; }
     if (b.id === 'secAdd') secAddNow();
   });
@@ -4590,17 +4628,36 @@
     allCommands().forEach(function (c) { opts.push('<option value="' + esc(c.name) + '">Command</option>'); });
   }
   $('projTitle').onchange = function () { switchProfile(this.value); };
+  // Address search: Google geocoder with the designer's key, else OpenStreetMap (Nominatim); flies the map there.
+  var addrMark = null;
+  function looksAddress(v) { return /^\d+[a-z]?\s+\S+/i.test(v) || /,/.test(v) || /\b(st|street|rd|road|ave|avenue|dr|drive|way|ct|court|pl|place|cres|crescent|hwy|highway|tce|terrace|lane|ln|bvd|boulevard|pde|parade)\b/i.test(v); }
+  function addrSearch(v) {
+    if (IN_CLAUDE) { setStatus('Address search needs the website version (this view cannot reach the geocoder).', 'bad'); return; }
+    setStatus('Searching for “' + v + '”…');
+    var viaGoogle = webKey().then(function (key) { if (!key || directBad) return null; return loadGmaps(key).then(function (gm) { return new Promise(function (res) { new gm.Geocoder().geocode({ address: v, region: 'au' }, function (r, st) { res(st === 'OK' && r && r[0] ? { lat: r[0].geometry.location.lat(), lng: r[0].geometry.location.lng(), name: r[0].formatted_address } : null); }); }); }); }).catch(function () { return null; });
+    viaGoogle.then(function (g) { return g || fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=au&q=' + encodeURIComponent(v)).then(function (r) { return r.json(); }).then(function (j) { return j && j[0] ? { lat: +j[0].lat, lng: +j[0].lon, name: j[0].display_name } : null; }, function () { return null; }); })
+      .then(function (g) {
+        if (!g) { setStatus('No address found for “' + v + '”.', 'bad'); return; }
+        if (S.view !== 'plan') setView('plan');
+        map.flyTo([g.lat, g.lng], Math.max(map.getZoom(), 18));
+        if (addrMark) map.removeLayer(addrMark);
+        addrMark = L.marker([g.lat, g.lng], { title: g.name }).addTo(map).bindPopup('<b>' + esc(g.name) + '</b><br><button class="btn small" id="addrClr">Remove pin</button>').openPopup();
+        map.once('popupopen', function () {}); setTimeout(function () { var b = $('addrClr'); if (b) b.onclick = function () { map.removeLayer(addrMark); addrMark = null; }; }, 50);
+        setStatus('Showing ' + g.name + '.', 'good');
+      });
+  }
   function gsGo(v) {
     var self = $('gsearch'); v = String(v || '').trim(); var lo = v.toLowerCase(), pid = Object.keys(merged.poles).filter(function (k) { return k.toLowerCase() === lo; })[0];
     if (pid) { select(pid); showPole(pid); self.value = ''; return; }
+    if (v && looksAddress(v)) { self.value = ''; addrSearch(v); return; }
     var near = lo ? smartRank(v, Object.keys(merged.poles).sort(), function (k) { var p = merged.poles[k]; return k + ' ' + (p.survey ? p.survey.equipNo : '') + ' ' + (p.gis ? p.gis.equipNo : ''); }) : [];
     if (near.length) { select(near[0]); showPole(near[0]); self.value = ''; if (near.length > 1) setStatus(near.length + ' poles match “' + v + '”: ' + near.slice(0, 6).join(', ') + (near.length > 6 ? '…' : '') + '. Showing ' + near[0] + '.'); return; }
     var cmd = lo ? allCommands().filter(function (c) { return c.name.toLowerCase() === lo; })[0] || smartRank(v, allCommands(), function (c) { return c.name + ' ' + c.id; })[0] : null;
     if (cmd) { self.value = ''; if (cmd.type === 'fn') { if (FN[cmd.id]) FN[cmd.id](); } else if (cmd.type === 'tool') setTool(cmd.id); else { var ce = $(cmd.id.replace(/^pan:/, '')); if (ce) ce.click(); } return; }
     var m = v.split(/\s*(?:→|->|>|\|)\s*/); if (m.length === 2 && poleXY(m[0]) && poleXY(m[1])) { selectSpan(m[0], m[1]); self.value = ''; return; }
-    if (v) setStatus('“' + v + '” is not a pole, span or command in this project.', 'bad');
+    if (v) { self.value = ''; addrSearch(v); }
   }
-  combos.gs = { value: '', free: true, blurClear: true, placeholder: 'Type a pole, span or command…', groups: gsGroups, onPick: function (v, it) { combos.gs.value = ''; $('gsearch').value = ''; if (it && it.go) it.go(); else gsGo(v); } };
+  combos.gs = { value: '', free: true, blurClear: true, placeholder: 'Type a pole, span, address or command…', groups: gsGroups, onPick: function (v, it) { combos.gs.value = ''; $('gsearch').value = ''; if (it && it.go) it.go(); else gsGo(v); } };
   function gsGroups() {
     var ids = lineIds(), sp = [];
     for (var i = 1; i < ids.length; i++) sp.push({ value: ids[i - 1] + ' → ' + ids[i], label: 'Span', keys: ids[i - 1] + ' ' + ids[i] });
@@ -5059,6 +5116,55 @@
   function exKey(k) { return U.exp && U.exp[k] !== undefined ? U.exp[k] : ({ layers: false, design: true, poles: false, spans: false, conds: false, equip: false, cons: false, profiles: true, files: false })[k]; }
   function exNode(k, title, count, inner) { return '<details data-k="' + k + '"' + (exKey(k) ? ' open' : '') + '><summary>' + title + (count != null ? ' <small style="color:#7f93ad">(' + count + ')</small>' : '') + '</summary><div class="xn">' + inner + '</div></details>'; }
   function exItem(attrs, ico, label, sub, sel) { return '<div class="xi' + (sel ? ' sel' : '') + '" ' + attrs + '><i>' + ico + '</i><span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; }
+  /* CAD overlay: MicroStation V8 .dgn or AutoCAD .dxf drawn on the plan map (MGA coordinates in the project zone), one
+     layer group per level / layer, each switchable in Explorer › Layers › CAD overlays. Readers: cad-read.js (the same
+     DGN V8 / DXF readers as the DGN to SOW tool). Kept for this session only. */
+  var CAD = [], cadPane = null, cadRend = null, pakoP = null;
+  var CAD_PAL = ['#ffffff', '#ff0000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#ff00ff', '#ffffff', '#808080', '#c0c0c0', '#ff8080', '#ffff80', '#80ff80', '#80ffff', '#8080ff', '#ff80ff'];
+  function cadColor(c) { c = Number(c); return isFinite(c) && c >= 0 && c < 256 ? (CAD_PAL[c] || 'hsl(' + ((c * 47) % 360) + ',80%,60%)') : '#f59e0b'; }
+  function cadInflate(u8) {
+    if (!pakoP) pakoP = window.pako ? Promise.resolve(window.pako) : new Promise(function (res, rej) { var sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js'; sc.onload = function () { res(window.pako); }; sc.onerror = function () { pakoP = null; rej(new Error('The DGN decompressor could not be loaded.')); }; document.head.appendChild(sc); });
+    return pakoP.then(function (pk) { return pk.inflate(u8); });
+  }
+  function cadAdd(f) {
+    if (!window.SOW || !SOW.readDXF) { setStatus('The CAD reader did not load; refresh the page.', 'bad'); return; }
+    setStatus('Reading ' + f.name + '…');
+    f.arrayBuffer().then(function (buf) {
+      var u8 = new Uint8Array(buf);
+      return /\.dxf$/i.test(f.name) ? SOW.readDXF(new TextDecoder().decode(u8)) : SOW.readDGN(u8, cadInflate);
+    }).then(function (r) {
+      if (!cadPane) { cadPane = map.createPane('cad'); cadPane.style.zIndex = 380; cadRend = L.canvas({ pane: 'cad', padding: 0.3 }); }
+      var els = (r.elements || []).filter(function (e) { return e.model !== 'sheet'; }), lv = {}, bounds = L.latLngBounds([]), bad = 0, texts = 0;
+      var ll = function (pt) { if (!pt || !isFinite(pt[0]) || !isFinite(pt[1]) || Math.abs(pt[0]) < 1000 || Math.abs(pt[1]) < 100000) { bad++; return null; } var q = toLatLng(pt[0], pt[1]); if (q) bounds.extend(q); return q; };
+      els.forEach(function (e) {
+        var k = String(e.level == null ? '0' : e.level), g = lv[k] || (lv[k] = { on: true, n: 0, layer: L.layerGroup() }), col = cadColor(e.color), lay = null;
+        if (e.kind === 'line') { var pts = (e.points || []).map(ll).filter(Boolean); if (pts.length > 1) lay = (e.closed ? L.polygon : L.polyline)(pts, { renderer: cadRend, pane: 'cad', color: col, weight: e.weight > 0 ? Math.min(4, 1 + e.weight / 2) : 1.4, opacity: 0.9, fill: false, interactive: false }); }
+        else if (e.kind === 'cell') { var c = ll(e.origin); if (c) lay = L.circleMarker(c, { renderer: cadRend, pane: 'cad', radius: 3, color: col, weight: 1.5, fillOpacity: 0.3 }).bindTooltip(esc((e.name || 'cell') + (e.texts && e.texts.length ? ': ' + e.texts.join(' ') : ''))); }
+        else if (e.kind === 'text' && e.text && texts < 4000) { var t = ll(e.origin); if (t) { texts++; lay = L.marker(t, { pane: 'cad', interactive: false, icon: L.divIcon({ className: 'cadtxt', html: '<span style="color:' + col + '">' + esc(String(e.text).slice(0, 60)) + '</span>', iconSize: null }) }); } }
+        if (lay) { g.layer.addLayer(lay); g.n++; }
+      });
+      Object.keys(lv).forEach(function (k) { if (!lv[k].n) delete lv[k]; else lv[k].layer.addTo(map); });
+      if (!Object.keys(lv).length) { setStatus(f.name + ': nothing to draw' + (bad ? ' (the coordinates are not MGA ' + S.zone + ' eastings/northings)' : '') + '.', 'bad'); return; }
+      CAD.push({ name: f.name, on: true, levels: lv, format: r.format });
+      if (bounds.isValid()) { if (S.view !== 'plan') setView('plan'); map.fitBounds(bounds, { maxZoom: 19 }); }
+      var ex = $('explorer'); if (ex) { (U.exp = U.exp || {}).layers = true; (U.exp)['cad'] = true; saveUi(); }
+      renderExplorer();
+      setStatus(f.name + ' (' + r.format + '): ' + Object.keys(lv).length + ' level' + (Object.keys(lv).length > 1 ? 's' : '') + ' drawn on the plan map. Switch them in Explorer › CAD overlays.' + (bad ? ' ' + bad + ' elements outside MGA were skipped.' : ''), 'good');
+    }).catch(function (e) { setStatus(f.name + ' could not be read: ' + e.message, 'bad'); });
+  }
+  function cadSet(fi, lvl, on) {
+    var f = CAD[fi]; if (!f) return;
+    if (lvl == null) { f.on = on; Object.keys(f.levels).forEach(function (k) { var g = f.levels[k]; if (on && g.on) g.layer.addTo(map); else map.removeLayer(g.layer); }); }
+    else { var g = f.levels[lvl]; if (!g) return; g.on = on; if (on && f.on) g.layer.addTo(map); else map.removeLayer(g.layer); }
+    renderExplorer();
+  }
+  function cadHtml() {
+    if (!CAD.length) return exItem('data-xact="cadadd"', '⇪', 'Add DGN / DXF overlay…');
+    return CAD.map(function (f, i) {
+      return exNode('cad' + i, '<input type="checkbox" data-xl="cad:' + i + '"' + (f.on ? ' checked' : '') + ' aria-label="Show ' + esc(f.name) + '"> ' + esc(f.name) + ' <button class="xauto" data-xcadrm="' + i + '" title="Remove this overlay">✕</button>', Object.keys(f.levels).length,
+        Object.keys(f.levels).sort().map(function (k) { return exChk('cad:' + i + ':' + esc(k), esc(k) + ' <small class="muted">' + f.levels[k].n + '</small>', f.levels[k].on); }).join(''));
+    }).join('') + exItem('data-xact="cadadd"', '⇪', 'Add DGN / DXF overlay…');
+  }
   function exChk(src, label, on) { return '<label class="xi"><input type="checkbox" data-xl="' + src + '"' + (on ? ' checked' : '') + '> ' + label + '</label>'; }
   function renderExplorer() {
     var ex = $('explorer'); if (!ex) return;
@@ -5070,6 +5176,7 @@
       exNode('layers', '▤ Layers', null,
         exChk('lySurvey', 'Poles', $('lySurvey').checked) + exChk('lyAlign', 'Spans', $('lyAlign').checked) + exChk('lySpanLbl', 'Span lengths', $('lySpanLbl').checked) + exChk('lyGis', 'GIS positions', $('lyGis').checked) + exChk('lyExtent', 'Project extent', $('lyExtent').checked) +
         exChk('pv:hv', 'Conductors (HV)', sv.hv) + exChk('pv:lv', 'Conductors (LV)', sv.lv) + exChk('pv:earth', 'Earth wire', sv.earth) + exChk('pv:ground', 'Ground profile', sv.ground) + exChk('pv:clr', 'Clearance line', sv.clr) + exChk('pv:att', 'Attachments', sv.att) + exChk('lbl', 'Labels', !!S.labels)) +
+      exNode('cad', '⧉ CAD overlays', CAD.length || null, cadHtml()) +
       exNode('design', '▦ Design Data', null,
         exNode('poles', 'Poles', allIds.length, allIds.slice(0, cap).map(function (k) { return exItem('data-xp="' + esc(k) + '"', '●', esc(k), ids.indexOf(k) >= 0 ? '#' + (ids.indexOf(k) + 1) : '', isSel(k)); }).join('') + (allIds.length > cap ? '<div class="xmore">+ ' + (allIds.length - cap) + ' more: use the Poles table</div>' : '')) +
         exNode('spans', 'Spans', spans.length, spans.slice(0, cap).map(function (s) { var on = S.selSpan && !S.selected && S.selSpan.a === s.a && S.selSpan.b === s.b; return exItem('data-xs="' + esc(s.a) + '|' + esc(s.b) + '"', '↔', esc(s.a) + ' → ' + esc(s.b), s.len != null ? s.len.toFixed(2) + ' m' : '', on); }).join('')) +
@@ -5095,9 +5202,13 @@
     else if (d.xact === 'import') $('tbUpload').click();
     else if (d.xact === 'imported') $('mImported').click();
     else if (d.xact === 'photos') $('mPhotos').click();
+    else if (d.xact === 'cadadd') cadPick();
   });
+  $('explorer').addEventListener('click', function (e) { var b = e.target.closest('[data-xcadrm]'); if (!b) return; e.preventDefault(); e.stopPropagation(); var i = +b.dataset.xcadrm, f = CAD[i]; if (!f) return; Object.keys(f.levels).forEach(function (k) { map.removeLayer(f.levels[k].layer); }); CAD.splice(i, 1); renderExplorer(); setStatus('Removed the ' + f.name + ' overlay.', 'good'); }, true);
+  function cadPick() { var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.dgn,.dxf'; inp.multiple = true; inp.onchange = function () { Array.prototype.forEach.call(inp.files, cadAdd); }; inp.click(); }
   $('explorer').addEventListener('change', function (e) {
     var c = e.target.closest('[data-xl]'); if (!c) return; var k = c.dataset.xl;
+    if (/^cad:/.test(k)) { var q = k.split(':'); cadSet(+q[1], q.length > 2 ? q.slice(2).join(':') : null, c.checked); return; }
     if (/^pv:/.test(k)) { var s = U.pvShow = U.pvShow || {}; s[k.slice(3)] = c.checked; saveUi(); syncPvTools(); renderProfileView(); }
     else if (k === 'lbl') $('tbLabels').click();
     else if ($(k) && $(k).checked !== c.checked) $(k).click();
@@ -5363,6 +5474,132 @@
   renderSelected = function () { if (U.insFloat && (S.selected || S.selSpan) && !U.right) { U.right = true; } _renderSelected.apply(this, arguments); insShow(); };
   insHead.querySelector('[data-close="right"]').addEventListener('click', function (e) { if (!U.insFloat) return; e.stopImmediatePropagation(); e.preventDefault(); select(null); }, true);
   insPlace();
+
+  /* Panel placement: Explorer, Properties, Tables and Profile can each stay docked where they are (home), float, or snap
+     to the left, right, top or bottom edge of the workspace (the views shrink to make room). Drag the ⠿ grip on a panel
+     header to an edge (or anywhere to float it), or tap the grip for the same choices; drag the inner edge of a snapped
+     panel to resize it. Phones (under 900 px) keep the stacked layout. */
+  var PLP = { side: { el: document.querySelector('#workspace > .side'), head: '.phead', name: 'Explorer' }, inspector: { el: ins, head: '.phead', name: 'Properties' },
+    dock: { el: $('dock'), head: '.tabs', name: 'Tables' }, analysis: { el: $('analysis'), head: '.antabs', name: 'Profile' } };
+  U.pl = U.pl || {}; U.plSize = Object.assign({ left: 320, right: 380, top: 230, bottom: 260 }, U.plSize || {}); U.plFloat = U.plFloat || {};
+  Object.keys(PLP).forEach(function (k) {
+    var P0 = PLP[k]; if (!P0.el) return;
+    P0.home = document.createComment('home:' + k); P0.el.parentNode.insertBefore(P0.home, P0.el);
+    var hd = P0.el.querySelector(P0.head); if (!hd) return;
+    hd.insertAdjacentHTML('afterbegin', '<button class="plgrip" data-plgrip="' + k + '" title="Move ' + P0.name + ': drag to an edge to snap it, or anywhere to float it. Tap for options." aria-label="Move or dock ' + P0.name + '">⠿</button>');
+  });
+  function plOf(k) { if (k === 'inspector' && !U.pl.inspector) return U.insFloat ? 'float' : 'home'; return U.pl[k] || 'home'; }
+  var plGrips = {};
+  function plLayout() {
+    var ws = $('workspace'), phone = innerWidth < 900, r0 = ws.getBoundingClientRect(), edges = { left: [], right: [], top: [], bottom: [] };
+    Object.keys(PLP).forEach(function (k) {
+      var P0 = PLP[k], el = P0.el, where = phone ? (k === 'inspector' ? plOf(k) : 'home') : plOf(k); if (!el) return;
+      el.classList.remove('pl-snap', 'pl-float'); el.dataset.pl = where;
+      if (where === 'home' || (k === 'inspector' && where === 'float')) {
+        if (k !== 'inspector' && el.parentNode !== P0.home.parentNode) P0.home.parentNode.insertBefore(el, P0.home.nextSibling);
+        if (k !== 'inspector') ['position', 'left', 'top', 'width', 'height'].forEach(function (x) { el.style[x] = ''; });
+        return;
+      }
+      if (el.parentNode !== document.body) document.body.appendChild(el);
+      if (where === 'float') {
+        var f = U.plFloat[k] || { x: innerWidth / 2 - 260, y: 140, w: 520, h: 340 };
+        el.classList.add('pl-float'); el.style.position = 'fixed';
+        el.style.left = Math.max(0, Math.min(innerWidth - 120, f.x)) + 'px'; el.style.top = Math.max(0, Math.min(innerHeight - 60, f.y)) + 'px'; el.style.width = f.w + 'px'; el.style.height = f.h + 'px';
+      } else { el.classList.add('pl-snap'); edges[where].push(el); }
+    });
+    if (plOf('side') !== 'home' && !phone) ws.classList.add('no-left');
+    if (plOf('inspector') !== 'home' && !phone) ws.classList.add('no-right');
+    var c = $('center'), dockOut = plOf('dock') !== 'home' && !phone;
+    if (dockOut) { c.style.gridTemplateRows = 'minmax(0,1fr) 0 0'; document.querySelector('.gutter.gh').hidden = true; }
+    var sz = U.plSize, pad = { left: edges.left.length ? sz.left : 0, right: edges.right.length ? sz.right : 0, top: edges.top.length ? sz.top : 0, bottom: edges.bottom.length ? sz.bottom : 0 };
+    ws.style.paddingLeft = pad.left ? pad.left + 'px' : ''; ws.style.paddingRight = pad.right ? pad.right + 'px' : ''; ws.style.paddingTop = pad.top ? pad.top + 'px' : ''; ws.style.paddingBottom = pad.bottom ? pad.bottom + 'px' : '';
+    var r = ws.getBoundingClientRect(), X = r.left + scrollX, Y = r.top + scrollY, W = r.width, H = r.height;
+    var put = function (el, x, y, w, h) { el.style.position = 'absolute'; el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = Math.max(40, w) + 'px'; el.style.height = Math.max(37, h) + 'px'; };
+    edges.left.forEach(function (el, i, a) { put(el, X, Y + H * i / a.length, pad.left, H / a.length); });
+    edges.right.forEach(function (el, i, a) { put(el, X + W - pad.right, Y + H * i / a.length, pad.right, H / a.length); });
+    var iw = W - pad.left - pad.right;
+    edges.top.forEach(function (el, i, a) { put(el, X + pad.left + iw * i / a.length, Y, iw / a.length, pad.top); });
+    edges.bottom.forEach(function (el, i, a) { put(el, X + pad.left + iw * i / a.length, Y + H - pad.bottom, iw / a.length, pad.bottom); });
+    // Resize handles on the inner edge of each occupied edge.
+    ['left', 'right', 'top', 'bottom'].forEach(function (e) {
+      var g = plGrips[e]; if (!g) { g = plGrips[e] = document.createElement('div'); g.className = 'plsize ' + e; g.setAttribute('role', 'separator'); g.title = 'Drag to resize'; document.body.appendChild(g); plSizer(g, e); }
+      g.hidden = !edges[e].length; if (g.hidden) return;
+      var vert = e === 'left' || e === 'right';
+      g.style.left = (e === 'left' ? X + pad.left - 4 : e === 'right' ? X + W - pad.right - 4 : X + pad.left) + 'px';
+      g.style.top = (e === 'top' ? Y + pad.top - 4 : e === 'bottom' ? Y + H - pad.bottom - 4 : Y) + 'px';
+      g.style.width = (vert ? 8 : iw) + 'px'; g.style.height = (vert ? H : 8) + 'px';
+    });
+    if (map && map.invalidateSize) setTimeout(function () { map.invalidateSize(); if (window.PNW3D && PNW3D.resize) PNW3D.resize(); }, 30);
+  }
+  function plSizer(g, e) {
+    g.addEventListener('pointerdown', function (ev) {
+      ev.preventDefault(); g.setPointerCapture(ev.pointerId); var x0 = ev.clientX, y0 = ev.clientY, v0 = U.plSize[e];
+      function mv(m) { var d = e === 'left' ? m.clientX - x0 : e === 'right' ? x0 - m.clientX : e === 'top' ? m.clientY - y0 : y0 - m.clientY; U.plSize[e] = Math.max(160, Math.min(e === 'left' || e === 'right' ? innerWidth * 0.6 : innerHeight * 0.7, v0 + d)); plLayout(); }
+      function up() { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); saveUi(); }
+      g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up);
+    });
+  }
+  function plSet(k, where, rect) {
+    if (k === 'inspector') { if (where === 'float' || where === 'home') { delete U.pl.inspector; U.insFloat = where === 'float'; } else { U.pl.inspector = where; U.insFloat = false; } insPlace(); }
+    else { if (where === 'home') delete U.pl[k]; else U.pl[k] = where; if (rect) U.plFloat[k] = rect; }
+    if (k === 'side' && where !== 'home') U.left = true;
+    if (k === 'inspector' && where !== 'home' && where !== 'float') U.right = true;
+    if (k === 'dock') { U.dock = true; U.dockMin = false; }
+    if (k === 'analysis') PLP.analysis.el.classList.remove('min');
+    saveUi(); applyLayout(); setTimeout(function () { if (S.view !== 'plan') renderViews(); }, 40);
+    setStatus(PLP[k].name + (where === 'home' ? ' is back in its usual place.' : where === 'float' ? ' is floating: drag its ⠿ grip to move it.' : ' is snapped to the ' + where + '.'), 'good');
+  }
+  function plMenu(k, btn) {
+    var old = $('plMenu'); if (old) { old.remove(); if (old.dataset.k === k) return; }
+    var m = document.createElement('div'); m.id = 'plMenu'; m.className = 'pop plmenu'; m.dataset.k = k;
+    var cur = plOf(k);
+    m.innerHTML = '<b>' + PLP[k].name + '</b>' + [['home', 'Docked (usual place)'], ['float', 'Float'], ['left', 'Snap left'], ['right', 'Snap right'], ['top', 'Snap top'], ['bottom', 'Snap bottom']].map(function (o) { return '<button class="btn small' + (o[0] === cur ? ' on' : '') + '" data-plset="' + o[0] + '">' + o[1] + '</button>'; }).join('');
+    document.body.appendChild(m); var r = btn.getBoundingClientRect(); m.style.position = 'fixed'; m.style.left = Math.min(innerWidth - 200, r.left) + 'px'; m.style.top = Math.min(innerHeight - 260, r.bottom + 4) + 'px';
+    m.onclick = function (e) { var b = e.target.closest('[data-plset]'); if (!b) return; m.remove(); plSet(k, b.dataset.plset); };
+  }
+  document.addEventListener('pointerdown', function (e) { var m = $('plMenu'); if (m && !e.target.closest('#plMenu,[data-plgrip]')) m.remove(); });
+  // Drag a grip: near a workspace edge snaps there, elsewhere floats; a tap opens the menu.
+  document.addEventListener('pointerdown', function (e) {
+    var gb = e.target.closest('[data-plgrip]'); if (!gb || e.button > 0) return;
+    e.preventDefault(); var k = gb.dataset.plgrip, el = PLP[k].el, x0 = e.clientX, y0 = e.clientY, moved = false, ghost = null, zone = null, er = el.getBoundingClientRect();
+    gb.setPointerCapture(e.pointerId);
+    function edgeAt(x, y) { if (innerWidth < 900) return null; var r = $('workspace').getBoundingClientRect(), t = Math.min(90, r.width * 0.12); if (y < r.top - 20 || y > r.bottom + 20) return null; if (x - r.left < t) return 'left'; if (r.right - x < t) return 'right'; if (y - r.top < t) return 'top'; if (r.bottom - y < t) return 'bottom'; return null; }
+    function mv(ev) {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return; moved = true;
+      if (!ghost) { ghost = document.createElement('div'); ghost.className = 'plghost'; document.body.appendChild(ghost); }
+      zone = edgeAt(ev.clientX, ev.clientY); var r = $('workspace').getBoundingClientRect(), w = Math.min(er.width, 520), h = Math.min(er.height, 360);
+      if (zone === 'left') Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: U.plSize.left + 'px', height: r.height + 'px' });
+      else if (zone === 'right') Object.assign(ghost.style, { left: r.right - U.plSize.right + 'px', top: r.top + 'px', width: U.plSize.right + 'px', height: r.height + 'px' });
+      else if (zone === 'top') Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: U.plSize.top + 'px' });
+      else if (zone === 'bottom') Object.assign(ghost.style, { left: r.left + 'px', top: r.bottom - U.plSize.bottom + 'px', width: r.width + 'px', height: U.plSize.bottom + 'px' });
+      else Object.assign(ghost.style, { left: ev.clientX - 20 + 'px', top: ev.clientY - 14 + 'px', width: w + 'px', height: h + 'px' });
+      ghost.classList.toggle('edge', !!zone);
+    }
+    function up(ev) {
+      gb.removeEventListener('pointermove', mv); gb.removeEventListener('pointerup', up); if (ghost) ghost.remove();
+      if (!moved) { plMenu(k, gb); return; }
+      if (zone) plSet(k, zone); else plSet(k, 'float', { x: ev.clientX - 20, y: Math.max(0, ev.clientY - 14), w: Math.min(er.width, 520), h: Math.min(er.height, 360) });
+    }
+    gb.addEventListener('pointermove', mv); gb.addEventListener('pointerup', up);
+  });
+  // Floating panels keep their size when resized by the corner.
+  if (window.ResizeObserver) Object.keys(PLP).forEach(function (k) { if (k === 'inspector' || !PLP[k].el) return; new ResizeObserver(function () { var el = PLP[k].el; if (plOf(k) !== 'float' || el.offsetWidth < 50) return; var f = U.plFloat[k] = U.plFloat[k] || {}; f.w = el.offsetWidth; f.h = el.offsetHeight; f.x = parseFloat(el.style.left) || 0; f.y = parseFloat(el.style.top) || 0; clearTimeout(plSizer.t); plSizer.t = setTimeout(saveUi, 300); }).observe(PLP[k].el); });
+  var _applyLayout2 = applyLayout;
+  applyLayout = function () { _applyLayout2.apply(this, arguments); plLayout(); };
+  window.addEventListener('resize', function () { clearTimeout(plLayout.t); plLayout.t = setTimeout(plLayout, 80); });
+  plLayout();
+
+  // Touch: a long press (about half a second without moving) opens the same right-click menu as a mouse (poles, spans,
+  // 3D and Street View); Android already does this, so a real contextmenu event cancels the synthetic one.
+  (function () {
+    var t = null, x = 0, y = 0, tgt = null;
+    document.addEventListener('pointerdown', function (e) { if (e.pointerType !== 'touch') return; clearTimeout(t); x = e.clientX; y = e.clientY; tgt = e.target;
+      t = setTimeout(function () { t = null; tgt.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2 })); }, 550); }, true);
+    var stop = function () { clearTimeout(t); t = null; };
+    document.addEventListener('pointermove', function (e) { if (t && Math.hypot(e.clientX - x, e.clientY - y) > 10) stop(); }, true);
+    document.addEventListener('pointerup', stop, true); document.addEventListener('pointercancel', stop, true);
+    document.addEventListener('contextmenu', function (e) { if (e.isTrusted) stop(); }, true);
+  })();
 
   // Header menus: Files, Home, Design, View, Settings as drop-downs beside the project name. The toolbar row keeps the Home tools.
   RIB.sort(function (a, b) { var o = ['Files', 'Home', 'Design', 'View', 'Settings']; return o.indexOf(a[0]) - o.indexOf(b[0]); });

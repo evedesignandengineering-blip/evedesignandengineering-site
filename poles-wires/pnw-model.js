@@ -405,6 +405,27 @@
     if (f.units) setField(s, 'TensionUnits', f.units);
     return s;
   }
+  // Change which poles a strain section runs over (poles: [{id, unique}] in line order); conductor, tension and conditions stay.
+  function setSectionPoles(p, name, poles) {
+    var s = p.segments.filter(function (x) { return x.StrainSect === name; })[0];
+    if (!s) throw new Error('Strain section ' + name + ' is not in this project.');
+    if (!poles || poles.length < 2) throw new Error('A strain section needs at least two poles.');
+    var members = poles.map(function (m) {
+      var pole = p.poles.filter(function (r) { return r.ID === m.id; })[0], c = p.constructions.filter(function (r) { return r.unique === String(m.unique); })[0];
+      if (!pole) throw new Error('Pole ' + m.id + ' is not in this project.');
+      if (!c || c.pole !== m.id) throw new Error(m.id + ' has no construction on this circuit to attach the conductors to.');
+      if (c.segment && c.segment !== name) throw new Error(m.id + ' ' + c.descr + ' already carries strain section ' + c.segment + '.');
+      return { id: m.id, pole: pole, c: c, n: list(c.attachHt).length };
+    });
+    var bare = members.filter(function (m) { return !m.n; });
+    if (bare.length) throw new Error(bare.map(function (m) { return m.id + ' ' + m.c.descr; }).join(', ') + ' has no attachment points.');
+    p.segPoles.filter(function (r) { return r.strsection === name; }).forEach(function (r) { removeRow(p, 'Table6', r); });
+    p.constructions.forEach(function (c) { if (c.segment === name) setField(c, 'segment', ''); });
+    members.forEach(function (m) { insertRow(p, 'Table6', { strsection: name, id: m.id, chain: m.pole.Distance, attht: m.c.attht, constr: m.c.descr }); setField(m.c, 'segment', name); });
+    setField(s, 'MES', fmtNum(Math.round(rulingSpanOf(p, members) * 100) / 100));
+    setField(s, 'numconds', String(Math.min.apply(null, members.map(function (m) { return m.n; }))));
+    return s;
+  }
   function removeSection(p, name) {
     var s = p.segments.filter(function (x) { return x.StrainSect === name; })[0];
     if (!s) return;
@@ -752,7 +773,7 @@
     parseXml: parseXml, serialize: serialize, readPnwx: readPnwx, writePnwx: writePnwx, setField: setField, setAttr: setAttr,
     updateConstruction: updateConstruction, addConstruction: addConstruction, removeConstruction: removeConstruction,
     constructionFrom: constructionFrom, buildRegister: buildRegister, addPole: addPole, updatePole: updatePole, setPoleType: setPoleType, removePole: removePole, pointAt: pointAt,
-    ensureConductor: ensureConductor, addSection: addSection, updateSection: updateSection, removeSection: removeSection, cutSections: cutSections, crossarmAxes: crossarmAxes, attachmentPoints: attachmentPoints,
+    ensureConductor: ensureConductor, addSection: addSection, updateSection: updateSection, removeSection: removeSection, setSectionPoles: setSectionPoles, cutSections: cutSections, crossarmAxes: crossarmAxes, attachmentPoints: attachmentPoints,
     wires: wires, illustrativeSag: illustrativeSag,
     parseLibrary: parseLibrary, libraryConstruction: libraryConstruction, defaultKingbolt: defaultKingbolt, matchPoleType: matchPoleType,
     groundAt: groundAt, designModel: designModel,
