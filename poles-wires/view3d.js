@@ -571,7 +571,7 @@ function street(el, c) {
     svR.domElement.className = 'sv3gl'; svCam = new THREE.PerspectiveCamera(60, 1, 0.3, 4000);
   }
   if (svR.domElement.parentNode !== el) el.appendChild(svR.domElement);
-  svR.domElement.style.cssText = 'position:absolute;left:0;top:0;width:' + c.w + 'px;height:' + c.h + 'px;pointer-events:none;z-index:1';
+  svR.domElement.style.cssText = 'position:absolute;left:' + (c.x || 0) + 'px;top:' + (c.y || 0) + 'px;width:' + c.w + 'px;height:' + c.h + 'px;pointer-events:none;z-index:1';
   svR.setSize(c.w, c.h, false);
   const R = Math.PI / 180, h = c.heading * R, pt = c.pitch * R, pos = P(c.e, c.n, c.z);
   svCam.aspect = c.w / c.h; svCam.fov = 2 * Math.atan(Math.tan(c.fov * R / 2) * c.h / c.w) / R; svCam.updateProjectionMatrix();
