@@ -4036,7 +4036,7 @@
   function sv3LiveOff() { var el = $('sv3pano'); if (el) el.remove(); if (window.PNW3D && PNW3D.street) PNW3D.street(null, null); SV3.live = null; $('sv3img').hidden = false; $('sv3svg').style.zIndex = ''; }
   function sv3Live(req) {
     var v = SV3.view; if (!v || !v.pano) return;
-    webKey().then(function (key) { return key && !directBad ? loadGmaps(key) : null; }).then(function (gm) {
+    webKey().then(function (key) { return key ? loadGmaps(key) : null; }).then(function (gm) { // the live panorama needs only the Maps JavaScript API, even when the Static API photo fell back
       if (!gm || req !== SV3.req || !SV3.on) return;
       var wrap = document.querySelector('#v3svp .sv3wrap'), el = $('sv3pano');
       if (!el) { el = document.createElement('div'); el.id = 'sv3pano'; el.style.cssText = 'position:absolute;inset:0;z-index:0'; wrap.insertBefore(el, $('sv3svg')); }
@@ -4515,6 +4515,7 @@
   function renderAnalysis() {
     var a = $('analysis'); if (!a) return;
     var docked = placeProfile(), main = S.view === 'profile' || S.view === 'split', an = main && U.an === 'profile' ? 'ground' : U.an, open = U.anOpen && !(main && U.an === 'profile');
+    if (main && U.an === 'profile' && U.pl && U.pl.analysis && U.pl.analysis !== 'home') { an = 'ground'; open = true; } // undocked: never an empty panel
     a.classList.toggle('min', !open); a.style.setProperty('--ah', U.ah + 'px'); $('anMin').textContent = open ? '▾' : '▴';
     Array.prototype.forEach.call(a.querySelectorAll('[data-an]'), function (b) { var on = b.dataset.an === an && open; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); if (b.dataset.an === 'profile') b.hidden = main; });
     if (!open) { markRail(); return; }
@@ -5444,7 +5445,7 @@
   new MutationObserver(function () { var p = $('dcshPop'), h = p.firstElementChild; if (h && !h._drag) { h._drag = 1; dragBy(p, h); } }).observe($('dcshPop'), { childList: true });
 
   // Pole Details as a floating, resizable window (⧉ docks it back into the side column).
-  if (U.insFloat == null) U.insFloat = true;
+  if (U.insFloat == null) U.insFloat = false;
   var ins = $('inspector'), insHead = ins.querySelector('.phead');
   insHead.insertAdjacentHTML('beforeend', '<button class="ibtn" id="insFloat" title="Float or dock the Pole Details window" aria-label="Float or dock the Pole Details window">⧉</button>');
   function insPlace() {
@@ -5489,6 +5490,7 @@
     hd.insertAdjacentHTML('afterbegin', '<button class="plgrip" data-plgrip="' + k + '" title="Move ' + P0.name + ': drag to an edge to snap it, or anywhere to float it. Tap for options." aria-label="Move or dock ' + P0.name + '">⠿</button>');
   });
   // Pole Details (inspector) now uses the same placement as the other panels; its old float setting carries over once.
+  if (U.plV !== 2) { U.plV = 2; if (U.pl.inspector === 'float') delete U.pl.inspector; U.insFloat = false; } // 2026-11-07: Pole Details docks at the right like Explorer by default
   if (!U.pl.inspector && U.insFloat) { U.pl.inspector = 'float'; if (U.ix != null) U.plFloat.inspector = { x: U.ix, y: U.iy, w: U.iw || 420, h: U.ih || 560 }; }
   U.insFloat = false; insPlace(); U.plSlot = U.plSlot || {}; U.plSplit = U.plSplit || {};
   function plOf(k) { return U.pl[k] || 'home'; }
