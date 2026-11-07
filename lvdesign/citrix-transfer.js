@@ -129,7 +129,7 @@
       busy(els.imp, 'Downloading\u2026'); say('');
       try {
         var got = await importFiles();
-        say(got.length ? 'Downloaded ' + got.map(function (f) { return f.name; }).join(' and ') + '. Open them from your Downloads folder.' : 'Nothing is waiting from Citrix.', got.length ? 'ok' : 'bad');
+        say(got.length ? 'Downloaded ' + got.map(function (f) { return f.name; }).join(' and ') + '. They open in LVDesign Web and are also in your Downloads folder.' : 'Nothing is waiting from Citrix.', got.length ? 'ok' : 'bad');
         try { window.dispatchEvent(new CustomEvent('lvd-citrix-import', { detail: got })); } catch (_) {}
       } catch (e) { say(errMsg(e), 'bad'); }
       idle(els.imp, 'Import from Citrix'); refresh();
