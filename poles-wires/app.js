@@ -4516,6 +4516,7 @@
     var a = $('analysis'); if (!a) return;
     var docked = placeProfile(), main = S.view === 'profile' || S.view === 'split', an = main && U.an === 'profile' ? 'ground' : U.an, open = U.anOpen && !(main && U.an === 'profile');
     if (main && U.an === 'profile' && U.pl && U.pl.analysis && U.pl.analysis !== 'home') { an = 'ground'; open = true; } // undocked: never an empty panel
+    if (!(built && built.rows && built.rows.length > 1) && !(U.pl && U.pl.analysis && U.pl.analysis !== 'home')) open = false; // nothing to show yet: give the map the room
     a.classList.toggle('min', !open); a.style.setProperty('--ah', U.ah + 'px'); $('anMin').textContent = open ? '▾' : '▴';
     Array.prototype.forEach.call(a.querySelectorAll('[data-an]'), function (b) { var on = b.dataset.an === an && open; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); if (b.dataset.an === 'profile') b.hidden = main; });
     if (!open) { markRail(); return; }
@@ -4526,6 +4527,14 @@
     else body.innerHTML = calcSummaryHtml();
     markRail(); if ($('anCtl')) syncAnCtl();
   }
+  (function () { // the selected-pole toolbar sits beside Fit when it fits, else on its own row (never cut off)
+    var head = document.querySelector('#mapWrap>.viewhead'); if (!head) return;
+    var fit = function () { head.classList.remove('ctxrow'); var cb = $('ctxBar'); if (!cb.hidden && (head.scrollWidth > head.clientWidth + 1 || cb.scrollWidth > cb.clientWidth + 1)) head.classList.add('ctxrow'); };
+    var t = 0, later = function () { cancelAnimationFrame(t); t = requestAnimationFrame(fit); };
+    if (window.ResizeObserver) new ResizeObserver(later).observe(head);
+    new MutationObserver(later).observe(head, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] });
+    new MutationObserver(later).observe($('mapWrap'), { attributes: true, attributeFilter: ['class'] });
+  })();
   $('analysis').querySelector('.antabs').addEventListener('click', function (e) { var b = e.target.closest('[data-an]'); if (b) { U.an = b.dataset.an; U.anOpen = true; saveUi(); renderAnalysis(); } });
   $('anMin').onclick = function () { if ((S.view === 'profile' || S.view === 'split') && U.an === 'profile') { U.an = 'ground'; U.anOpen = true; } else U.anOpen = !U.anOpen; saveUi(); renderAnalysis(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); }, 30); };
   (function () {
