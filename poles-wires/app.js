@@ -2286,7 +2286,11 @@
   // Street View image of the pole: nearest outdoor panorama within 50 m, turned toward the pole, pitched to take in its top.
   function svImageFor(id) {
     var key = gmKey(), ll = poleLL(id); if (!ll) return Promise.resolve(null);
-    if (!key) return IN_CLAUDE || webMapsOn() ? Promise.resolve(svMcpImage(id, ll)).catch(function () { return null; }) : Promise.resolve(null);
+    // The PNW Maps route first (server side, no CORS limits); a browser key is only the fallback when the route is down.
+    if (IN_CLAUDE || webMapsOn()) return Promise.resolve(svMcpImage(id, ll)).then(function (x) { return x || (key && !IN_CLAUDE ? svImageKey(id, ll, key) : null); }, function () { return key && !IN_CLAUDE ? svImageKey(id, ll, key) : null; });
+    return key ? svImageKey(id, ll, key) : Promise.resolve(null);
+  }
+  function svImageKey(id, ll, key) {
     return loadGmaps(key).then(function (gm) {
       return new Promise(function (res) {
         new gm.StreetViewService().getPanorama({ location: new gm.LatLng(ll.lat, ll.lng), radius: 50, source: 'outdoor' }, function (data, status) {
@@ -2503,7 +2507,7 @@
     var one = function (id, again) {
       return aiFor(id).then(null, function () {}).then(function () {
         var r = aiResults[id];
-        if (!again && r && !r.resp && /Too many requests/.test(r.error || '')) { delete aiResults[id]; return new Promise(function (res) { setTimeout(res, 4000); }).then(function () { return one(id, true); }); }
+        if (!again && r && !r.resp && /Too many requests|Rate limit|rate limit/.test(r.error || '')) { delete aiResults[id]; return new Promise(function (res) { setTimeout(res, IN_CLAUDE ? 4000 : 15000); }).then(function () { return one(id, true); }); }
       });
     };
     var worker = function () {
@@ -3745,14 +3749,16 @@
     if (!ll) { var q = dm && dm.allPoles.filter(function (x) { return x.id === id; })[0] || (xPole(id) || {}).pole; ll = q && isFinite(q.easting) ? toLatLng(q.easting, q.northing) : null; }
     return ll;
   }
+  var gmLoading = null;
   function loadGmaps(key) {
     if (window.google && window.google.maps && window.google.maps.StreetViewPanorama) return Promise.resolve(window.google.maps);
-    return new Promise(function (resolve, reject) {
+    if (gmLoading) return gmLoading; // one script load shared by parallel callers (auto design runs 4 poles at once)
+    return gmLoading = new Promise(function (resolve, reject) {
       window.__pnwGm = function () { resolve(window.google.maps); };
       var sc = document.createElement('script'); sc.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&callback=__pnwGm&v=quarterly'; sc.async = true;
       sc.onerror = function () { reject(new Error('Google Maps could not be loaded (blocked or offline).')); }; document.head.appendChild(sc);
       setTimeout(function () { reject(new Error('Google Maps did not load in time. Check the key and the network.')); }, 12000);
-    });
+    }).catch(function (e) { gmLoading = null; throw e; });
   }
   function closeStreetView() { $('svPanel').hidden = true; $('svPanel').innerHTML = ''; sv = { id: null, pano: null, gm: null, pov: null }; }
   function openStreetView(id, llo) {
@@ -3763,9 +3769,10 @@
       '<div class="svb" id="svBody"></div><div class="svf"><button class="btn primary" id="svCap" title="Capture what is shown and send it to the AI for ' + esc(id) + '">📸 Capture and analyse</button><span class="meta grow" id="svHint"></span></div>';
     $('svClose').onclick = closeStreetView; $('svKey').onclick = svKeyDlg; $('svCap').onclick = svCapture;
     if (llo) { $('svCap').hidden = true; sv.free = true; }
-    if (key) svStartApi(id, ll, key); else if (IN_CLAUDE) svStartMcp(id, ll);
-    else if (webMapsOn()) { $('svBody').innerHTML = '<p class="hint" style="padding:12px">Finding Street View near ' + esc(id) + '…</p>'; mapsCall('street_view_metadata', { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50 }).then(function () { if (sv.id === id) svStartMcp(id, ll); }, function () { if (sv.id === id) svStartEmbed(id, ll); }); }
-    else svStartEmbed(id, ll);
+    var noRoute = function () { if (sv.id !== id) return; if (key) { sv.mode = 'api'; svStartApi(id, ll, key); } else svStartEmbed(id, ll); };
+    if (IN_CLAUDE) { if (key) svStartApi(id, ll, key); else svStartMcp(id, ll); }
+    else if (webMapsOn()) { sv.mode = 'mcp'; $('svBody').innerHTML = '<p class="hint" style="padding:12px">Finding Street View near ' + esc(id) + '…</p>'; mapsCall('street_view_metadata', { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50 }).then(function () { if (sv.id === id) svStartMcp(id, ll); }, noRoute); }
+    else noRoute();
     if (!llo && S.selected !== id) select(id);
   }
   function poleHag(id) { var row = project && project.poles.filter(function (r) { return r.ID === id; })[0]; return row ? PNW.num(row.HeightAG) || 9 : 9; }
@@ -3820,6 +3827,7 @@
   // For the AI: the photos from one step ahead and one step behind, both facing the pole; the AI uses the better one.
   function svMcpImage(id, ll) {
     return svStepPanos(id, ll).then(function (ps) {
+      if (!IN_CLAUDE) ps = ps.slice(0, 1); // the website AI reads one photo, so fetch only one
       if (!ps.length) return svPickPano(id, ll).then(function (pano) { return Promise.all([svShot(id, ll, pano, '')]); });
       return Promise.all(ps.map(function (p) { return svShot(id, ll, p.pano, p.side); }));
     }).then(function (list) {
