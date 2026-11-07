@@ -245,7 +245,7 @@ function update(data) {
     for (let i = 0; i < rb.length - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
     const ribbon = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0xb9c8a6, side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
-    ribbon.renderOrder = -1; group.add(ribbon);
+    ribbon.renderOrder = -1; ribbon.userData.svHide = true; group.add(ribbon);
   });
 
   poles.forEach((p) => {
@@ -258,7 +258,7 @@ function update(data) {
     }
     if (p.sunk > 0) {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(rGL, rGL, p.sunk, 20), new THREE.MeshStandardMaterial({ color: COLORS.embed, transparent: true, opacity: 0.45, depthWrite: false }));
-      m.position.copy(b).add(new THREE.Vector3(0, -p.sunk / 2, 0)); m.userData.pole = p.id; part(m, p.id); parts.push(m);
+      m.position.copy(b).add(new THREE.Vector3(0, -p.sunk / 2, 0)); m.userData.pole = p.id; m.userData.svHide = true; part(m, p.id); parts.push(m);
     }
     poleMeshes[p.id] = parts;
     if (data.showLabels !== false) label(p.id, b.clone().add(new THREE.Vector3(0, (p.height || 0) + 1.2, 0)));
@@ -344,7 +344,7 @@ function update(data) {
   // Reference grid on the lowest pole base (not part of the fit).
   const ext = poles.reduce((m, p) => Math.max(m, Math.abs(p.easting - origin.e), Math.abs(p.northing - origin.n)), 20);
   const grid = new THREE.GridHelper(Math.ceil(ext * 2.4 / 10) * 10, Math.ceil(ext * 2.4 / 10), 0xc5d0db, 0xdde4ea);
-  grid.position.y = Math.min(...poles.map((p) => p.ground)) - origin.z - 0.02; planeY = grid.position.y; grid.material.depthWrite = false; grid.renderOrder = -2; group.add(grid);
+  grid.position.y = Math.min(...poles.map((p) => p.ground)) - origin.z - 0.02; planeY = grid.position.y; grid.material.depthWrite = false; grid.renderOrder = -2; grid.userData.svHide = true; group.add(grid);
   grid.visible = tileOpts.kind === 'none'; gridRef = grid; tileExt = ext; gridY = grid.position.y;
 
   const box = bounds(fitObjects); sceneRadius = Math.max(10, box.getBoundingSphere(new THREE.Sphere()).radius);
@@ -559,6 +559,33 @@ function selectSection(name) {
   });
   invalidate();
 }
+/* Street View overlay: the same 3D model (poles, crossarms, insulators, conductors, stays, plant) drawn from the
+   Street View camera on a transparent canvas over the panorama. c = { e, n, z (eye level, m), heading (grid bearing, °),
+   pitch (°), fov (horizontal, °), w, h (px) }; null removes it. Ground, grid, map tiles and embedment are left out. */
+let svR = null, svCam = null;
+function street(el, c) {
+  if (!c) { if (svR) { svR.domElement.remove(); svR.dispose(); svR = null; } return false; }
+  if (!scene || !origin || !c.w || !c.h) return false;
+  if (!svR) {
+    svR = new THREE.WebGLRenderer({ antialias: true, alpha: true }); svR.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); svR.setClearColor(0x000000, 0);
+    svR.domElement.className = 'sv3gl'; svCam = new THREE.PerspectiveCamera(60, 1, 0.3, 4000);
+  }
+  if (svR.domElement.parentNode !== el) el.appendChild(svR.domElement);
+  svR.domElement.style.cssText = 'position:absolute;left:0;top:0;width:' + c.w + 'px;height:' + c.h + 'px;pointer-events:none;z-index:1';
+  svR.setSize(c.w, c.h, false);
+  const R = Math.PI / 180, h = c.heading * R, pt = c.pitch * R, pos = P(c.e, c.n, c.z);
+  svCam.aspect = c.w / c.h; svCam.fov = 2 * Math.atan(Math.tan(c.fov * R / 2) * c.h / c.w) / R; svCam.updateProjectionMatrix();
+  svCam.position.copy(pos); svCam.up.set(0, 1, 0);
+  svCam.lookAt(pos.clone().add(new THREE.Vector3(Math.sin(h) * Math.cos(pt), Math.sin(pt), -Math.cos(h) * Math.cos(pt))));
+  const hidden = [];
+  group.traverse((o) => { if (o.userData && o.userData.svHide && o.visible) { o.visible = false; hidden.push(o); } });
+  if (tileGroup && tileGroup.visible) { tileGroup.visible = false; hidden.push(tileGroup); }
+  lineMats.forEach((mt) => mt.resolution.set(c.w, c.h));
+  svR.render(scene, svCam);
+  hidden.forEach((o) => { o.visible = true; });
+  lineMats.forEach((mt) => mt.resolution.set(host.clientWidth || 1, host.clientHeight || 1));
+  return true;
+}
 function snapshot() { clipPlanes(); renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); }
 // For tests: camera state and where the fitted box lands on screen (NDC, -1..1).
 function state() {
@@ -574,5 +601,5 @@ function state() {
   };
 }
 
-window.PNW3D = { clearance, context: (fn) => { onContext = fn || onContext; }, mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS, hover, marks, basemap, tiles: () => Object.assign({ kind: tileOpts.kind, terrain: tileOpts.terrain, meshes: tileGroup ? tileGroup.children.length : 0 }, tileStat) };
+window.PNW3D = { street, clearance, context: (fn) => { onContext = fn || onContext; }, mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS, hover, marks, basemap, tiles: () => Object.assign({ kind: tileOpts.kind, terrain: tileOpts.terrain, meshes: tileGroup ? tileGroup.children.length : 0 }, tileStat) };
 window.dispatchEvent(new Event('pnw3d-ready'));

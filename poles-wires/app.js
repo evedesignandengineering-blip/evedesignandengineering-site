@@ -3995,7 +3995,7 @@
   })();
   /* Website: Google's own interactive panorama (full 360°, drag, zoom, arrows to walk) with the design drawn over it.
      The overlay follows the panorama's position and point of view; Google zoom z shows a horizontal field of 180/2^z degrees. */
-  function sv3LiveOff() { var el = $('sv3pano'); if (el) el.remove(); SV3.live = null; $('sv3img').hidden = false; $('sv3svg').style.zIndex = ''; }
+  function sv3LiveOff() { var el = $('sv3pano'); if (el) el.remove(); if (window.PNW3D && PNW3D.street) PNW3D.street(null, null); SV3.live = null; $('sv3img').hidden = false; $('sv3svg').style.zIndex = ''; }
   function sv3Live(req) {
     var v = SV3.view; if (!v || !v.pano) return;
     webKey().then(function (key) { return key && !directBad ? loadGmaps(key) : null; }).then(function (gm) {
@@ -4034,7 +4034,25 @@
     var P = function (e, n, z) { var dx = e - c.e, dy = n - c.n, dz = z - cz, zc = dx * F[0] + dy * F[1] + dz * F[2]; if (zc < 0.5) return null; return [W / 2 + f * (dx * Rv[0] + dy * Rv[1]) / zc, H / 2 - f * (dx * U[0] + dy * U[1] + dz * U[2]) / zc, zc]; };
     var out = '', col = { hv: '#fb923c', lv: '#60a5fa', earth: '#cbd5e1', other: '#2dd4bf' };
     var show = $('sv3ov').checked;
-    if (show) {
+    // Live panorama (website): the 3D view's own model is drawn from the Street View camera; the SVG keeps labels and click targets.
+    var gl = !!(lv && show && window.PNW3D && PNW3D.street && PNW3D.street(document.querySelector('#v3svp .sv3wrap'), { e: c.e, n: c.n, z: cz, heading: c.heading, pitch: c.pitch, fov: c.fov, w: W, h: H }));
+    if (!gl && window.PNW3D && PNW3D.street) PNW3D.street(null, null);
+    if (show && gl) {
+      d.wires.forEach(function (w) {
+        var segs = [], cur = [];
+        for (var k = 0; k <= 24; k++) { var t = k / 24, q = P(w.from.easting + (w.to.easting - w.from.easting) * t, w.from.northing + (w.to.northing - w.from.northing) * t, w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0)); if (q) cur.push(q[0].toFixed(1) + ',' + q[1].toFixed(1)); else if (cur.length) { segs.push(cur); cur = []; } }
+        if (cur.length) segs.push(cur);
+        var key = esc(w.from.pole + '|' + w.to.pole + '|' + (w.segment || ''));
+        segs.forEach(function (s) { if (s.length > 1) out += '<polyline class="sv3hit" data-sv3w="' + key + '" points="' + s.join(' ') + '" fill="none" stroke="transparent" stroke-width="14"><title>' + esc((w.segment || '') + ' ' + (w.code || '')) + '</title></polyline>'; });
+      });
+      d.poles.forEach(function (p) {
+        if (!isFinite(p.easting) || !(p.height > 0)) return;
+        var a = P(p.easting, p.northing, p.ground), b = P(p.easting, p.northing, p.ground + p.height); if (!a || !b) return;
+        var wpx = Math.max(2, Math.min(40, 0.3 * f / a[2])), on = p.id === (S.selected || SV3.id);
+        out += '<text x="' + (b[0] + wpx / 2 + 6).toFixed(1) + '" y="' + (b[1] + 4).toFixed(1) + '" class="sv3lbl' + (on ? ' on' : '') + '">' + esc(p.id) + '</text>' +
+          '<line class="sv3hit" data-sv3p="' + esc(p.id) + '" x1="' + a[0].toFixed(1) + '" y1="' + a[1].toFixed(1) + '" x2="' + b[0].toFixed(1) + '" y2="' + b[1].toFixed(1) + '" stroke="transparent" stroke-width="' + (wpx + 16).toFixed(1) + '"><title>' + esc(p.id) + '</title></line>';
+      });
+    } else if (show) {
       d.wires.forEach(function (w) {
         var segs = [], cur = [];
         for (var k = 0; k <= 24; k++) { var t = k / 24, q = P(w.from.easting + (w.to.easting - w.from.easting) * t, w.from.northing + (w.to.northing - w.from.northing) * t, w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0)); if (q) cur.push(q[0].toFixed(1) + ',' + q[1].toFixed(1)); else if (cur.length) { segs.push(cur); cur = []; } }
