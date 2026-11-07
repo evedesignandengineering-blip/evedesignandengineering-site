@@ -143,8 +143,57 @@
       .then(function (j) { var res = j && j.result; if (!res || res.isError) throw { message: (res && res.content && res.content[0] && res.content[0].text) || (j && j.error && j.error.message) || 'Street View request failed.' }; return res; });
     webCache[k] = pr; pr.catch(function () { delete webCache[k]; }); return pr;
   } };
+  /* Website: Street View straight from Google with the designer's key (their own key from the Street View panel, else the
+     LVDesign default for signed-in users). Metadata through the Maps JavaScript API, photos from the Street View Static API.
+     The Supabase route (webMaps) is only the fallback; inside Claude the PNW Maps connector is used instead. */
+  var webKeyP = null, directBad = false;
+  function webKey() {
+    var k = gmKey(); if (k) return Promise.resolve(k);
+    if (webKeyP) return webKeyP;
+    var tok = null; try { var raw = localStorage.getItem('sb-hszkloepnewfkzdegfhl-auth-token'); tok = raw && JSON.parse(raw).access_token; } catch (e) { tok = null; }
+    if (!tok) return Promise.resolve(null);
+    return webKeyP = fetch('https://hszkloepnewfkzdegfhl.supabase.co/rest/v1/rpc/lvd_gmaps_default', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + tok }, body: '{}' })
+      .then(function (r) { return r.ok ? r.json() : null; }).then(function (v) { return typeof v === 'string' && v ? v : null; }, function () { return null; })
+      .then(function (v) { if (!v) webKeyP = null; return v; });
+  }
+  function gDist(a, b) { return L.latLng(a.lat, a.lng).distanceTo(L.latLng(b.lat, b.lng)); }
+  function gMeta(gm, a) {
+    return new Promise(function (res) {
+      var req = a.pano ? { pano: String(a.pano) } : { location: new gm.LatLng(+a.lat, +a.lng), radius: Math.max(1, Math.min(200, +a.radius || 50)), source: gm.StreetViewSource ? gm.StreetViewSource.OUTDOOR : 'outdoor' };
+      new gm.StreetViewService().getPanorama(req, function (d, st) {
+        if (st !== 'OK' || !d || !d.location) return res({ found: false, status: String(st), target: { lat: +a.lat, lng: +a.lng } });
+        var at = { lat: d.location.latLng.lat(), lng: d.location.latLng.lng() }, tg = { lat: +a.lat, lng: +a.lng }, dd = gDist(at, tg);
+        res({ found: true, pano: d.location.pano, lat: at.lat, lng: at.lng, date: d.imageDate || null, distance_m: Math.round(dd * 10) / 10, heading: Math.round(bearingTo(at, tg) * 10) / 10, target: tg });
+      });
+    });
+  }
+  function gImg(url) { // the photo bytes: fetch (CORS), else a CORS image through a canvas
+    var toB64 = function (blob) { return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res({ data: String(fr.result).split(',')[1], mimeType: blob.type || 'image/jpeg' }); }; fr.onerror = rej; fr.readAsDataURL(blob); }); };
+    return fetch(url, { mode: 'cors' }).then(function (r) { if (!r.ok) throw new Error('Google answered ' + r.status); return r.blob(); }).then(toB64).catch(function () {
+      return new Promise(function (res, rej) { var im = new Image(); im.crossOrigin = 'anonymous'; im.onload = function () { try { var c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; c.getContext('2d').drawImage(im, 0, 0); res({ data: c.toDataURL('image/jpeg', 0.9).split(',')[1], mimeType: 'image/jpeg' }); } catch (e) { rej(e); } }; im.onerror = rej; im.src = url; });
+    });
+  }
+  var directMaps = { callTool: function (srv, tool, input) {
+    if (directBad || (tool !== 'street_view' && tool !== 'street_view_metadata')) return webMaps.callTool(srv, tool, input);
+    var k = 'g' + tool + JSON.stringify(input); if (webCache[k]) return webCache[k];
+    var a = input || {};
+    var pr = webKey().then(function (key) {
+      if (!key) throw { code: 'nokey' };
+      return loadGmaps(key).then(function (gm) { return gMeta(gm, a); }).then(function (m) {
+        if (tool === 'street_view_metadata' || !m.found) return { content: [{ type: 'text', text: JSON.stringify(m) }], structuredContent: m };
+        var cl = function (v, d, lo, hi) { var n = Number(v); return isFinite(n) && v !== null && v !== '' ? Math.min(hi, Math.max(lo, n)) : d; };
+        var pitch = a.pitch != null ? cl(a.pitch, 0, -90, 90) : Math.max(0, Math.min(40, Math.atan2(cl(a.height_m, 9, 1, 40) * 0.6 - 2.5, Math.max(3, m.distance_m)) * 180 / Math.PI));
+        var heading = a.heading != null ? cl(a.heading, 0, 0, 360) : m.heading, fov = cl(a.fov, 70, 10, 120), w = Math.round(cl(a.width, 640, 64, 640)), h = Math.round(cl(a.height, 480, 64, 640));
+        return gImg('https://maps.googleapis.com/maps/api/streetview?size=' + w + 'x' + h + '&pano=' + encodeURIComponent(m.pano) + '&heading=' + heading.toFixed(1) + '&pitch=' + pitch.toFixed(1) + '&fov=' + fov.toFixed(0) + '&key=' + encodeURIComponent(key)).then(function (img) {
+          var info = Object.assign({}, m, { heading: Math.round(heading * 10) / 10, pitch: Math.round(pitch * 10) / 10, fov: fov, width: w, height: h });
+          return { content: [{ type: 'image', data: img.data, mimeType: img.mimeType }, { type: 'text', text: JSON.stringify(info) }], structuredContent: info };
+        });
+      });
+    }).catch(function (e) { delete webCache[k]; directBad = true; return webMaps.callTool(srv, tool, input); }); // no key or Google refused: the Supabase route
+    webCache[k] = pr; return pr;
+  } };
   function webMapsOn() { return !IN_CLAUDE && !WEB_MAPS_DOWN; }
-  function mapsReady() { if (!IN_CLAUDE) return Promise.resolve(WEB_MAPS_DOWN ? null : webMaps); if (!window.claude || !window.claude.use) return Promise.resolve(null); if (!mapsMcp) mapsMcp = Promise.resolve(window.claude.use('mcp')).catch(function () { return null; }); return mapsMcp; }
+  function mapsReady() { if (!IN_CLAUDE) return Promise.resolve(WEB_MAPS_DOWN ? null : directMaps); if (!window.claude || !window.claude.use) return Promise.resolve(null); if (!mapsMcp) mapsMcp = Promise.resolve(window.claude.use('mcp')).catch(function () { return null; }); return mapsMcp; }
   function mapsCall(tool, input) { return mapsReady().then(function (m) { if (!m) throw { code: 'capability_disabled', message: 'Maps are not available in this view.' }; return m.callTool(MAPS_SRV, tool, input, { cache: { staleTime: 864e5, gcTime: 864e5 } }); }); }
   function mapsImg(r) { var b = ((r && r.content) || []).filter(function (c) { return c.type === 'image'; })[0]; return b ? { url: 'data:' + b.mimeType + ';base64,' + b.data, b64: b.data, type: b.mimeType } : null; }
   function mapsInfo(r) { return (r && (r.structuredContent || (typeof r.payload === 'object' ? r.payload : null))) || {}; }

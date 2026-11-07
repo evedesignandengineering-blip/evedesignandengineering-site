@@ -14,14 +14,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261111"></script>
-<script src="pnw-model.js?v=20261111"></script>
-<script src="builtin-data.js?v=20261111"></script>
-<script src="pnw-tipload.js?v=20261111"></script>
-<script src="hvlv-rules.js?v=20261111"></script>
-<script src="ai-guide.js?v=20261111"></script>
+<script src="pnw-core.js?v=20261112"></script>
+<script src="pnw-model.js?v=20261112"></script>
+<script src="builtin-data.js?v=20261112"></script>
+<script src="pnw-tipload.js?v=20261112"></script>
+<script src="hvlv-rules.js?v=20261112"></script>
+<script src="ai-guide.js?v=20261112"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<script type="module" src="view3d.js?v=20261111"></script>
+<script type="module" src="view3d.js?v=20261112"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#a1c5ef;--ink:#b6c8de;--muted:#79879b;--line:#243342;--bg:#162533;--blue:#2f6ea4;--teal:#0f766e;--white:#171c24;--bad:#df5b51;--warn:#ee884e;--ok:#80d8a5;--ground:#2f6ea4;--pole:#c2410c;--sel:#f59e0b;--focus:#2563eb;color-scheme:dark}
@@ -1079,12 +1079,12 @@ body:not(.help-on) #secFormBox :is(.meta,.hint,ul.msgs li.info){display:none}
 </div>
 <div id="dcshPop" hidden role="dialog" aria-label="DCSH drawing"></div>
 <script>if (!window.L || !window.proj4 || !window.XLSX) document.body.insertAdjacentHTML('afterbegin', '<div class="cdn-fail" role="alert">The map and spreadsheet libraries did not load (no internet, or a blocked CDN). Check your connection and reload the page.</div>');</script>
-<script src="app.js?v=20261111"></script>
+<script src="app.js?v=20261112"></script>
 <script>
 // DCSH drawing thumbnails: fetched only after the page has fully loaded, then the images are warmed in idle time.
 window.addEventListener('load', function () {
   setTimeout(function () {
-    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261111';
+    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261112';
     sc.onload = function () {
       var keys = Object.keys(window.PNW_DCSH_IMG || {}), idle = window.requestIdleCallback || function (f) { return setTimeout(f, 200); };
       (function next() { var k = keys.shift(); if (!k) return; var im = new Image(); im.onload = im.onerror = function () { idle(next); }; im.src = window.PNW_DCSH_IMG[k].src; })();
