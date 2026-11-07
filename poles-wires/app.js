@@ -3891,7 +3891,7 @@
   function sv3Ids() { var d = data3d(); return d.poles.filter(function (p) { return isFinite(p.easting) && isFinite(p.ground); }).map(function (p) { return p.id; }); }
   function sv3Msg(t) { $('sv3msg').textContent = t || ''; $('sv3msg').hidden = !t; }
   function sv3Toggle(on) {
-    SV3.on = on == null ? !SV3.on : on; $('v3svp').hidden = !SV3.on; $('v3sv').classList.toggle('on', SV3.on);
+    SV3.on = on == null ? !SV3.on : on; $('v3svp').hidden = !SV3.on; $('v3sv').classList.toggle('on', SV3.on); if (!SV3.on) sv3LiveOff();
     if (SV3.on) sv3Show(S.selected && sv3Ids().indexOf(S.selected) >= 0 ? S.selected : null);
   }
   function sv3Show(id) {
@@ -3916,7 +3916,7 @@
       SV3.cam = { e: ce[0], n: ce[1], heading: hg, pitch: c.pitch, fov: c.fov, side: x.p ? x.p.side : '', count: x.n, date: c.date, dist: c.dist };
       SV3.view = { pano: x.sh.meta.pov.pano, lat: c.lat != null ? Number(c.lat) : null, lng: c.lng != null ? Number(c.lng) : null, th: c.heading, pitch: c.pitch, fov: c.fov, date: c.date, gam: gam };
       if (SV3.url) URL.revokeObjectURL(SV3.url); SV3.url = URL.createObjectURL(x.sh.file);
-      sv3Img(SV3.url);
+      sv3Img(SV3.url); if (!IN_CLAUDE) sv3Live(req);
       $('sv3side').disabled = x.n < 2; sv3Msg(''); sv3Title();
     }, function (e) { if (req === SV3.req) sv3Msg('Street View: ' + mapsErr(e)); });
   }
@@ -3960,7 +3960,7 @@
   (function () {
     var wrap = document.querySelector('#v3svp .sv3wrap'), drag = null;
     var scale = function () { var im = $('sv3img'), r = wrap.getBoundingClientRect(), s = Math.min(r.width, r.height); return SV3.view ? SV3.view.fov / (s || 1) : 0.1; };
-    wrap.addEventListener('pointerdown', function (e) { if (!SV3.view || e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, th: SV3.view.th, p: SV3.view.pitch, k: scale(), hit: e.target.closest && e.target.closest('[data-sv3p],[data-sv3w]'), moved: false }; wrap.setPointerCapture(e.pointerId); wrap.classList.add('drag'); });
+    wrap.addEventListener('pointerdown', function (e) { if (!SV3.view || e.button !== 0) return; if (SV3.live) { var hh = e.target.closest && e.target.closest('[data-sv3p],[data-sv3w]'); if (hh) sv3Pick(hh); return; } drag = { x: e.clientX, y: e.clientY, th: SV3.view.th, p: SV3.view.pitch, k: scale(), hit: e.target.closest && e.target.closest('[data-sv3p],[data-sv3w]'), moved: false }; wrap.setPointerCapture(e.pointerId); wrap.classList.add('drag'); });
     wrap.addEventListener('pointermove', function (e) {
       if (!drag) return; var dx = e.clientX - drag.x, dy = e.clientY - drag.y, v = SV3.view;
       if (!drag.moved && Math.hypot(dx, dy) < 4) return; drag.moved = true;
@@ -3978,24 +3978,54 @@
     wrap.addEventListener('contextmenu', function (e) { var h = e.target.closest && e.target.closest('[data-sv3p],[data-sv3w]'); if (!h) return; e.preventDefault(); if (h.dataset.sv3p) poleMenu(h.dataset.sv3p, e.clientX, e.clientY); else { var k = h.dataset.sv3w.split('|'); spanMenu(k[0], k[1], e.clientX, e.clientY, k[2]); } });
     wrap.addEventListener('pointerup', end); wrap.addEventListener('pointercancel', end);
     wrap.addEventListener('wheel', function (e) {
-      if (!SV3.view) return; e.preventDefault(); var v = SV3.view, f0 = v.fov;
+      if (!SV3.view || SV3.live) return; e.preventDefault(); var v = SV3.view, f0 = v.fov;
       v.fov = Math.max(15, Math.min(100, v.fov * Math.exp(e.deltaY * 0.0015)));
       var s = Math.tan(f0 * Math.PI / 360) / Math.tan(v.fov * Math.PI / 360), im = $('sv3img'), cur = /scale\(([\d.]+)\)/.exec(im.style.transform);
       im.style.transform = 'scale(' + ((cur ? Number(cur[1]) : 1) * s).toFixed(3) + ')'; sv3Cam(); sv3Draw(); sv3Load(350);
     }, { passive: false });
     wrap.addEventListener('dblclick', function (e) { // walk toward where you double-click
-      if (!SV3.view) return; var r = wrap.getBoundingClientRect(); SV3.view.th += (e.clientX - (r.left + r.width / 2)) * scale(); sv3Walk(false);
+      if (!SV3.view || SV3.live) return; var r = wrap.getBoundingClientRect(); SV3.view.th += (e.clientX - (r.left + r.width / 2)) * scale(); sv3Walk(false);
     });
     $('v3svp').addEventListener('keydown', function (e) {
-      if (!SV3.view || /INPUT|SELECT/.test(e.target.tagName)) return; var v = SV3.view, k = e.key;
+      if (!SV3.view || SV3.live || /INPUT|SELECT/.test(e.target.tagName)) return; var v = SV3.view, k = e.key;
       if (k === 'ArrowUp') sv3Walk(false); else if (k === 'ArrowDown') sv3Walk(true);
       else if (k === 'ArrowLeft' || k === 'ArrowRight') { v.th += k === 'ArrowLeft' ? -15 : 15; sv3Cam(); sv3Draw(); sv3Load(250); } else return;
       e.preventDefault();
     });
   })();
+  /* Website: Google's own interactive panorama (full 360°, drag, zoom, arrows to walk) with the design drawn over it.
+     The overlay follows the panorama's position and point of view; Google zoom z shows a horizontal field of 180/2^z degrees. */
+  function sv3LiveOff() { var el = $('sv3pano'); if (el) el.remove(); SV3.live = null; $('sv3img').hidden = false; }
+  function sv3Live(req) {
+    var v = SV3.view; if (!v || !v.pano) return;
+    webKey().then(function (key) { return key && !directBad ? loadGmaps(key) : null; }).then(function (gm) {
+      if (!gm || req !== SV3.req || !SV3.on) return;
+      var wrap = document.querySelector('#v3svp .sv3wrap'), el = $('sv3pano');
+      if (!el) { el = document.createElement('div'); el.id = 'sv3pano'; el.style.cssText = 'position:absolute;inset:0'; wrap.insertBefore(el, $('sv3svg')); }
+      var pov = { heading: v.th, pitch: v.pitch }, zoom = Math.max(0, Math.log2(180 / (v.fov || 70)));
+      if (!SV3.live) {
+        var pn = new gm.StreetViewPanorama(el, { pano: v.pano, pov: pov, zoom: zoom, addressControl: false, fullscreenControl: false, motionTracking: false, motionTrackingControl: false, showRoadLabels: false, linksControl: true, clickToGo: true, panControl: false, zoomControl: true, enableCloseButton: false });
+        SV3.live = pn;
+        var sync = function () {
+          var w = SV3.view; if (!w || SV3.live !== pn) return; var q = pn.getPov(), z = pn.getZoom(), at = pn.getPosition();
+          w.th = q.heading; w.pitch = q.pitch; w.fov = Math.max(5, Math.min(120, 180 / Math.pow(2, z || 0)));
+          if (at) { w.lat = at.lat(); w.lng = at.lng(); } w.pano = pn.getPano() || w.pano;
+          sv3Cam(); sv3Draw(); sv3Title();
+        };
+        pn.addListener('pov_changed', sync); pn.addListener('zoom_changed', sync); pn.addListener('position_changed', sync);
+      } else { SV3.live.setPano(v.pano); SV3.live.setPov(pov); SV3.live.setZoom(zoom); }
+      $('sv3img').hidden = true; var h = wrap.querySelector('.sv3hint'); if (h) h.textContent = 'Drag to look around · wheel to zoom · click the road arrows to walk';
+      setTimeout(sv3Draw, 60);
+    }, function () { /* keep the photo view */ });
+  }
+  function sv3LiveWalk(back) { // to the linked panorama closest to the view direction (or behind it)
+    var pn = SV3.live, links = (pn.getLinks() || []).filter(Boolean); if (!links.length) { sv3Msg('No Street View further this way.'); return; }
+    var want = (pn.getPov().heading + (back ? 180 : 0) + 360) % 360, d = function (l) { var x = Math.abs(((l.heading - want) % 360 + 540) % 360 - 180); return x; };
+    links.sort(function (a, b) { return d(a) - d(b); }); pn.setPano(links[0].pano); sv3Msg('');
+  }
   function sv3Draw() {
-    var svg = $('sv3svg'), im = $('sv3img'), c = SV3.cam; if (!SV3.on || !c || !im.naturalWidth) return;
-    var W = im.naturalWidth, H = im.naturalHeight, d = data3d(), R = Math.PI / 180, h = c.heading * R, pt = c.pitch * R, f = (W / 2) / Math.tan(c.fov * R / 2);
+    var svg = $('sv3svg'), im = $('sv3img'), c = SV3.cam, lv = SV3.live && $('sv3pano'); if (!SV3.on || !c || (!lv && !im.naturalWidth)) return;
+    var W = lv ? lv.clientWidth || 640 : im.naturalWidth, H = lv ? lv.clientHeight || 480 : im.naturalHeight, d = data3d(), R = Math.PI / 180, h = c.heading * R, pt = c.pitch * R, f = (W / 2) / Math.tan(c.fov * R / 2);
     var F = [Math.sin(h) * Math.cos(pt), Math.cos(h) * Math.cos(pt), Math.sin(pt)], Rv = [Math.cos(h), -Math.sin(h), 0], U = [-Math.sin(h) * Math.sin(pt), -Math.cos(h) * Math.sin(pt), Math.cos(pt)];
     var near = d.poles.filter(function (p) { return isFinite(p.easting) && isFinite(p.ground); }).map(function (p) { return { p: p, d: Math.hypot(p.easting - c.e, p.northing - c.n) }; }).sort(function (a, b) { return a.d - b.d; }).slice(0, 2);
     var gw = 0, gz = 0; near.forEach(function (q) { var k = 1 / Math.max(q.d, 0.5); gw += k; gz += k * q.p.ground; });
@@ -4028,8 +4058,8 @@
     var b = e.target.closest('[data-sv3]'); if (!b) return; var k = b.dataset.sv3, ids = sv3Ids(), i = ids.indexOf(SV3.id);
     if (k === 'close') sv3Toggle(false);
     else if (k === 'side') { SV3.side++; sv3Show(SV3.id); }
-    else if (k === 'walk' || k === 'back') sv3Walk(k === 'back');
-    else if (k === 'face') sv3Face();
+    else if (k === 'walk' || k === 'back') { if (SV3.live) sv3LiveWalk(k === 'back'); else sv3Walk(k === 'back'); }
+    else if (k === 'face') { if (SV3.live) { var ll = poleLL(SV3.id), at = SV3.live.getPosition(); if (ll && at) SV3.live.setPov({ heading: bearingTo(L.latLng(at.lat(), at.lng()), ll), pitch: 15 }); } else sv3Face(); }
     else if (k === 'prev' || k === 'next') { var j = i + (k === 'next' ? 1 : -1); if (ids[j]) { select(ids[j], { noSwitch: true }); sv3Show(ids[j]); } }
   });
   $('sv3ov').onchange = sv3Draw;
