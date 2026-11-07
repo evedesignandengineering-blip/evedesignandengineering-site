@@ -3995,13 +3995,14 @@
   })();
   /* Website: Google's own interactive panorama (full 360°, drag, zoom, arrows to walk) with the design drawn over it.
      The overlay follows the panorama's position and point of view; Google zoom z shows a horizontal field of 180/2^z degrees. */
-  function sv3LiveOff() { var el = $('sv3pano'); if (el) el.remove(); SV3.live = null; $('sv3img').hidden = false; }
+  function sv3LiveOff() { var el = $('sv3pano'); if (el) el.remove(); SV3.live = null; $('sv3img').hidden = false; $('sv3svg').style.zIndex = ''; }
   function sv3Live(req) {
     var v = SV3.view; if (!v || !v.pano) return;
     webKey().then(function (key) { return key && !directBad ? loadGmaps(key) : null; }).then(function (gm) {
       if (!gm || req !== SV3.req || !SV3.on) return;
       var wrap = document.querySelector('#v3svp .sv3wrap'), el = $('sv3pano');
-      if (!el) { el = document.createElement('div'); el.id = 'sv3pano'; el.style.cssText = 'position:absolute;inset:0'; wrap.insertBefore(el, $('sv3svg')); }
+      if (!el) { el = document.createElement('div'); el.id = 'sv3pano'; el.style.cssText = 'position:absolute;inset:0;z-index:0'; wrap.insertBefore(el, $('sv3svg')); }
+      $('sv3svg').style.zIndex = '2'; // above Google's own layers (they use z-index inside the panorama)
       var pov = { heading: v.th, pitch: v.pitch }, zoom = Math.max(0, Math.log2(180 / (v.fov || 70)));
       if (!SV3.live) {
         var pn = new gm.StreetViewPanorama(el, { pano: v.pano, pov: pov, zoom: zoom, addressControl: false, fullscreenControl: false, motionTracking: false, motionTrackingControl: false, showRoadLabels: false, linksControl: true, clickToGo: true, panControl: false, zoomControl: true, enableCloseButton: false });
