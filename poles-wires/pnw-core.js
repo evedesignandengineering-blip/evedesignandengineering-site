@@ -22,6 +22,7 @@
     defects: 'Pole defects',
     poleList: 'Pole list',
     groundProfile: 'Reference ground profile',
+    groundPoints: 'Survey ground points (SV_pt)',
     unknown: 'Not recognised'
   };
 
@@ -58,7 +59,8 @@
 
   /* ---------- reading files ---------- */
   // RFC 4180 CSV reader. Every value stays text so IDs like 000001238709 keep their zeros.
-  function parseCSV(text) {
+  function parseCSV(text, delim) {
+    delim = delim || ',';
     var rows = [], row = [], cell = '', q = false, i = 0, c;
     if (text.charCodeAt(0) === 0xfeff) i = 1;
     for (; i < text.length; i++) {
@@ -67,7 +69,7 @@
         if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
         else cell += c;
       } else if (c === '"') q = true;
-      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === delim) { row.push(cell); cell = ''; }
       else if (c === '\n' || c === '\r') {
         if (c === '\r' && text[i + 1] === '\n') i++;
         row.push(cell); rows.push(row); row = []; cell = '';
@@ -77,12 +79,20 @@
     return rows;
   }
 
+  // UTF-8, or UTF-16 when the file starts with a byte-order mark (the field survey Pole.txt / Survey Point.txt exports).
+  function decodeText(data) {
+    var b = data instanceof Uint8Array ? data : new Uint8Array(data);
+    return new TextDecoder(b[0] === 0xff && b[1] === 0xfe ? 'utf-16le' : b[0] === 0xfe && b[1] === 0xff ? 'utf-16be' : 'utf-8').decode(b);
+  }
+  // Field survey export: "FID;VID;X;Y;Z;..." (X/Y/Z = MGA easting, northing, RL ortho).
+  function isFieldSurvey(text) { return /^\ufeff?FID[;,]VID[;,]X[;,]Y[;,]Z/i.test(text); }
+
   // Reads one file into [{name, rows}] (rows are arrays). Formulas are never evaluated; cached values only.
   function readFile(XLSX, name, data) {
     var ext = (String(name).split('.').pop() || '').toLowerCase();
     if (ext === 'csv' || ext === 'txt') {
-      var text = typeof data === 'string' ? data : new TextDecoder('utf-8').decode(data);
-      return [{ name: name.replace(/\.[^.]+$/, ''), rows: parseCSV(text) }];
+      var text = typeof data === 'string' ? data : decodeText(data), first = text.split(/\r?\n/, 1)[0];
+      return [{ name: name.replace(/\.[^.]+$/, ''), rows: parseCSV(text, first.indexOf(';') >= 0 && first.indexOf(',') < 0 ? ';' : ',') }];
     }
     if (ext !== 'xlsx' && ext !== 'xls' && ext !== 'xlsm') throw new Error('Unsupported file type .' + ext + '. Use .xlsx, .xls or .csv.');
     var wb = XLSX.read(data, { type: data instanceof ArrayBuffer ? 'array' : 'buffer', cellDates: true, cellFormula: false, cellHTML: false, bookVBA: false });
@@ -94,6 +104,8 @@
   /* ---------- role detection ---------- */
   var SIGNATURES = [
     { role: 'survey', need: ['pick_id', 'x_coord_base', 'y_coord_base', 'z_coord_base'] },
+    { role: 'survey', need: ['sv_pl_no', 'x', 'y', 'z'] }, // field survey Pole.txt: SV_pl_no = pole ID
+    { role: 'groundPoints', need: ['sv_pt_easting', 'x', 'y', 'z'] }, // field survey "Survey Point.txt": groundline points
     { role: 'gisPoles', need: ['pick id', 'geometry', 'length (m)'] },
     { role: 'gisConductors', need: ['pick id', 'carrier model description', 'distribution level'] },
     { role: 'inspections', need: ['dfis id', 'insp attribute description', 'insp result description'] },
@@ -125,9 +137,9 @@
   function findFirstNonEmpty(rows) { for (var i = 0; i < rows.length; i++) if ((rows[i] || []).some(function (v) { return str(v) !== ''; })) return i; return -1; }
   // For a manually assigned role, find the header row for that role's signature.
   function headerFor(sheets, role) {
-    var sig = SIGNATURES.filter(function (x) { return x.role === role; })[0];
+    var sigs = SIGNATURES.filter(function (x) { return x.role === role; }), sig = sigs[0];
     if (!sig) return { sheet: 0, headerRow: -1 };
-    for (var s = 0; s < sheets.length; s++) { var hr = findHeader(sheets[s].rows, sig.need); if (hr >= 0) return { sheet: s, headerRow: hr }; }
+    for (var s = 0; s < sheets.length; s++) for (var g = 0; g < sigs.length; g++) { var hr = findHeader(sheets[s].rows, sigs[g].need); if (hr >= 0) return { sheet: s, headerRow: hr }; }
     return { sheet: 0, headerRow: -1, missing: sig.need };
   }
 
@@ -147,15 +159,15 @@
   function parseSurvey(sheet, hr, file) {
     var items = [], issues = [];
     records(sheet, hr).forEach(function (r) {
-      var id = poleId(r['pick_id']), at = { file: file, row: r._row, poleId: id };
-      if (!id) { issues.push(issue('error', 'missing-id', 'Row ' + r._row + ' has no PICK_ID, so it was skipped.', at)); return; }
-      var e = num(r['x_coord_base']), n = num(r['y_coord_base']), z = num(r['z_coord_base']);
+      var fs = r['sv_pl_no'] !== undefined, id = poleId(fs ? r['sv_pl_no'] : r['pick_id']), at = { file: file, row: r._row, poleId: id };
+      if (!id) { issues.push(issue('error', 'missing-id', 'Row ' + r._row + ' has no ' + (fs ? 'SV_pl_no' : 'PICK_ID') + ', so it was skipped.', at)); return; }
+      var e = num(r[fs ? 'x' : 'x_coord_base']), n = num(r[fs ? 'y' : 'y_coord_base']), z = num(r[fs ? 'z' : 'z_coord_base']);
       var it = {
         id: id, equipNo: str(r['equip_no']), group: str(r['equip_grp_id']), dataType: str(r['data type']),
         easting: e, northing: n, elevation: z, lidarHeight: num(r['lidar vertical height']),
         leanDeg: num(r['lean_angle_deg']), bays: num(r['no_of_bays']),
         bayAngles: [1, 2, 3, 4].map(function (i) { return num(r['bay_' + i + '_h_angle_deg']); }).filter(function (v) { return v != null && !isNaN(v); }),
-        surveyed: str(r['survey date/time']), src: at
+        surveyed: str(r['survey date/time'] || r['sv_pl_date']), comment: str(r['sv_comment']), src: at
       };
       [['Easting (X_COORD_BASE)', e], ['Northing (Y_COORD_BASE)', n], ['Elevation (Z_COORD_BASE)', z]].forEach(function (p) {
         if (p[1] == null) issues.push(issue('error', 'missing-value', id + ': ' + p[0] + ' is blank.', at));
@@ -164,6 +176,17 @@
       if (isFinite(e) && isFinite(n) && e != null && n != null && !(e > 100000 && e < 900000 && n > 1000000 && n < 10000000))
         issues.push(issue('error', 'invalid-coordinate', id + ': ' + e + ', ' + n + ' is not a valid MGA easting/northing.', at));
       items.push(it);
+    });
+    return { items: items, issues: issues };
+  }
+
+  // Field survey "Survey Point.txt": groundline points between poles.
+  function parseGroundPoints(sheet, hr, file) {
+    var items = [], issues = [];
+    records(sheet, hr).forEach(function (r) {
+      var e = num(r['x']), n = num(r['y']), z = num(r['z']);
+      if (![e, n, z].every(function (v) { return v != null && isFinite(v); })) { issues.push(issue('warning', 'invalid-number', file + ' row ' + r._row + ': X, Y or Z is blank or not a number, so the point was skipped.', { file: file, row: r._row })); return; }
+      items.push({ id: str(r['fid']), easting: e, northing: n, elevation: z, comment: str(r['sv_comment']), feature: str(r['sv_feature_type']), src: { file: file, row: r._row } });
     });
     return { items: items, issues: issues };
   }
@@ -223,6 +246,9 @@
       var d = parseDate(r['insp date']), val = str(r['insp result description']) || str(r['insp result']);
       var cur = p.attrs[a];
       if (!cur || (d && (!cur.date || d > cur.date))) p.attrs[a] = { value: val, date: d };
+      // Every inspection kept by date too, so values measured together (diameter and good wood) stay together.
+      var dk = d && !isNaN(d) ? d.toISOString().slice(0, 10) : 'undated', bd = p.byDate || (p.byDate = {});
+      (bd[dk] || (bd[dk] = {}))[a] = val;
     });
     var items = Object.keys(by).map(function (k) {
       var p = by[k], L = p.attrs['Pole Length'] || p.attrs['Pole Length (M)'];
@@ -259,7 +285,7 @@
     return { items: items, issues: issues, sheetName: sheet.name };
   }
 
-  var PARSERS = { survey: parseSurvey, gisPoles: parseGisPoles, gisConductors: parseGisConductors, inspections: parseInspections, defects: parseDefects, groundProfile: parseGroundProfile };
+  var PARSERS = { survey: parseSurvey, gisPoles: parseGisPoles, gisConductors: parseGisConductors, inspections: parseInspections, defects: parseDefects, groundProfile: parseGroundProfile, groundPoints: parseGroundPoints };
 
   // Full import of one file. role may be forced by the user.
   function importFile(XLSX, name, data, forcedRole) {
@@ -295,7 +321,7 @@
     });
     files.forEach(function (f) {
       if (f.role === 'gisPoles') f.items.forEach(function (g) { var p = get(g.id); if (p.gis) issues.push(issue('warning', 'duplicate-id', g.id + ' appears more than once in the GIS export; the first row is used.', { poleId: g.id, file: f.name })); else p.gis = g; });
-      if (f.role === 'inspections') f.items.forEach(function (i) { var p = get(i.id); if (!p.insp) p.insp = i; else { for (var k in i.attrs) { var c = p.insp.attrs[k]; if (!c || (i.attrs[k].date && (!c.date || i.attrs[k].date > c.date))) p.insp.attrs[k] = i.attrs[k]; } p.insp.count += i.count; if (p.insp.length == null) p.insp.length = i.length; } });
+      if (f.role === 'inspections') f.items.forEach(function (i) { var p = get(i.id); if (!p.insp) p.insp = i; else { if (i.byDate) { var pb = p.insp.byDate = p.insp.byDate || {}; for (var dk in i.byDate) pb[dk] = Object.assign({}, pb[dk], i.byDate[dk]); } for (var k in i.attrs) { var c = p.insp.attrs[k]; if (!c || (i.attrs[k].date && (!c.date || i.attrs[k].date > c.date))) p.insp.attrs[k] = i.attrs[k]; } p.insp.count += i.count; if (p.insp.length == null) p.insp.length = i.length; } });
       if (f.role === 'defects') f.items.forEach(function (d) { get(d.id).defects.push(d); });
       if (f.role === 'poleList') f.items.forEach(function (id) { get(id).inList = true; });
     });
@@ -339,6 +365,74 @@
     return c.map(function (p) { return p.id; }).concat(ids.filter(function (id) { return !pts.some(function (p) { return p.id === id; }); }));
   }
 
+  // Splits surveyed poles into separate lines where the network branches (a tee-off or a crossing street).
+  // Spans are the minimum spanning tree of the pole positions (spans over maxSpan are not joined). At each pole the
+  // two spans that run straightest through it stay on one line (up to maxDev° deflection; a pole with only two
+  // spans always continues the line, as an angle pole). Any other span starts a new line that shares the junction pole.
+  // Returns pole-ID arrays, longest line first, each ordered along the line.
+  function splitLines(poles, ids, opts) {
+    opts = opts || {}; var maxSpan = opts.maxSpan || 150, maxDev = opts.maxDev == null ? 60 : opts.maxDev;
+    var pts = ids.map(function (id) { return poles[id]; }).filter(function (p) { return p && p.survey && isFinite(p.survey.easting) && isFinite(p.survey.northing); });
+    if (pts.length < 3) return [autoOrder(poles, ids)];
+    var n = pts.length, inT = [true], best = [], from = [], edges = [];
+    for (var i = 1; i < n; i++) { inT[i] = false; best[i] = dist2d(pts[0].survey, pts[i].survey); from[i] = 0; }
+    for (var k = 1; k < n; k++) { // Prim
+      var bi = -1; for (i = 1; i < n; i++) if (!inT[i] && (bi < 0 || best[i] < best[bi])) bi = i;
+      inT[bi] = true; if (best[bi] <= maxSpan) edges.push([from[bi], bi]);
+      for (i = 1; i < n; i++) if (!inT[i]) { var dd = dist2d(pts[bi].survey, pts[i].survey); if (dd < best[i]) { best[i] = dd; from[i] = bi; } }
+    }
+    var inc = pts.map(function () { return []; });
+    edges.forEach(function (e, ei) { inc[e[0]].push(ei); inc[e[1]].push(ei); });
+    var pair = {}; // pair[node + ':' + edge] = the edge that continues the line through node
+    var other = function (ei, v) { return edges[ei][0] === v ? edges[ei][1] : edges[ei][0]; };
+    inc.forEach(function (es, v) {
+      if (es.length < 2) return;
+      var cand = [];
+      for (var a = 0; a < es.length; a++) for (var b = a + 1; b < es.length; b++) {
+        var p = pts[v].survey, A = pts[other(es[a], v)].survey, B = pts[other(es[b], v)].survey;
+        var d = Math.abs(((bearing(p, A) - bearing(p, B)) % 360 + 360) % 360 - 180); // 0 = straight through
+        cand.push({ a: es[a], b: es[b], d: d });
+      }
+      cand.sort(function (x, y) { return x.d - y.d; });
+      var used = {};
+      cand.forEach(function (c) { if (used[c.a] || used[c.b] || (es.length > 2 && c.d > maxDev)) return; used[c.a] = used[c.b] = 1; pair[v + ':' + c.a] = c.b; pair[v + ':' + c.b] = c.a; });
+    });
+    var done = {}, lines = [];
+    edges.forEach(function (e, ei) {
+      if (done[ei]) return; done[ei] = 1;
+      var walk = function (v, ej) { var out = []; for (;;) { var nx = pair[v + ':' + ej]; if (nx == null || done[nx]) return out; done[nx] = 1; v = other(nx, v); out.push(v); ej = nx; } };
+      var fwd = walk(e[1], ei), back = walk(e[0], ei);
+      lines.push(back.reverse().concat([e[0], e[1]], fwd));
+    });
+    // Re-join two branches that stop at neighbouring poles of another line (a line crossing at a pole next to the one the
+    // shortest spans reached): L1 = [..., p, X] and L2 = [Y, q, ...] become [..., p, Y, q, ...] when the span p–Y is
+    // possible and both p and Y stay within maxDev.
+    var dev = function (a, v, b) { var P = pts[v].survey; return Math.abs(((bearing(P, pts[a].survey) - bearing(P, pts[b].survey)) % 360 + 360) % 360 - 180); };
+    var ends = function (l) { return [l, l.slice().reverse()]; };
+    for (var guard = 0; guard < 50; guard++) {
+      var hit = null;
+      lines.forEach(function (L1, i1) { lines.forEach(function (L2, i2) {
+        if (hit || i1 === i2 || L1.length < 2 || L2.length < 2) return;
+        ends(L1).forEach(function (a) { ends(L2).forEach(function (b) {
+          if (hit) return;
+          var X = a[a.length - 1], p = a[a.length - 2], Y = b[0], q = b[1];
+          if (X === Y || inc[X].length < 3 || inc[Y].length < 3) return;
+          if (!edges.some(function (e) { return (e[0] === X && e[1] === Y) || (e[0] === Y && e[1] === X); })) return;
+          if (dist2d(pts[p].survey, pts[Y].survey) > maxSpan || dev(p, Y, q) > maxDev) return;
+          if (a.length > 2 && dev(a[a.length - 3], p, Y) > maxDev) return;
+          hit = { i1: i1, i2: i2, line: a.slice(0, -1).concat(b) };
+        }); });
+      }); });
+      if (!hit) break;
+      lines = lines.filter(function (l, k) { return k !== hit.i1 && k !== hit.i2; }).concat([hit.line]);
+    }
+    return lines.map(function (l) {
+      var c = l.map(function (i) { return pts[i]; });
+      if (c[c.length - 1].order < c[0].order) c.reverse();
+      return c.map(function (p) { return p.id; });
+    }).sort(function (a, b) { return b.length - a.length; });
+  }
+
   /* ---------- profile ---------- */
   // Setting depth rule found in every sample (ground profiles, PNW profile and tipload files): 10% of length + 0.6 m.
   function settingDepth(length) { return round(length * 0.1 + 0.6, 2); }
@@ -372,7 +466,31 @@
       rows.push(row); prev = row;
     });
     (profile.segments || []).forEach(function (sg, i) { issues = issues.concat(validateSegment(sg, i, rows)); });
-    return { name: profile.name, rows: rows, issues: issues, ok: !issues.some(function (x) { return x.level === 'error'; }) };
+    var ground = placeGround(rows, profile.groundPts), gn = (profile.groundPts || []).length;
+    if (gn && ground.length < gn) issues.push(issue('info', 'ground-points', (gn - ground.length) + ' of ' + gn + ' survey ground points are not beside a span of ' + (profile.name || 'this profile') + ' (more than 10 m off the line), so they are not in its groundline.', {}));
+    return { name: profile.name, rows: rows, ground: ground, issues: issues, ok: !issues.some(function (x) { return x.level === 'error'; }) };
+  }
+
+  // Survey ground points placed on the span they sit beside (nearest span within maxOff m, between its two poles).
+  function placeGround(rows, pts, maxOff) {
+    maxOff = maxOff || 10; var out = [];
+    (pts || []).forEach(function (g) {
+      var best = null;
+      for (var i = 1; i < rows.length; i++) {
+        var a = rows[i - 1], b = rows[i]; if (a.chainage == null || b.chainage == null || !b.span) continue;
+        var dx = b.easting - a.easting, dy = b.northing - a.northing, L = Math.sqrt(dx * dx + dy * dy);
+        var t = ((g.easting - a.easting) * dx + (g.northing - a.northing) * dy) / (L * L), off = Math.abs((g.easting - a.easting) * dy - (g.northing - a.northing) * dx) / L;
+        if (t > 0 && t < 1 && off <= maxOff && (!best || off < best.off)) best = { off: off, chainage: round(a.chainage + t * (b.chainage - a.chainage), 2) };
+      }
+      if (best) out.push({ easting: g.easting, northing: g.northing, elevation: g.elevation, chainage: best.chainage, offset: round(best.off, 2), comment: g.comment || null });
+    });
+    return out.sort(function (a, b) { return a.chainage - b.chainage; });
+  }
+  // Poles and ground points in chainage order (ground rows have no id).
+  function groundSeq(built) {
+    var g = (built.ground || []).slice(), out = [];
+    built.rows.forEach(function (r) { while (g.length && r.chainage != null && g[0].chainage < r.chainage) out.push(g.shift()); out.push(r); });
+    return out.concat(g);
   }
 
   /* ---------- circuit segments (optional, user-entered design data) ---------- */
@@ -396,7 +514,8 @@
 
   /* ---------- ground profile workbook ---------- */
   function groundlineAoa(built) {
-    return [GROUNDLINE_HEADERS.slice()].concat(built.rows.map(function (r) {
+    return [GROUNDLINE_HEADERS.slice()].concat(groundSeq(built).map(function (r) {
+      if (!r.id) return [r.easting, r.northing, r.elevation, null, null, null, null, null]; // groundline point (PNW manual 10.1)
       return [r.easting, r.northing, r.elevation, r.id, r.height, r.length, r.sunk, r.comment == null || r.comment === '' ? null : r.comment];
     }));
   }
@@ -454,7 +573,7 @@
     var now = opts.now || new Date(), L = [];
     L.push('<profile_project saved="' + pnwDate(now) + '" currentoption="' + xmlEsc(opts.option || '') + '" title="' + xmlEsc(opts.title || built.name || '') + '" created_by="' + xmlEsc(opts.createdBy || '') + '" ground_type="1" first_saved="' + pnwDate(now) + '" pnw_version="7.18.1" profile_version="1.1.0.595" remarks="">');
     L.push('  <Table1>');
-    built.rows.forEach(function (r) {
+    groundSeq(built).forEach(function (r) {
       L.push('    <Table1>', el(6, 'Distance', '0'), el(6, 'Slope', '0'), el(6, 'Chainage', netNum(r.chainage)), el(6, 'Level', netNum(r.elevation)),
         el(6, 'Clearance1', netNum(opts.clearance1)), el(6, 'Clearance2', netNum(opts.clearance2)), el(6, 'Easting', netNum(r.easting)), el(6, 'Northing', netNum(r.northing)), el(6, 'Comment', ''), '    </Table1>');
     });
@@ -487,8 +606,8 @@
   return {
     GROUNDLINE_HEADERS: GROUNDLINE_HEADERS, SEGMENT_HEADERS: SEGMENT_HEADERS, ROLES: ROLES,
     num: num, round: round, poleId: poleId, parseCSV: parseCSV, parseDate: parseDate, parseGeometry: parseGeometry,
-    readFile: readFile, detectRole: detectRole, importFile: importFile, buildPoles: buildPoles, existingLength: existingLength,
-    dist2d: dist2d, bearing: bearing, autoOrder: autoOrder, settingDepth: settingDepth, buildProfile: buildProfile,
+    readFile: readFile, decodeText: decodeText, isFieldSurvey: isFieldSurvey, groundSeq: groundSeq, detectRole: detectRole, importFile: importFile, buildPoles: buildPoles, existingLength: existingLength,
+    dist2d: dist2d, bearing: bearing, autoOrder: autoOrder, splitLines: splitLines, settingDepth: settingDepth, buildProfile: buildProfile,
     groundlineAoa: groundlineAoa, segmentsAoa: segmentsAoa, groundProfileWorkbook: groundProfileWorkbook, compareWithReference: compareWithReference,
     profilePnwx: profilePnwx, readProfilePnwx: readProfilePnwx, pnwDate: pnwDate
   };

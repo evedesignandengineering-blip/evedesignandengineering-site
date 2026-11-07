@@ -17,7 +17,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 
 const COLORS = { hv: 0xc2410c, lv: 0x2f6ea4, earth: 0x64748b, other: 0x0f766e, pole: 0x8b6b4a, embed: 0x5b4636, sel: 0xf59e0b, arm: 0x6b7280 };
 const WIRE_PX = 2.5, WIRE_SEL_PX = 5;
-let host, renderer, labels, scene, camera, controls, group, compass, onSelect = () => {};
+let host, renderer, labels, scene, camera, controls, group, compass, onSelect = () => {}, onContext = () => {}, planeY = 0;
 let poleMeshes = {}, poleParts = {}, wireLines = [], fitObjects = [], lineMats = [];
 let selected = null, selectedSection = null, origin = null, lastData = null, poleKey = '', viewName = 'iso';
 let scaleEl = null, dirty = true, pendingFit = null, tween = null, renders = 0, sceneRadius = 50;
@@ -74,15 +74,23 @@ function mount(el, cb) {
   ray.params.Line2 = { threshold: 6 };
   let down = null;
   labels.domElement.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+  labels.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
   labels.domElement.addEventListener('pointerup', (e) => {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
     const r = renderer.domElement.getBoundingClientRect();
     m.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(m, camera);
     const hit = ray.intersectObjects(Object.values(poleMeshes).flat().concat(wireLines), false)[0];
+    if (e.button === 2) {
+      // Right click: the app shows its menu for the pole, the conductor span, or the ground point (E/N) under the cursor.
+      const info = { x: e.clientX, y: e.clientY };
+      if (hit) { const u = hit.object.userData; info.pole = u.pole; if (u.segment) { info.segment = u.segment; info.to = u.to; } }
+      else if (origin) { const pt = new THREE.Vector3(); if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY), pt)) { info.e = pt.x + origin.e; info.n = origin.n - pt.z; } }
+      onContext(info); return;
+    }
     if (!hit) return onSelect(null);
     const u = hit.object.userData;
-    onSelect(u.pole, u.segment ? { segment: u.segment } : undefined);
+    onSelect(u.pole, u.segment ? { segment: u.segment, to: u.to } : undefined);
   });
   // Hover (used by the conductor tool to preview the attachment points it would snap to).
   let hoverT = 0, hoverId = null;
@@ -201,7 +209,7 @@ function updateCompass() {
 
 function clear() {
   group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); if (o.element) o.element.remove(); });
-  group.clear(); halo = null; poleMeshes = {}; poleParts = {}; wireLines = []; fitObjects = []; lineMats = [];
+  group.clear(); clrObjs = []; halo = null; poleMeshes = {}; poleParts = {}; wireLines = []; fitObjects = []; lineMats = [];
 }
 function label(text, pos, cls) {
   const d = document.createElement('div'); d.className = cls || 'l3d'; d.textContent = text;
@@ -321,7 +329,6 @@ function update(data) {
 
   // Conductors: one line per phase, between matching attachment points, with sag only when it was calculated.
   const w0 = host.clientWidth || 1, h0 = host.clientHeight || 1;
-  const sagAt = {};
   (data.wires || []).forEach((w) => {
     const a = P(w.from.easting, w.from.northing, w.from.elevation), b = P(w.to.easting, w.to.northing, w.to.elevation), pts = [];
     const vs = [];
@@ -330,22 +337,19 @@ function update(data) {
     const mt = new LineMaterial({ color: COLORS[kind(w)], linewidth: WIRE_PX, worldUnits: false });
     mt.resolution.set(w0, h0); lineMats.push(mt);
     const line = new Line2(g, mt); line.computeLineDistances();
-    line.userData = { segment: w.segment, pole: w.from.pole, color: COLORS[kind(w)], pts: vs };
+    line.userData = { segment: w.segment, pole: w.from.pole, to: w.to.pole, color: COLORS[kind(w)], pts: vs };
     group.add(line); wireLines.push(line); fitObjects.push(line);
-    if (data.showLabels !== false && w.sag && w.phase === 1) { const k = w.from.pole + '|' + w.to.pole, e = sagAt[k] = sagAt[k] || { t: [], pos: vs[12] }; e.t.push(kind(w).toUpperCase() + ' ' + w.sag.toFixed(2)); if (vs[12].y < e.pos.y) e.pos = vs[12]; }
   });
-  // One sag label per span (HV and LV together), so labels do not overlap.
-  Object.keys(sagAt).forEach((k) => { const e = sagAt[k]; label('sag ' + e.t.join(' · ') + ' m', e.pos.clone().add(new THREE.Vector3(0, -1.6, 0)), 'l3d sag'); });
 
   // Reference grid on the lowest pole base (not part of the fit).
   const ext = poles.reduce((m, p) => Math.max(m, Math.abs(p.easting - origin.e), Math.abs(p.northing - origin.n)), 20);
   const grid = new THREE.GridHelper(Math.ceil(ext * 2.4 / 10) * 10, Math.ceil(ext * 2.4 / 10), 0xc5d0db, 0xdde4ea);
-  grid.position.y = Math.min(...poles.map((p) => p.ground)) - origin.z - 0.02; grid.material.depthWrite = false; grid.renderOrder = -2; group.add(grid);
+  grid.position.y = Math.min(...poles.map((p) => p.ground)) - origin.z - 0.02; planeY = grid.position.y; grid.material.depthWrite = false; grid.renderOrder = -2; group.add(grid);
   grid.visible = tileOpts.kind === 'none'; gridRef = grid; tileExt = ext; gridY = grid.position.y;
 
   const box = bounds(fitObjects); sceneRadius = Math.max(10, box.getBoundingSphere(new THREE.Sphere()).radius);
   controls.maxDistance = Math.max(200, sceneRadius * 12);
-  setSelected(selected); selectSection(selectedSection);
+  setSelected(selected); selectSection(selectedSection); drawClr();
   // Re-fit when a different set of poles is shown (new site, poles added or removed) and the line has left the view.
   const key = poles.map((p) => p.id).join('|');
   if (newSite || !poleKey) fit(newSite ? 'iso' : undefined, { instant: true });
@@ -471,8 +475,9 @@ function buildTiles() {
   let attr = host && host.querySelector('.v3attr');
   if (host && !attr) { attr = document.createElement('div'); attr.className = 'v3attr'; host.appendChild(attr); }
   tileStat = { want: 0, ok: 0, failed: 0 };
-  if (attr) attr.textContent = TILE_URL[tileOpts.kind] ? TILE_ATTR[tileOpts.kind] : '';
-  if (!TILE_URL[tileOpts.kind] || !tileOpts.toLL || !tileOpts.toEN) { invalidate(); return; }
+  const src = tileOpts.fetch && tileOpts.kind !== 'none' ? tileOpts.fetch : null, attrTxt = src ? (tileOpts.attr || '') : TILE_ATTR[tileOpts.kind];
+  if (attr) attr.textContent = src || TILE_URL[tileOpts.kind] ? attrTxt : '';
+  if ((!src && !TILE_URL[tileOpts.kind]) || !tileOpts.toLL || !tileOpts.toEN) { invalidate(); return; }
   const pad = Math.max(60, tileExt * 0.4), e0 = origin.e - tileExt - pad, e1 = origin.e + tileExt + pad, n0 = origin.n - tileExt - pad, n1 = origin.n + tileExt + pad;
   const ll = [[e0, n0], [e1, n0], [e0, n1], [e1, n1]].map((c) => tileOpts.toLL(c[0], c[1])).filter(Boolean); if (ll.length < 4) return;
   const lat0 = Math.min(...ll.map((q) => q[0])), lat1 = Math.max(...ll.map((q) => q[0])), lng0 = Math.min(...ll.map((q) => q[1])), lng1 = Math.max(...ll.map((q) => q[1]));
@@ -492,8 +497,11 @@ function buildTiles() {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
     const m = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
     const mesh = new THREE.Mesh(g, m); mesh.renderOrder = -3; tileGroup.add(mesh); tileStat.want++;
-    const url = TILE_URL[tileOpts.kind].replace('{z}', z).replace('{x}', x).replace('{y}', y);
-    loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; m.map = t; m.needsUpdate = true; tileStat.ok++; invalidate(); }, undefined, () => { tileStat.failed++; m.color.set(0xe7ecf1); if (attr) attr.textContent = TILE_ATTR[tileOpts.kind] + ' · ' + tileStat.failed + ' tile(s) could not load (offline, or blocked by this page)'; invalidate(); });
+    const fail = () => { tileStat.failed++; m.color.set(0xe7ecf1); if (attr) attr.textContent = attrTxt + ' · ' + tileStat.failed + ' tile(s) could not load' + (src ? '' : ' (offline, or blocked by this page)'); invalidate(); }, myKey = tileKey;
+    (src ? Promise.resolve(src(tileOpts.kind, z, x, y)) : Promise.resolve(TILE_URL[tileOpts.kind].replace('{z}', z).replace('{x}', x).replace('{y}', y))).then((url) => {
+      if (myKey !== tileKey) return; if (!url) return fail();
+      loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; m.map = t; m.needsUpdate = true; tileStat.ok++; invalidate(); }, undefined, fail);
+    }, fail);
   }
   invalidate();
 }
@@ -526,6 +534,23 @@ function setSelected(id) {
   }
   invalidate();
 }
+// Lowest ground clearance of a clicked span: a vertical line from the conductor's lowest point (above the ground) down to
+// the ground, with its distance. m = {e, n, z, clr, text} in survey coordinates, or null to remove it.
+let clrMark = null, clrObjs = [];
+function clearance(m) { clrMark = m || null; drawClr(); }
+function drawClr() {
+  if (!group) return;
+  clrObjs.forEach((o) => { group.remove(o); if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); if (o.element) o.element.remove(); }); clrObjs = [];
+  const m = clrMark;
+  if (m && origin && isFinite(m.e) && isFinite(m.n) && isFinite(m.z) && isFinite(m.clr)) {
+    const top = P(m.e, m.n, m.z), bot = P(m.e, m.n, m.z - m.clr), g = new LineGeometry(); g.setPositions([top.x, top.y, top.z, bot.x, bot.y, bot.z]);
+    const mt = new LineMaterial({ color: 0xf59e0b, linewidth: 2, worldUnits: false, dashed: true, dashSize: 0.4, gapSize: 0.25 }); mt.resolution.set(host.clientWidth || 1, host.clientHeight || 1); lineMats.push(mt);
+    const ln = new Line2(g, mt); ln.computeLineDistances(); group.add(ln); clrObjs.push(ln);
+    [top, bot].forEach((v) => { const s = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf59e0b })); s.position.copy(v); group.add(s); clrObjs.push(s); });
+    clrObjs.push(label(m.text || ('clearance ' + m.clr.toFixed(2) + ' m'), top.clone().lerp(bot, 0.5), 'l3d clr'));
+  }
+  invalidate();
+}
 function selectSection(name) {
   selectedSection = name || null;
   wireLines.forEach((l) => {
@@ -549,5 +574,5 @@ function state() {
   };
 }
 
-window.PNW3D = { mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS, hover, marks, basemap, tiles: () => Object.assign({ kind: tileOpts.kind, terrain: tileOpts.terrain, meshes: tileGroup ? tileGroup.children.length : 0 }, tileStat) };
+window.PNW3D = { clearance, context: (fn) => { onContext = fn || onContext; }, mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS, hover, marks, basemap, tiles: () => Object.assign({ kind: tileOpts.kind, terrain: tileOpts.terrain, meshes: tileGroup ? tileGroup.children.length : 0 }, tileStat) };
 window.dispatchEvent(new Event('pnw3d-ready'));

@@ -4,6 +4,30 @@
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var fmt = function (v, dp) { return v == null || v === '' || (typeof v === 'number' && !isFinite(v)) ? '' : (dp == null ? String(v) : Number(v).toFixed(dp)); };
+  /* smart search: blind to case, spaces and punctuation; every typed word must hit a word start, the joined text, the initials,
+     a common abbreviation or a near spelling (letters only, 1 typo per 4-7 letters, 2 from 8). Returns a rank, 0 = no match. */
+  var SYN = { tx: 'transformer', xfmr: 'transformer', trf: 'transformer', tfr: 'transformer', sv: 'street view', ph: 'phase', cond: 'conductor', xarm: 'crossarm', ug: 'underground', oh: 'overhead', del: 'delete', rm: 'remove', pt: 'point', sel: 'select', lv: 'low voltage', hv: 'high voltage' };
+  function lev(a, b, max) { if (Math.abs(a.length - b.length) > max) return max + 1; var p = [], i, j; for (j = 0; j <= b.length; j++) p[j] = j; for (i = 1; i <= a.length; i++) { var c = [i], m = i; for (j = 1; j <= b.length; j++) { c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); if (c[j] < m) m = c[j]; } if (m > max) return max + 1; p = c; } return p[b.length]; }
+  function smartPrep(text) { var t = String(text == null ? '' : text).toLowerCase(), w = t.split(/[^a-z0-9]+/).filter(Boolean); return { w: w, flat: w.join(''), ini: w.map(function (x) { return x[0]; }).join('') }; }
+  function smartTok(tok, P, deep) {
+    var best = 0, i, w;
+    for (i = 0; i < P.w.length; i++) { w = P.w[i]; if (w === tok) return 10; if (w.indexOf(tok) === 0) best = Math.max(best, 8); }
+    if (best) return best;
+    if (tok.length > 1) { var k = P.flat.indexOf(tok); if (k >= 0) return k === 0 ? 7 : 5; if (tok.length > 1 && P.ini.indexOf(tok) >= 0) return 5; }
+    if (tok.length > 1 && !/\d/.test(tok)) for (i = 0; i < P.w.length; i++) { w = P.w[i]; if (w[0] === tok[0] && w.length > tok.length) { var j = 0; for (var c = 0; c < w.length && j < tok.length; c++) if (w[c] === tok[j]) j++; if (j === tok.length) return 3; } }
+    if (!deep && SYN[tok]) { var s = SYN[tok].split(' '), sc = 0; for (i = 0; i < s.length; i++) { var x = smartTok(s[i], P, true); if (!x) { sc = 0; break; } sc += x; } if (sc) return Math.max(3, Math.round(sc / s.length) - 1); }
+    if (tok.length >= 4 && !/\d/.test(tok)) { var mx = tok.length >= 8 ? 2 : 1; for (i = 0; i < P.w.length; i++) { w = P.w[i]; if (w.length >= 3 && (lev(tok, w, mx) <= mx || (w.length > tok.length && lev(tok, w.slice(0, tok.length), mx) <= mx))) return 2; } }
+    return 0;
+  }
+  function smartScore(q, text) {
+    var toks = String(q == null ? '' : q).toLowerCase().split(/[\s,;/]+/).map(function (x) { return x.replace(/[^a-z0-9]/g, ''); }).filter(Boolean);
+    if (!toks.length) return 1;
+    var P = smartPrep(text), qf = toks.join(''), tot = 0;
+    for (var i = 0; i < toks.length; i++) { var s = smartTok(toks[i], P); if (!s) { if (P.flat.indexOf(qf) < 0) return 0; tot = 0; break; } tot += s; }
+    if (P.flat === qf) tot += 40; else if (P.flat.indexOf(qf) === 0) tot += 20; else if (P.flat.indexOf(qf) >= 0) tot += 8;
+    return tot || 6;
+  }
+  function smartRank(q, list, textOf) { if (!String(q || '').trim()) return list.slice(); return list.map(function (x, i) { return { x: x, s: smartScore(q, textOf(x)), i: i }; }).filter(function (o) { return o.s > 0; }).sort(function (a, b) { return b.s - a.s || a.i - b.i; }).map(function (o) { return o.x; }); }
   var KEY = 'eve-poles-wires-project-v1', MAX_BYTES = 50 * 1024 * 1024;
   var DEFAULT_SETTINGS = { createdBy: '', optionSet: 'v7 REGION AM-SL1', clr1: 5.8, clr2: 7 }; // values from Ishan's saved MP219050.pnwx
 
@@ -16,8 +40,10 @@
   function newProfile(name) { return { name: name, poleIds: [], lengths: {}, comments: {}, segments: [] }; }
   function prof() { return S.profiles[S.active]; }
 
+  var tipLive = null;
   function save() {
     markDirty(true);
+    if (typeof renderTip === 'function' && $('tipDlg') && !$('tipDlg').hidden) { clearTimeout(tipLive); tipLive = setTimeout(function () { var b = $('tipBody'), y = b.scrollTop; try { renderTip(); } catch (e) { /* keep the last view */ } b.scrollTop = y; }, 150); }
     try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { setStatus('Could not save the project in this browser (' + e.message + '). Your work stays until you close the page.', 'bad'); }
   }
   function load() {
@@ -101,9 +127,51 @@
     esri: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 21, maxNativeZoom: 19, attribution: 'Tiles &copy; Esri' }),
     light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 21, maxNativeZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' })
   };
-  // Inside Claude (window.PNW_ARTIFACT) the page cannot load map tiles from other hosts, so there is no basemap there.
+  // Inside Claude (window.PNW_ARTIFACT) the page cannot load map tiles from other hosts; the PNW Maps connector supplies the basemap there.
   var activeBase = IN_CLAUDE ? null : bases.street.addTo(map);
-  $('basemap').onchange = function () { if (activeBase) map.removeLayer(activeBase); activeBase = bases[this.value] ? bases[this.value].addTo(map) : null; };
+  $('basemap').onchange = function () { if (IN_CLAUDE) { gBase.type = this.value === 'esri' ? 'satellite' : this.value === 'hybrid' ? 'hybrid' : 'roadmap'; gBase.on = this.value !== 'none'; if (!gBase.on && gBase.ov) { map.removeLayer(gBase.ov); gBase.ov = null; } gBase.err = false; gBaseRefresh(); return; } if (activeBase) map.removeLayer(activeBase); activeBase = bases[this.value] ? bases[this.value].addTo(map) : null; };
+  /* PNW Maps connector (MCP proxy on Supabase that holds the Google key): inside Claude it gives the basemap
+     (Google Static Maps under the plan) and Street View images, because the page itself cannot reach other hosts. */
+  var MAPS_SRV = 'PNW Maps', mapsMcp = null;
+  // On the website the same Street View tools come straight from the Supabase function's /web route (website origin only).
+  var MAPS_WEB = 'https://hszkloepnewfkzdegfhl.supabase.co/functions/v1/pnw-maps-mcp/web', WEB_MAPS_DOWN = false, webCache = {}, webSeq = 0;
+  var webMaps = { callTool: function (srv, tool, input) {
+    var k = tool + JSON.stringify(input); if (webCache[k]) return webCache[k];
+    var pr = fetch(MAPS_WEB, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: ++webSeq, method: 'tools/call', params: { name: tool, arguments: input } }) })
+      .then(function (r) { if (!r.ok) { if (r.status === 403 || r.status === 404) WEB_MAPS_DOWN = true; throw { code: 'unavailable', message: 'Street View service answered ' + r.status + '.' }; } return r.json(); },
+        function () { WEB_MAPS_DOWN = true; throw { code: 'unavailable', message: 'The Street View service could not be reached.' }; })
+      .then(function (j) { var res = j && j.result; if (!res || res.isError) throw { message: (res && res.content && res.content[0] && res.content[0].text) || (j && j.error && j.error.message) || 'Street View request failed.' }; return res; });
+    webCache[k] = pr; pr.catch(function () { delete webCache[k]; }); return pr;
+  } };
+  function webMapsOn() { return !IN_CLAUDE && !WEB_MAPS_DOWN; }
+  function mapsReady() { if (!IN_CLAUDE) return Promise.resolve(WEB_MAPS_DOWN ? null : webMaps); if (!window.claude || !window.claude.use) return Promise.resolve(null); if (!mapsMcp) mapsMcp = Promise.resolve(window.claude.use('mcp')).catch(function () { return null; }); return mapsMcp; }
+  function mapsCall(tool, input) { return mapsReady().then(function (m) { if (!m) throw { code: 'capability_disabled', message: 'Maps are not available in this view.' }; return m.callTool(MAPS_SRV, tool, input, { cache: { staleTime: 864e5, gcTime: 864e5 } }); }); }
+  function mapsImg(r) { var b = ((r && r.content) || []).filter(function (c) { return c.type === 'image'; })[0]; return b ? { url: 'data:' + b.mimeType + ';base64,' + b.data, b64: b.data, type: b.mimeType } : null; }
+  function mapsInfo(r) { return (r && (r.structuredContent || (typeof r.payload === 'object' ? r.payload : null))) || {}; }
+  function mapsErr(e) {
+    var c = e && e.code;
+    return c === 'server_not_connected' || c === 'server_not_found' ? 'Add the “PNW Maps” connector in claude.ai Settings → Connectors.' : c === 'needs_reauth' ? 'Reconnect “PNW Maps” in claude.ai Settings → Connectors.' :
+      c === 'not_in_manifest' || c === 'approval_required' || c === 'consent_required' ? 'Allow PNW Maps for this page to see maps and Street View.' : c === 'tool_error' ? 'PNW Maps: ' + ((e.result && e.result.content && e.result.content[0] && e.result.content[0].text) || e.message || 'the request failed') + '.' :
+      c === 'capability_disabled' || c === 'not_granted' ? 'Maps need the page open in claude.ai.' : 'PNW Maps is not reachable right now.';
+  }
+  map.createPane('gbase').style.zIndex = 150;
+  var gBase = { on: IN_CLAUDE, type: 'roadmap', ov: null, seq: 0, t: null, err: false };
+  function gBaseRefresh() {
+    if (!gBase.on) return; clearTimeout(gBase.t);
+    gBase.t = setTimeout(function () {
+      var sz = map.getSize(); if (!sz.x || !sz.y) return;
+      var z = Math.max(1, Math.min(21, Math.floor(map.getZoom() - Math.log(Math.max(1, (sz.x + 64) / 640, (sz.y + 64) / 640)) / Math.LN2)));
+      var p = map.project(map.getCenter(), z).divideBy(128).round().multiplyBy(128), c = map.unproject(p, z), n = ++gBase.seq;
+      var bnd = L.latLngBounds(map.unproject(p.subtract([320, 320]), z), map.unproject(p.add([320, 320]), z));
+      mapsCall('static_map', { lat: +c.lat.toFixed(6), lng: +c.lng.toFixed(6), zoom: z, width: 640, height: 640, scale: 2, maptype: gBase.type }).then(function (r) {
+        if (n !== gBase.seq || !gBase.on) return; var im = mapsImg(r); if (!im) return;
+        var old = gBase.ov; gBase.ov = L.imageOverlay(im.url, bnd, { pane: 'gbase', interactive: false, attribution: 'Map data &copy; Google' }).addTo(map);
+        if (old) setTimeout(function () { map.removeLayer(old); }, 150);
+      }, function (e) { if (n === gBase.seq && !gBase.err) { gBase.err = true; setStatus('Basemap: ' + mapsErr(e), 'bad'); } });
+    }, 300);
+  }
+  map.on('moveend zoomend resize', gBaseRefresh);
+  if (IN_CLAUDE) { var bmSel = $('basemap'); if (!bmSel.querySelector('option[value="none"]')) bmSel.insertAdjacentHTML('beforeend', '<option value="hybrid">Aerial + labels</option><option value="none">No basemap</option>'); setTimeout(gBaseRefresh, 800); }
   var lyGis = L.layerGroup().addTo(map), lyAlign = L.layerGroup().addTo(map), lySpan = L.layerGroup().addTo(map), lySurvey = L.layerGroup().addTo(map), lyExtent = L.layerGroup(), lySel = L.layerGroup().addTo(map);
   var markers = {};
   var pickMode0 = null;
@@ -164,6 +232,8 @@
       });
     });
     if (pts.length) L.rectangle(L.latLngBounds(pts).pad(0.15), { color: '#64748b', weight: 1, dashArray: '6 4', fill: false }).addTo(lyExtent);
+    // Pole markers above the span lines, so a click on a pole picks the pole (and multi-select adds it) instead of the span.
+    lySurvey.eachLayer(function (l) { if (l.bringToFront) l.bringToFront(); });
     $('emptyMap').hidden = ids.length > 0; if (!$('emptyImport').onclick) $('emptyImport').onclick = function () { $('tbUpload').click(); };
     highlight();
   }
@@ -210,7 +280,9 @@
     var arr = Array.prototype.slice.call(list || []);
     var pj = arr.filter(function (f) { return /\.pwproj\.json$/i.test(f.name); });
     if (pj.length) { openProjectFile(pj[0]); arr = arr.filter(function (f) { return pj.indexOf(f) < 0; }); }
-    if (!arr.length) return;
+    // Pole photos dropped together with the spreadsheets: attached after the import (matched by file name), then Auto design runs.
+    var imgs = arr.filter(function (f) { return /\.(jpe?g|png|webp)$/i.test(f.name); }); arr = arr.filter(function (f) { return imgs.indexOf(f) < 0; });
+    if (!arr.length) { if (imgs.length) dropPhotos(imgs); return; }
     var existed = {}; S.files.forEach(function (f) { existed[f.name] = 1; });
     var jobs = arr.map(function (f) {
       var ext = (f.name.split('.').pop() || '').toLowerCase();
@@ -219,7 +291,7 @@
       upsertFile({ name: f.name, size: f.size, role: '…', status: 'reading', items: [], sheets: [], issues: [] });
       return f.arrayBuffer().then(function (buf) {
         buffers[f.name] = buf;
-        if (ext === 'pnwx' || ext === 'txt' || ext === 'json') return importText(f.name, new TextDecoder('utf-8').decode(buf));
+        if (ext === 'pnwx' || ext === 'json' || (ext === 'txt' && !PNW.isFieldSurvey(PNW.decodeText(buf.slice(0, 256))))) return importText(f.name, new TextDecoder('utf-8').decode(buf));
         return parse(f.name, buf, null);
       }).then(function (res) { res.size = f.size; res.status = 'ok'; return res; })
         .catch(function (e) { return { name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'parse', message: f.name + ' could not be read: ' + e.message, file: f.name }] }; });
@@ -230,10 +302,27 @@
       results.forEach(function (r) { upsertFile(r); if (existed[r.name]) replaced++; });
       var hadPoles = prof().poleIds.length > 0;
       recompute();
-      if (!hadPoles) { if (project) useProject(true); else seedProfile(); }
+      seedNote = '';
+      if (!hadPoles) { if (project) useProject(true); else seedProfile(true); }
       recompute(); fit();
       if (results.some(function (r) { return r.status === 'error' || r.role === 'unknown'; })) openFilesDlg();
-      setStatus('Imported ' + results.length + ' file' + (results.length > 1 ? 's' : '') + (replaced ? ' (' + replaced + ' replaced)' : '') + '. ' + summaryText(), 'good');
+      setStatus('Imported ' + results.length + ' file' + (results.length > 1 ? 's' : '') + (replaced ? ' (' + replaced + ' replaced)' : '') + '. ' + summaryText() + (seedNote ? ' ' + seedNote : ''), 'good');
+      dropPhotos(imgs, results.some(function (r) { return r.status === 'ok' && r.role !== 'unknown'; }));
+    });
+  }
+  // Attach dropped photos to the poles named in their file names; then, if the poles are surveyed and the design has no
+  // constructions yet, start Auto design (it reads the photos and proposes constructions, conductors and tensions for review).
+  function dropPhotos(imgs, imported) {
+    var miss = [];
+    Promise.all((imgs || []).map(function (f) {
+      var id = idFromName(f.name); if (!id || !merged.poles[id]) { miss.push(f.name); return null; }
+      return shrink(f).then(function (img) { attachPhoto(id, f.name, img, { source: 'Imported photo (file name)' }); return id; }, function () { miss.push(f.name); return null; });
+    })).then(function (ids) {
+      var n = ids.filter(Boolean).length; if (n) { renderSelected(); renderTable(); }
+      var note = (n ? n + ' photo' + (n > 1 ? 's' : '') + ' attached. ' : '') + (miss.length ? miss.length + ' photo' + (miss.length > 1 ? 's' : '') + ' not matched by file name: use Files › Pole photos. ' : '');
+      var surveyed = Object.keys(merged.poles).some(function (k) { return merged.poles[k].survey; }), hasCons = project && project.constructions && project.constructions.length;
+      if ((n || imported) && surveyed && !hasCons && !AD.busy && $('genDlg').hidden) { if (note) setStatus(note + 'Starting Auto design…', 'good'); autoDesign(); }
+      else if (note) setStatus(note, miss.length ? 'bad' : 'good');
     });
   }
   function upsertFile(r) {
@@ -241,10 +330,17 @@
     if (i >= 0) { S.files[i] = r; renderFiles(); return true; }
     S.files.push(r); renderFiles(); return false;
   }
-  function seedProfile() {
+  // split: where the surveyed poles branch (tee-offs, crossing streets), each line becomes its own profile.
+  function seedProfile(split) {
     var ids = Object.keys(merged.poles).filter(function (id) { return merged.poles[id].survey; });
-    if (ids.length) prof().poleIds = PNW.autoOrder(merged.poles, ids);
+    if (!ids.length) return;
+    var lines = split && PNW.splitLines ? PNW.splitLines(merged.poles, ids) : null;
+    if (!lines || lines.length < 2) { prof().poleIds = PNW.autoOrder(merged.poles, ids); return; }
+    prof().poleIds = lines[0];
+    lines.slice(1).forEach(function (l) { var q = newProfile(uniqueProfName()); q.poleIds = l; S.profiles.push(q); });
+    seedNote = 'The poles branch, so they were split into ' + lines.length + ' profiles (one per line, sharing the junction poles). Switch with the profile list.';
   }
+  var seedNote = '';
   function summaryText() {
     var e = allIssues.filter(function (i) { return i.level === 'error'; }).length, w = allIssues.filter(function (i) { return i.level === 'warning'; }).length;
     return Object.keys(merged.poles).length + ' poles, ' + e + ' error' + (e === 1 ? '' : 's') + ', ' + w + ' warning' + (w === 1 ? '' : 's') + '.';
@@ -264,7 +360,8 @@
     var ok = S.files.filter(function (f) { return f.status === 'ok' && !TEXT_ROLES[f.role]; });
     merged = PNW.buildPoles(ok.concat(projectSurvey(ok)));
     var p = prof();
-    built = p.poleIds.length ? PNW.buildProfile(merged.poles, p) : null;
+    var gpts = [].concat.apply([], ok.filter(function (f) { return f.role === 'groundPoints'; }).map(function (f) { return f.items; }));
+    built = p.poleIds.length ? PNW.buildProfile(merged.poles, gpts.length ? Object.assign({}, p, { groundPts: gpts }) : p) : null;
     buildDesignModel();
     var seen = {};
     allIssues = [].concat.apply([], S.files.map(function (f) { return f.issues || []; })).concat(merged.issues, built ? built.issues : [], dm ? dm.issues : [], calcIssues()).filter(function (i) { var k = i.level + i.message; if (seen[k]) return false; seen[k] = 1; return true; });
@@ -310,7 +407,7 @@
         (f.manual ? '<div class="meta">Poles you created in <b>Design → New pole</b>. Edit or delete them from the pole\'s inspector.</div>' : '<select data-role="' + i + '" aria-label="Role of ' + esc(f.name) + '">' + opts + '</select>')) +
         ((f.issues || []).length ? '<details><summary>' + (f.issues || []).length + ' message' + ((f.issues || []).length > 1 ? 's' : '') + ' from this file</summary><ul class="msgs">' + (f.issues || []).slice(0, 8).map(function (x) { return '<li class="' + esc(x.level) + '">' + esc(x.message) + '</li>'; }).join('') + ((f.issues || []).length > 8 ? '<li class="info">…and ' + ((f.issues || []).length - 8) + ' more (see the Issues tab)</li>' : '') + '</ul></details>' : '') +
         '<details><summary>Data mapping: sheets and headers</summary><div class="heads">' + heads + '</div></details>' +
-        '<div class="acts">' + (f.manual ? '' : '<button class="btn small" data-replace="' + i + '">Replace…</button>') + '<button class="btn small" data-remove="' + i + '">Remove</button></div></div>';
+        '<div class="acts">' + (f.manual ? '' : '<button class="btn small" data-replace="' + i + '">Replace…</button>') + binBtn('data-remove="' + i + '"', 'Remove this file') + '</div></div>';
     }).join('') + builtinNote();
   }
   function builtinNote() {
@@ -359,15 +456,11 @@
     else { var n = PNW.num(v); if (!(n > 0) || n > 60) { setStatus(id + ': "' + v + '" is not a valid pole length in metres.', 'bad'); renderProfile(); return; } if (n === ex) delete p.lengths[id]; else p.lengths[id] = n; }
     S.generated = false; recompute();
   });
-  $('profileSel').onchange = function () { S.active = +this.value; S.generated = false; recompute(); };
-  $('profileName').onchange = function () { prof().name = this.value.trim(); recompute(); };
-  $('newProfile').onclick = function () { S.profiles.push(newProfile('Profile ' + (S.profiles.length + 1))); S.active = S.profiles.length - 1; S.generated = false; recompute(); setStatus('New empty profile. Add poles from the map.'); };
-  $('delProfile').onclick = function () {
-    var p = prof(), nm = p.name || 'this profile';
-    openGen('Delete profile ' + nm, '<p>Delete <b>' + esc(nm) + '</b> and its pole order and lengths (' + p.poleIds.length + ' pole' + (p.poleIds.length === 1 ? '' : 's') + ')? The imported survey' + (project ? ' and the linked PNW design (' + esc(linked.name) + ')' : '') + ' stay. You can undo this.</p><div class="btnrow"><button class="btn danger" id="dprOk">Delete profile</button><button class="btn" id="dprNo">Cancel</button></div>');
-    $('dprNo').onclick = closeGen;
-    $('dprOk').onclick = function () { closeGen(); if (S.profiles.length < 2) { S.profiles[0] = newProfile('Profile 1'); } else { S.profiles.splice(S.active, 1); S.active = 0; } S.generated = false; recompute(); if (typeof renderExtras === 'function') renderExtras(); undoStatus('Deleted profile ' + nm + '.'); };
-  };
+  $('profileSel').onchange = function () { switchProfile(this.value); };
+  $('profileName').onchange = function () { var v = this.value.trim(); if (!v || S.profiles.some(function (q, k) { return k !== S.active && q.name === v; })) { setStatus(v ? 'Another profile is called “' + v + '”.' : 'A profile needs a name.', 'bad'); this.value = prof().name || ''; return; } prof().name = v; recompute(); };
+  // One way to start a profile: the Create profile dialog (poles picked in the list or on the map), which also makes its PNW line.
+  $('newProfile').onclick = function () { FN.mkProf(true); };
+  $('delProfile').onclick = function () { delProfileDlg(S.active); };
   $('allPoles').onclick = function () { seedProfile(); S.generated = false; recompute(); };
   $('autoOrder').onclick = function () { prof().poleIds = PNW.autoOrder(merged.poles, prof().poleIds); S.generated = false; recompute(); };
   $('reverse').onclick = function () { prof().poleIds.reverse(); S.generated = false; recompute(); };
@@ -407,9 +500,15 @@
   /* ---------- selection and inspector ---------- */
   // info.segment: a wire was clicked in 3D (or a row in the conductor schedule), so its strain section is selected too.
   function select(id, info) {
+    if (id && mpPick && !$('genDlg').hidden && $('mpSum') && mpPick(id)) return;
     if (CT.on && id && !(info && info.segment !== undefined)) { ctAdd(id); return; }
     if (info && info.add && id) { var mm = S.multi && S.multi.length > 1 ? S.multi.slice() : (S.selected ? [S.selected] : []), kx = mm.indexOf(id); if (kx >= 0) mm.splice(kx, 1); else mm.push(id); S.multi = mm.length > 1 ? mm : []; id = mm.length ? (kx >= 0 ? mm[mm.length - 1] : id) : null; S.selSpan = null; }
     else if (!(info && info.keepMulti)) S.multi = [];
+    // A pole on another profile's line: switch to that profile, so the pole shows its own constructions and design.
+    if (id && !(info && (info.add || info.keepMulti || info.noSwitch)) && lineIds().indexOf(id) < 0) {
+      var other = S.profiles.map(function (q, k) { return { q: q, k: k }; }).filter(function (o) { return o.k !== S.active && o.q.poleIds.indexOf(id) >= 0; }).sort(function (a, b) { return (b.q.file ? 1 : 0) - (a.q.file ? 1 : 0); })[0];
+      if (other) { switchProfile(other.k); S.multi = []; setStatus(id + ' is on ' + (other.q.name || 'Profile ' + (other.k + 1)) + ', so that profile is now active.', 'good'); }
+    }
     S.selected = id; flags.inspected = true;
     if (!(info && info.span)) S.selSpan = null;
     if (info && info.segment !== undefined) { S.selSection = info.segment || null; if (info.segment) U.insTab = 'cond'; }
@@ -472,15 +571,7 @@
     return out;
   }
   // Default king bolt for a construction added below the ones on the pole: LV under HV follows the separation rule when it applies.
-  var HVLV_KEY = 'eve-pnw-hvlv-rule';
-  function hvlvRule() {
-    var f = S.files.filter(function (x) { return x.role === 'hvlv' && x.status === 'ok'; }).pop();
-    if (f) { if (!f.rule) { f.rule = JSON.parse(f.text); try { localStorage.setItem(HVLV_KEY, f.text); } catch (e) { /* storage off: rule lasts this session */ } } return f.rule; }
-    if (window.PNW_HVLV) return window.PNW_HVLV;
-    try { var t = localStorage.getItem(HVLV_KEY); if (t) return (window.PNW_HVLV = JSON.parse(t)); } catch (e) { /* none stored */ }
-    return null;
-  }
-  // Default king bolt for a construction added below the ones on the pole: LV under HV follows the separation rule when it applies.
+  function hvlvRule() { return window.PNW_HVLV || null; }
   // Running earth under HV: the HV drawing's distance from its reference point. With no HV there is no rule (flagged).
   function reRule(id, cons) {
     var hv = cons.filter(function (x) { return circuitClass(x.code) === 'hv'; })[0], R = hvlvRule(); if (!hv || !R || hv.kingbolt == null) return null;
@@ -500,6 +591,23 @@
   function tagS(t) { return '<span class="tag src">' + t + '</span>'; }
   function fact(k, v, cls, title) { return '<div class="fact ' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : esc(v)) + '</b></div>'; }
   var INS_TABS = [['design', 'Constructions'], ['conductors', 'Conductors'], ['photo', '✨ AI photo'], ['checks', 'Checks'], ['pole', 'Pole details']];
+  // Pole length for a pole that has no design row: a length typed or fixed here is kept in the profiles' lengths
+  // (the active profile and every profile with the pole), which the ground profile build reads.
+  function lenOv(id) { var qs = [prof()].concat(S.profiles); for (var i = 0; i < qs.length; i++) { var v = qs[i].lengths && qs[i].lengths[id]; if (v != null && v !== '') return PNW.num(v); } return null; }
+  function setLenOv(id, v) { S.profiles.forEach(function (q, k) { if (k === S.active || q.poleIds.indexOf(id) >= 0) { q.lengths = q.lengths || {}; if (v == null) delete q.lengths[id]; else q.lengths[id] = v; } }); }
+  function badLen(L) { return !(L > 0) || L > 40; }
+  function prowOf(id) { return project ? project.poles.filter(function (x) { return x.ID === id; })[0] || null : null; }
+  function curLen(id) { var pr = prowOf(id); if (pr) return PNW.num(pr.Length); var o = lenOv(id); if (o != null) return o; var p = merged.poles[id]; return p ? PNW.existingLength(p).value : null; }
+  function typeOf(id) { var L = curLen(id), pt = null; try { pt = poleTypeFor(id, badLen(L) ? null : L); } catch (e) { pt = null; } return pt && pt.length > 0 ? pt : null; }
+  // Auto fix: pole length (and setting depth) from the pole type. ids: poles to fix; only lengths that differ from the type change.
+  function fixFromType(ids) {
+    var done = [], dsg = [];
+    ids.forEach(function (id) { var pt = typeOf(id), L = curLen(id); if (!pt || (!badLen(L) && Math.abs(L - pt.length) < 0.005)) return; if (prowOf(id)) dsg.push([id, pt]); else { setLenOv(id, pt.length); done.push(id + ' ' + pt.length + ' m'); } });
+    if (dsg.length) commit(function (p) { return dsg.map(function (x) { var r = p.poles.filter(function (q) { return q.ID === x[0]; })[0], from = r.Length; M.updatePole(p, x[0], { length: x[1].length, sunk: x[1].sinking != null ? x[1].sinking : defaultSunk(x[1].length) }); done.push(x[0] + ' ' + x[1].length + ' m'); return logEntry(x[0], '', 'Pole length', from, String(x[1].length), 'manual', 'From pole type ' + x[1].code); }); });
+    else if (done.length) { S.generated = false; recompute(); }
+    setStatus(done.length ? 'Length from pole type: ' + done.join(', ') + '.' : 'Nothing to fix: the lengths already match their pole types (or no pole type is known).', done.length ? 'good' : 'bad');
+  }
+  function lenFixList() { return Object.keys(merged.poles).filter(function (id) { return merged.poles[id].survey && badLen(curLen(id)) && typeOf(id); }); }
   function renderSelected() { renderSelectedInner(); renderCtx(); postSelected(); }
   function renderSelectedInner() {
     if (S.multi && S.multi.length > 1) { $('insTitle').textContent = S.multi.length + ' poles selected'; $('insZoom').hidden = true; $('insClear').hidden = false; $('selected').innerHTML = multiPane(); return; }
@@ -512,34 +620,54 @@
     if (!p) { if (id) S.selected = null; $('selected').innerHTML = projectSummary(); return; }
     var r = built && built.rows.filter(function (x) { return x.id === id; })[0], inProf = prof().poleIds.indexOf(id) >= 0, ex = PNW.existingLength(p);
     var prow = project && project.poles.filter(function (x) { return x.ID === id; })[0];
-    var iss = allIssues.filter(function (i) { return i.poleId === id; }), ne = iss.filter(function (i) { return i.level === 'error'; }).length, nw = iss.filter(function (i) { return i.level === 'warning'; }).length;
-    var cons = (dm && dm.byPole[id]) || [], secs = project ? project.segPoles.filter(function (s) { return s.id === id; }).map(function (s) { return s.strsection; }).filter(function (v, i, a) { return a.indexOf(v) === i; }) : [];
-    var L = prow ? PNW.num(prow.Length) : r ? r.length : ex.value, hag = prow ? PNW.num(prow.HeightAG) : r ? r.height : null, sunk = prow ? PNW.num(prow.Sunk) : r ? r.sunk : null;
+    var cons = (dm && dm.byPole[id]) || [], chk = poleChecks(id), ne = chk.filter(function (c) { return c.level === 'error'; }).length;
+    var L = prow ? PNW.num(prow.Length) : r && r.length != null ? r.length : lenOv(id) != null ? lenOv(id) : ex.value, hag = prow ? PNW.num(prow.HeightAG) : r ? r.height : null, sunk = prow ? PNW.num(prow.Sunk) : r ? r.sunk : null;
+    if (!prow && !badLen(L)) { if (sunk == null) sunk = defaultSunk(L); if (hag == null) hag = Math.round((L - sunk) * 100) / 100; }
     var ch = prow ? PNW.num(prow.Distance) : r ? r.chainage : null, gl = p.survey ? p.survey.elevation : null;
-    var h = '<div class="inspane" style="padding-bottom:0"><div class="ins-title"><b>' + esc(id) + '</b>' + (inProf ? '<span class="pill info">In profile #' + (prof().poleIds.indexOf(id) + 1) + '</span>' : '<span class="pill mute">Not in profile</span>') + (prow ? (prow.New === 'True' ? '<span class="pill info">New pole</span>' : '<span class="pill mute">Existing pole</span>') : '') + (ne ? '<span class="pill bad">' + ne + ' error' + (ne > 1 ? 's' : '') + '</span>' : nw ? '<span class="pill warn">' + nw + ' warning' + (nw > 1 ? 's' : '') + '</span>' : '<span class="pill ok">No errors or warnings</span>') + '</div>' +
-      '</div>';
-    var facts = '<div class="facts">' + fact('Chainage (m)', fmt(ch, 2)) + fact('Pole length (m)', fmt(L), L == null ? 'warn' : '', L == null ? 'No pole length from any source' : '') + fact('Above ground (m)', fmt(hag)) +
-      fact('Setting depth (m)', fmt(sunk)) + fact('Ground level (m)', fmt(gl, 2), gl == null ? 'warn' : '', gl == null ? 'No LiDAR elevation' : 'LiDAR') + fact('Span back (m)', r && r.span != null ? fmt(r.span, 2) : '') +
-      (project ? fact('Constructions', cons.length, prow && !cons.length ? 'warn' : '') + fact('Strain sections', secs.length) + fact('Attachment points', cons.reduce(function (n, c) { return n + c.attachments.length; }, 0)) : '') + '</div></div>';
-    var tab = U.insTab || 'pole';
+    // Header: ID, new or existing, one status chip (the same on every section).
+    var h = '<div class="inspane pd-head"><div class="ins-title"><b>' + esc(id) + '</b>' +
+      (prow ? '<label class="pill ' + (prow.New === 'True' ? 'info' : 'mute') + ' pd-new" title="Tick for a new pole"><input type="checkbox" data-pnew' + (prow.New === 'True' ? ' checked' : '') + '> New</label>' : p.survey ? '' : '') +
+      (inProf ? '' : p.survey ? '<button class="btn small primary" id="selAdd" title="Add this pole to the ground profile">＋ Profile</button>' : '<span class="pill mute">Not in profile</span>') +
+      '<button class="pd-chip ' + (ne ? 'bad' : chk.length ? 'warn' : 'ok') + '" data-instab="checks" title="' + esc(chk.length ? chk.map(function (c) { return c.text; }).join('\n') : 'No design checks to look at') + '">' + (chk.length ? '⚠ ' + chk.length : '✓') + '</button></div>';
+    // Key facts: pole inputs first (edited in place), then the numbers a designer reads.
+    var pt = null; try { pt = poleTypeFor(id, L); } catch (e) { pt = null; }
+    var ptSet = (S.design.poleTypes || {})[id];
+    var kf = function (k, v, t) { return '<div class="kf"' + (t ? ' title="' + esc(t) + '"' : '') + '><small>' + k + '</small><b>' + (v == null || v === '' ? '<span class="muted">–</span>' : v) + '</b></div>'; };
+    var ids = lineIds(), k = ids.indexOf(id), A = k > 0 && poleXY(ids[k - 1]), B = poleXY(id), spanB = A && B ? Math.hypot(A.e - B.e, A.n - B.n) : r && r.span != null ? r.span : null, dev = deviationAt(id);
+    h += '<div class="kfs">';
+    if (prow) h += '<div class="kf kf-type"><small>Pole type</small><select data-ptype="' + esc(id) + '" title="PNW library pole type">' + poleTypeOptions(ptSet || '', pt ? 'Auto: ' + esc(pt.code) : 'Not set') + '</select><button class="kf-str' + ((S.design.poleLib || {})[id] ? ' done' : '') + '" data-pstropen="' + esc(id) + '" title="' + ((S.design.poleLib || {})[id] ? 'Saved as pole type ' + esc(S.design.poleLib[id].code) + '. Click to recalculate. ' : '') + 'Open the pole strength calculation from the inspection data (PNW limit state method)">' + ico('shield-check') + ' Strength</button></div>' +
+      '<div class="kf"><small>Length</small><input data-pfield="length" value="' + esc(prow.Length) + '" inputmode="decimal" aria-label="Pole length (m)"></div><div class="kf"><small>Depth</small><input data-pfield="sunk" value="' + esc(prow.Sunk) + '" inputmode="decimal" aria-label="Setting depth (m)"></div>';
+    else h += '<div class="kf kf-type"><small>Pole type</small><select data-ptype2="' + esc(id) + '" title="PNW library pole type (sets the length)">' + poleTypeOptions(ptSet || '', pt ? 'Auto: ' + esc(pt.code) : 'Not set') + '</select></div>' +
+      '<div class="kf"' + (ex.source && lenOv(id) == null ? ' title="From ' + esc(ex.source) + '"' : '') + '><small>Length</small><input data-plen2 value="' + (L != null ? esc(L) : '') + '" inputmode="decimal" aria-label="Pole length (m)"' + (badLen(L) ? ' class="bad" title="Not a valid pole length"' : '') + '></div>' + kf('Depth', sunk != null ? fmt(sunk) + ' m' : '', '10% of length + 0.6 m');
+    if (pt && (badLen(L) || Math.abs(L - pt.length) >= 0.005)) h += '<button class="btn small pd-fix" data-pfix="' + esc(id) + '" title="Set the length' + (prow ? ' and setting depth' : '') + ' from pole type ' + esc(pt.code) + '">⟲ Auto fix: ' + esc(pt.length) + ' m from ' + esc(pt.code) + '</button>';
+    h += kf('Above ground', hag != null ? f2(hag, 2) + ' m' : '') + kf('Ground RL', gl != null ? f2(gl, 2) : '', 'LiDAR elevation') + kf('Chainage', ch != null ? f2(ch, 2) : '') + kf('Span back', spanB != null ? f2(spanB, 2) + ' m' : '', k > 0 ? 'From ' + ids[k - 1] : 'First pole of the line') + kf('Deviation', dev != null ? f2(dev, 1) + '°' : '', 'Line deviation angle at this pole');
+    var tr = null; try { tr = project && dm && tipSet().cases.length && tipPoles().indexOf(id) >= 0 ? tipCalc(id) : null; } catch (e) { tr = null; }
+    if (tr && tr.results.length) {
+      var w = tr.results.slice().sort(function (a, b) { return (b.pctHor || 0) - (a.pctHor || 0) || b.load - a.load; })[0];
+      h += '<button class="pd-tip kf-tip" data-tipopen="' + esc(id) + '" title="Worst load case. Click to open the tipload.">Tipload <b>' + (w.pctHor != null ? f2(w.pctHor, 0) + '%' : f2(w.load) + ' kN') + '</b> ' + tipBadge(w) + '<small>' + esc(w.name) + (unverifiedFor(id) ? ' · provisional' : '') + '</small></button>';
+    }
+    h += '</div></div>';
     h += xBanner(id);
-    if (tab === 'cond' && !S.selSection) tab = 'pole';
+    var nOpen = p.defects.filter(defectOpen).length, nConf = chk.filter(function (c) { return c.conflict; }).length;
+    var secs = [['design', 'Constructions', project ? cons.length : null]];
+    if (S.selSection) secs.push(['cond', 'Conductor · ' + esc(S.selSection), null]);
+    if (project && prow) { var xx = extras(id); secs.push(['equip', 'Stays & plant', xx.stays.length + xx.plant.length]); }
+    if (U.insTab === 'photo' || aiResults[id]) secs.push(['photo', '✨ AI photo', null]);
+    if (U.insTab === 'pstr' || (S.design.poleLib || {})[id]) secs.push(['pstr', 'Pole strength', null, (S.design.poleLib || {})[id] ? f2(S.design.poleLib[id].ultimate, 2) + ' kN' : '']);
+    secs.push(['checks', 'Checks', chk.length]);
+    secs.push(['pole', 'Survey & asset', null, [nConf ? nConf + ' conflict' + (nConf > 1 ? 's' : '') : '', nOpen ? nOpen + ' open defect' + (nOpen > 1 ? 's' : '') : ''].filter(Boolean).join(' · ')]);
     var paneOf = function (tab) {
-      var h = '';
       if (tab === 'cond') return conductorPane(S.selSection);
-      if (tab === 'equip') return project && prow ? extrasHtml(id, prow) : (project ? '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>' : startDesignHint());
-      if (tab === 'attach') return attachPane(id);
-      if (tab === 'load') return loadPane(id);
-        if (tab === 'pole') h += polePane(id, p, r, inProf, ex);
-      else if (tab === 'design') h += designPanel(id);
-      else if (tab === 'conductors') h += project ? (prow ? sectionsOnPole(id) : '<p class="hint">' + esc(id) + ' is not in the linked PNW project.</p>') : startDesignHint();
-      else if (tab === 'photo') h += project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : '<p class="hint"><b>AI photo match</b> looks at a photo of the pole and ranks the PNW library constructions (with their DCSH drawings) that fit. ' + (project ? esc(id) + ' is not in the linked PNW project; pick a pole that is.' : 'It works on a design, so link a PNW project first.') + '</p>' + (project ? '' : startDesignHint());
-      else h += iss.length ? '<ul class="msgs">' + iss.map(function (i) { return '<li class="' + i.level + '">' + esc(i.message) + '</li>'; }).join('') + '</ul>' : '<ul class="msgs"><li class="ok">No issues recorded for ' + esc(id) + '.</li></ul>';
-      return h;
+      if (tab === 'equip') return extrasHtml(id, prow);
+      if (tab === 'design') return designPanel(id);
+      if (tab === 'pstr') return strPane(id);
+      if (tab === 'photo') return project && prow ? aiPanel(id, cons.slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })) : '<p class="hint">AI photo match works on a design: ' + (project ? esc(id) + ' is not in the linked PNW project.' : 'link a PNW project first.') + '</p>' + (project ? '' : startDesignHint());
+      if (tab === 'checks') return chk.length ? '<ul class="pd-chk">' + chk.map(function (c) { return '<li class="' + c.level + '">' + esc(c.text) + (c.fix != null ? ' <button class="btn small" data-cdef="' + esc(c.u) + '" data-v="' + c.fix + '" data-ref="' + esc(c.ref || '') + '">Use ' + c.fix + ' m</button>' : '') + '</li>'; }).join('') + '</ul>' : '<p class="pd-none">Nothing to check on ' + esc(id) + '.</p>';
+      return polePane(id, p, r, inProf, ex, chk);
     };
-    var badges = {}; [['pole'], ['design'], ['conductors'], ['checks']].forEach(function (t) { var badge = t[0] === 'checks' && (ne || nw) ? ' <span class="pill ' + (ne ? 'bad' : 'warn') + '">' + (ne + nw) + '</span>' : t[0] === 'design' && project ? ' <span class="pill mute">' + cons.length + '</span>' : t[0] === 'conductors' && project ? ' <span class="pill mute">' + secs.length + '</span>' : ''; if (t[0] === 'conductors' || t[0] === 'checks' || t[0] === 'design') badges[t[0]] = badge; });
-    h += accHtml(paneOf, badges) + qaList(id);
+    h += secHtml(secs, paneOf);
     $('selected').innerHTML = h + '</div>';
+    if (secScroll) { var se = $('selected').querySelector('[data-pdsec="' + secScroll + '"]'); secScroll = null; if (se) se.scrollIntoView({ block: 'start' }); }
     if ($('selAdd')) $('selAdd').onclick = function () { var ids = prof().poleIds; ids.push(id); prof().poleIds = PNW.autoOrder(merged.poles, ids); S.generated = false; recompute(); setStatus(id + ' added and the profile re-ordered along the line. Use ↑ ↓ to adjust.', 'good'); };
     if ($('selRemove')) $('selRemove').onclick = function () { prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; }); S.generated = false; recompute(); };
   }
@@ -552,7 +680,29 @@
   }
   /* stays and pole-mounted plant: kept with the design (PNW stores them in the tipload project, not the profile) */
   // Transformer arrangements (hanger height below the tip) come from the DCSH register's "plant" list, read from the drawings.
-  function txArr() { var r = dcshReg(); return r && r.plant ? r.plant.filter(function (p) { return p.kind === 'transformer'; }).map(function (p) { return { id: p.id, title: p.title || p.id, below: p.hangerBelowTip, ref: p.ref || 'DCSH ' + p.id }; }) : []; }
+  // More arrangements read from the DCSH Part 4 drawings (2026-11-04): only drawings whose transformer support is
+  // dimensioned from the top of the pole. Not added: H21 (no Tx support line), H24 and H47-3 (support not labelled),
+  // H47-2 (measured from the king bolt), H48-1/H48-2 (mounting details only), H111/H112 (bracket spacing not dimensioned).
+  var TX_EXTRA = [
+    ['H10-2', 'Intermediate transformer HV to ABC (H10-2)', 3.115, 'DCSH H10-2 Rev N: 230 + 635 + 2250 from the tip to the Tx top bolt; RE 1500 below the DOF arm; LV king bolt 400 below the Tx top bolt', { hv: 0.23, re: 2.365, lv: 3.515 }],
+    ['H11-2', 'Side mounted termination transformer with DOF (H11-2)', 2.5, 'DCSH H11-2 Rev I: Tx support 2500 below the top of pole; RE 900 below the Tx support', { hv: 0.23, re: 3.4 }],
+    ['H11-3', 'Side mounted termination transformer strain (H11-3)', 2.575, 'DCSH H11-3 Rev D: 540 + 635 + 890 + 510 from the top of pole to the Tx support; RE 510 above it', { hv: 0.23, re: 2.065 }],
+    ['H17-4', 'Transformer cable supplied (H17-4)', 2.5, 'DCSH H17-4 Rev D: 2500 from the top of pole to the transformer', {}],
+    ['H20-1', 'Isolation transformer (H20-1)', 1.9, 'DCSH H20-1 Rev E: centre of the isolation transformer hanger bracket 1900 below the top of pole', {}],
+    ['H20-2', 'Isolation tx 3ph termination, 1ph in-line without DOF (H20-2)', 3.71, 'DCSH H20-2 Rev F: 230 + 230 + 1000 + 1500 to the RE, 750 to the Tx support', { hv: 0.23, re: 2.96 }],
+    ['H20-3', 'Isolation tx 3ph termination, 1ph in-line with DOF (H20-3)', 3.29, 'DCSH H20-3 Rev E: 230 + 80 + 230 + 1000 + 1500 to the RE, 250 to the Tx support', { hv: 0.23, re: 3.04 }],
+    ['H20-4', 'Isolation tx 3ph termination, 1ph in-line with/without DOF (H20-4)', 3.71, 'DCSH H20-4 Rev E: 460 + 1000 + 1500 to the RE, 750 to the Tx support', { re: 2.96 }],
+    ['H20-5', 'Isolation tx 3ph cable / 1ph tee-off with DOF (H20-5)', 3.03, 'DCSH H20-5 Rev G: 330 + 500 + 700 + 1500 to the Tx support; RE 1200 below the phase conductor (230)', { hv: 0.23, re: 1.43 }],
+    ['H20-6', 'Isolation tx 3ph in-line / 1ph tee-off without DOF (H20-6)', 3.31, 'DCSH H20-6 Rev E: 230 + 830 + 1500 to the RE, 750 to the Tx support', { hv: 0.23, re: 2.56 }],
+    ['H20-7', 'Isolation tx 3ph termination / 1ph cable with DOF (H20-7)', 3.71, 'DCSH H20-7 Rev E: 230 + 230 + 1000 + 1500 to the RE, 750 to the Tx support', { hv: 0.23, re: 2.96 }],
+    ['H25', 'Intermediate transformer wishbone (H25)', 5.13, 'DCSH H25 Rev C: 380 + 750 + 1000 + 750 + 2250 from the top of pole to TX1/TX2; LV 1200 below', { lv: 6.33 }],
+    ['H46-1', 'Single phase intermediate transformer without DOF (H46-1)', 1.81, 'DCSH H46-1 Rev J: 230 + 230 + 1350 to the Tx support (without dropout fuse); RE 350 below the 460 line; LV 1200 below', { hv: 0.23, re: 0.81, lv: 3.01 }],
+    ['H46-1 DOF', 'Single phase intermediate transformer with DOF (H46-1)', 1.96, 'DCSH H46-1 Rev J: 230 + 230 + 1500 to the Tx support (with dropout fuse); RE 350 below the 460 line; LV 1200 below', { hv: 0.23, re: 0.81, lv: 3.16 }],
+    ['H46-2', '3 phase no RE / 2 phase transformer with DOF (H46-2)', 2.33, 'DCSH H46-2 Rev B: 230 + 600 + 1500 from the top of pole to the Tx support', { hv: 0.23 }],
+    ['H47-1', 'Single phase termination transformer (H47-1)', 1.68, 'DCSH H47-1 Rev G: 230 + 300 + 900 + 250 from the top of pole to the Tx support', { hv: 0.23 }],
+    ['H47-4', 'Single phase cable termination and transformer (H47-4)', 1.78, 'DCSH H47-4 Rev B: 230 + 300 + 330 + 570 to the running earth, 350 to the Tx support', { hv: 0.23, re: 1.43 }]
+  ];
+  function txArr() { var r = dcshReg(), out = r && r.plant ? r.plant.filter(function (p) { return p.kind === 'transformer'; }).map(function (p) { return { id: p.id, title: p.title || p.id, below: p.hangerBelowTip, ref: p.ref || 'DCSH ' + p.id }; }) : []; TX_EXTRA.forEach(function (t) { if (!out.some(function (o) { return o.id === t[0]; })) out.push({ id: t[0], title: t[1], below: t[2], ref: t[3] }); }); return out; }
   function extras(id) { var x = S.design.extras || (S.design.extras = {}); return x[id] || (x[id] = { stays: [], plant: [] }); }
   function bearing(a, b) { var d = Math.atan2(b.easting - a.easting, b.northing - a.northing) * 180 / Math.PI; return Math.round(((d % 360) + 360) % 360 * 10) / 10; }
   // Neighbours along the design line, to point a stay away from the conductor pull and a transformer toward the line.
@@ -566,6 +716,12 @@
     var pull = Math.hypot(sx, sy) > 0.05 ? bearing(me, { easting: me.easting - sx, northing: me.northing - sy }) : null;
     return { stay: pull, toLine: bearing(me, nb[0]) };
   }
+  // Plant code drop-down grouped like the PNW database: three-phase and single-phase transformers, then switchgear and reclosers.
+  function plantSelect(key, cur) {
+    var ks = Object.keys(PLANT_DB), g = [['3-phase transformers', function (k) { return /XT/i.test(k.replace(/[^A-Za-z0-9]/g, '')) && /3\s*ph/i.test(k) && !/GS|RC/i.test(k); }], ['1-phase transformers', function (k) { return /XT/i.test(k.replace(/[^A-Za-z0-9]/g, '')) && /1\s*-?\s*ph/i.test(k) && !/GS|RC/i.test(k); }], ['Other transformers', function (k) { return /^\W*X\W*T/i.test(k) && !/ph/i.test(k); }], ['Switchgear, reclosers and combinations', function () { return true; }]], used = {};
+    var groups = []; g.forEach(function (x) { var l = ks.filter(function (k) { return !used[k] && x[1](k); }); if (!l.length) return; l.forEach(function (k) { used[k] = 1; }); groups.push({ label: x[0], items: l.map(function (k) { var d = PLANT_DB[k]; return { value: k, label: d.weight + ' kg', keys: x[0] + (/XT/i.test(k) ? ' transformer tx' : '') }; }) }); });
+    return '<span class="xarr">' + combo('plsel|' + key, { value: cur || '', placeholder: 'Search plant code…', aria: 'Plant code', groups: function () { return groups; }, emptyText: 'no PNW plant database loaded.', onPick: function (v) { xfChange({ target: { dataset: { xf: key }, value: v } }); } }) + '</span>';
+  }
   function extrasHtml(id, row) {
     var x = extras(id), hag = PNW.num(row.HeightAG), cons = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; });
     var wires = lib && lib.stays && lib.stays.length ? lib.stays.map(function (w) { return w.code || w.Code; }) : [];
@@ -573,42 +729,77 @@
     x.stays.forEach(function (st, i) {
       h += '<div class="xrow"><b>Stay ' + (i + 1) + '</b><label>Wire <select data-xf="stays|' + i + '|wire">' + wires.concat(wires.indexOf(st.wire) < 0 && st.wire ? [st.wire] : []).map(function (w) { return '<option' + (w === st.wire ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></label>' +
         '<label>Height AG (m) <input data-xf="stays|' + i + '|attHt" value="' + fmt(st.attHt) + '" inputmode="decimal"></label><label title="Bearing from the pole to the anchor, degrees from grid north">Bearing (°) <input data-xf="stays|' + i + '|dir" value="' + fmt(st.dir) + '" inputmode="decimal"></label>' +
-        '<label title="Angle between the stay wire and the ground (PNW stay angle)">Angle to ground (°) <input data-xf="stays|' + i + '|angle" value="' + fmt(st.angle) + '" inputmode="decimal"></label><label title="Include this stay in the tipload"><input type="checkbox" data-xf="stays|' + i + '|include"' + (st.include !== false ? ' checked' : '') + '> In tipload</label><button class="btn small" data-xdel="stays|' + i + '" aria-label="Remove stay ' + (i + 1) + '">×</button>' +
+        '<label title="Angle between the stay wire and the ground (PNW stay angle)">Angle to ground (°) <input data-xf="stays|' + i + '|angle" value="' + fmt(st.angle) + '" inputmode="decimal"></label><label title="Include this stay in the tipload"><input type="checkbox" data-xf="stays|' + i + '|include"' + (st.include !== false ? ' checked' : '') + '> In tipload</label>' + binBtn('data-xdel="stays|' + i + '"', 'Remove stay ' + (i + 1)) + '' +
         (st.ref ? '<small class="muted">' + esc(st.ref) + '</small>' : '') + '</div>';
     });
     x.plant.forEach(function (pl, i) {
       var arr = txArr().filter(function (a) { return a.id === pl.drawing; })[0], db = plantData(pl.code);
-      h += '<div class="xrow">' + (arr ? dcshThumb(arr.id) : '') + '<b>Transformer</b><label>Code <input data-xf="plant|' + i + '|code" value="' + esc(pl.code || '') + '" list="plantCodes"></label>' +
-        '<label>Arrangement <select data-xf="plant|' + i + '|drawing">' + txArr().map(function (a) { return '<option value="' + a.id + '"' + (a.id === pl.drawing ? ' selected' : '') + '>' + esc(a.title) + '</option>'; }).join('') + '</select></label>' +
+      h += '<div class="xrow">' + (arr ? dcshThumb(arr.id) : '') + '<b>Transformer</b><label>Code ' + plantSelect('plant|' + i + '|code', pl.code) + '</label>' +
+        '<label class="xarr">Arrangement ' + combo('xfarr|' + i, { value: pl.drawing || '', placeholder: 'Search arrangement…', aria: 'Transformer arrangement', groups: (function () { return function () { return [{ label: 'DCSH Part 2 arrangements', items: txArr().map(function (a) { return { value: a.id, label: a.title, note: a.ref + (a.below != null ? ' · hanger ' + a.below + ' m below tip' : ''), keys: 'transformer tx' }; }) }]; }; })(), emptyText: 'no DCSH transformer arrangements loaded.', onPick: (function (k) { return function (v) { xfChange({ target: { dataset: { xf: 'plant|' + k + '|drawing' }, value: v } }); }; })(i) }) + '</label>' +
         '<label>Hanger height AG (m) <input data-xf="plant|' + i + '|attHt" value="' + fmt(pl.attHt) + '" inputmode="decimal"></label><label title="Bearing from the pole to the transformer, degrees from grid north">Bearing (°) <input data-xf="plant|' + i + '|dir" value="' + fmt(pl.dir) + '" inputmode="decimal"></label>' +
-        '<label title="Plant weight from the PNW plant database">Weight (kg) <input data-xf="plant|' + i + '|weight" value="' + fmt(pl.weight) + '" placeholder="' + esc(db ? db.weight : '') + '" inputmode="decimal"></label><label title="Centre of mass distance from the side of the pole (PNW 7 plant offset)">Offset from pole (m) <input data-xf="plant|' + i + '|offset" value="' + fmt(pl.offset) + '" placeholder="' + esc(db ? db.offset : '') + '" inputmode="decimal"></label><label title="Area facing the wind">Wind area (m²) <input data-xf="plant|' + i + '|area" value="' + fmt(pl.area) + '" placeholder="' + esc(db ? db.area : '') + '" inputmode="decimal"></label><label><input type="checkbox" data-xf="plant|' + i + '|include"' + (pl.include !== false ? ' checked' : '') + '> In tipload</label><button class="btn small" data-xdel="plant|' + i + '" aria-label="Remove transformer">×</button>' +
+        '<label title="Plant weight from the PNW plant database">Weight (kg) <input data-xf="plant|' + i + '|weight" value="' + fmt(pl.weight) + '" placeholder="' + esc(db ? db.weight : '') + '" inputmode="decimal"></label><label title="Centre of mass distance from the side of the pole (PNW 7 plant offset)">Offset from pole (m) <input data-xf="plant|' + i + '|offset" value="' + fmt(pl.offset) + '" placeholder="' + esc(db ? db.offset : '') + '" inputmode="decimal"></label><label title="Area facing the wind">Wind area (m²) <input data-xf="plant|' + i + '|area" value="' + fmt(pl.area) + '" placeholder="' + esc(db ? db.area : '') + '" inputmode="decimal"></label><label><input type="checkbox" data-xf="plant|' + i + '|include"' + (pl.include !== false ? ' checked' : '') + '> In tipload</label>' + binBtn('data-xdel="plant|' + i + '"', 'Remove transformer') + '' +
         (pl.ref ? '<small class="muted">' + esc(pl.ref) + '</small>' : '') + (db && (pl.weight == null || pl.weight === '') ? '<small class="muted">Tipload uses ' + db.weight + ' kg, ' + db.offset + ' m, ' + db.area + ' m²: ' + esc(db.source) + '</small>' : !db && (pl.weight == null || pl.weight === '') ? '<small class="muted">Enter weight, offset and wind area from the PNW plant database to include it in the tipload.</small>' : '') + '</div>';
     });
     if (!x.stays.length && !x.plant.length) h += '<p class="meta">No stays or plant on ' + esc(id) + '.</p>';
-    h += '<datalist id="plantCodes"><option value="X T 0127-3Ph"></datalist><div class="btnrow"><button class="btn small" data-xadd="stay"' + (cons.length ? '' : ' disabled title="Add a construction first: the stay goes 300 mm below its king bolt"') + '>Add stay</button><button class="btn small" data-xadd="plant"' + (hag != null ? '' : ' disabled') + '>Add transformer</button></div></div>';
+    h += '<div class="btnrow"><button class="btn small" data-xadd="stay"' + (cons.length ? '' : ' disabled title="Add a construction first: the stay goes 300 mm below its king bolt"') + '>Add stay</button><button class="btn small" data-xadd="plant"' + (hag != null ? '' : ' disabled') + '>Add transformer</button></div></div>';
     return h;
+  }
+  // Re-place HV, RE and LV to the transformer arrangement (DCSH H10-1 / H11-1, measured from the tip), then the stays.
+  var TX_POS = { 'H10-1': { hv: 0.23, re: 2.365, lv: 4.315, ref: 'DCSH H10-1 Rev L: top king bolt 230 below the tip, RE 635 + 1500 below it, LV crossarm 1200 below the hanger arm' },
+    'H11-1': { hv: 0.23, re: 2.5, lv: null, ref: 'DCSH H11-1 Rev K: top king bolt 230 below the tip, RE 2500 below the tip, LV below the RE per H01-1 note 5/6 (note 4)' } };
+  TX_EXTRA.forEach(function (t) { if (t[4] && (t[4].hv != null || t[4].re != null || t[4].lv != null)) TX_POS[t[0]] = Object.assign({ hv: null, re: null, lv: null, ref: t[3] }, t[4]); });
+  function reLvMm(id, cons, re, lv) {
+    var R = hvlvRule(); if (!R) return null;
+    if (!re) return R.noRe['default'].mm;
+    if (/^AB/i.test(lv.code || '')) return R.abc.mm;
+    var t = reCondText(id, re), k = Object.keys(R.bare).filter(function (x) { return new RegExp(R.bare[x].match, 'i').test(t); })[0];
+    return k ? R.bare[k].mm : null;
+  }
+  function reattach(id, drawing) {
+    var pos = TX_POS[drawing], row = project.poles.filter(function (r) { return r.ID === id; })[0], hag = PNW.num(row && row.HeightAG); if (!pos || !(hag > 0)) return;
+    var cons = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; }), r3 = function (v) { return Math.round(v * 1000) / 1000; };
+    var hv = cons.filter(function (c) { return circuitClass(c.code) === 'hv'; }), re = cons.filter(function (c) { return /^RE/i.test(c.code || ''); }), lv = cons.filter(function (c) { return circuitClass(c.code) === 'lv'; }), mv = [], note = '';
+    function shift(list, top) { if (!list.length) return; var d = r3(top - list[0].kingbolt); list.forEach(function (c) { if (Math.abs(d) > 0.0005) mv.push({ c: c, v: r3(c.kingbolt + d) }); }); }
+    if (hv.length && pos.hv != null) shift(hv, hag - pos.hv);
+    if (re.length && pos.re != null) shift(re, hag - pos.re);
+    if (lv.length) {
+      var lvTop = pos.lv != null ? hag - pos.lv : null, mm = reLvMm(id, cons, re[0], lv[0]), reAt = re.length && pos.re != null ? hag - pos.re : null;
+      if (mm != null && reAt != null) lvTop = lvTop == null ? reAt - mm / 1000 : Math.min(lvTop, reAt - mm / 1000);
+      else if (mm != null && lvTop == null && pos.re != null) lvTop = hag - pos.re - mm / 1000;
+      if (lvTop == null) note = ' LV not moved: string the running earth first (its conductor sets the LV distance).';
+      else if (lvTop < 2) note = ' LV not moved: the pole is too short for ' + drawing + ' (12.5 m pole minimum).';
+      else shift(lv, lvTop);
+    }
+    var low = {}; mv.forEach(function (m) { low[m.c.unique] = m.v; });
+    var kb = function (c) { return low[c.unique] != null ? low[c.unique] : c.kingbolt; }, top = cons[0], x = extras(id), sl = [];
+    x.stays.forEach(function (st, i) { var on = cons.filter(function (c) { return c.unique === st.on; })[0] || top; if (!on) return; var v = r3(kb(on) - 0.3); if (Math.abs(v - st.attHt) > 0.0005) { sl.push(logEntry(id, 'Stay ' + (i + 1), 'Height AG', st.attHt + ' m', v + ' m', 'calculated', '300 mm below the ' + (on.descr || on.code) + ' king bolt after ' + drawing)); st.attHt = v; st.on = on.unique; } });
+    if (mv.length) commit(function (p) { return mv.map(function (m) { M.updateConstruction(p, m.c.unique, { kingbolt: m.v }); return logEntry(id, m.c.descr, 'King bolt', m.c.kingbolt + ' m', m.v + ' m', 'calculated', pos.ref); }).concat(sl); });
+    else if (sl.length) { S.design.log = liveLog().concat(sl); recompute(); }
+    setStatus(mv.length || sl.length ? 'Re-attached ' + mv.length + ' construction' + (mv.length === 1 ? '' : 's') + (sl.length ? ' and ' + sl.length + ' stay' + (sl.length === 1 ? '' : 's') : '') + ' to ' + drawing + '.' + note : 'Constructions already match ' + drawing + '.' + note, note ? 'bad' : 'good');
   }
   function addExtra(id, kind) {
     var row = project.poles.filter(function (r) { return r.ID === id; })[0], hag = PNW.num(row.HeightAG), dirs = lineDirs(id) || {}, x = extras(id), entry, what;
     if (kind === 'stay') {
       var top = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; })[0];
       entry = { wire: lib && lib.stays && lib.stays.length ? (lib.stays[0].code || lib.stays[0].Code) : '', attHt: Math.round((top.kingbolt - 0.3) * 1000) / 1000, dir: dirs.stay != null ? dirs.stay : 0, angle: 45,
-        ref: 'Height: 300 mm below the ' + (top.descr || top.code) + ' king bolt (DCSH H01-1 / L03; your S1242155 tipload uses the same). Bearing: away from the conductors. Angle 45° as in your S1242155 tipload.' };
+        on: top.unique, ref: 'Height: 300 mm below the ' + (top.descr || top.code) + ' king bolt (DCSH H01-1 / L03; your S1242155 tipload uses the same). Bearing: away from the conductors. Angle 45° as in your S1242155 tipload.' };
       x.stays.push(entry); what = 'Stay';
     } else {
       var tx = txArr(), term = dm && (dm.byPole[id] || []).some(function (c) { return /termination/i.test(c.code + ' ' + (M.libraryConstruction(lib, c.code) || {}).description); }), a = tx.filter(function (t) { return term ? /termination/i.test(t.title) : !/termination/i.test(t.title); })[0] || tx[0];
-      entry = { code: 'X T 0127-3Ph', drawing: a.id, attHt: Math.round((hag - a.below) * 1000) / 1000, dir: dirs.toLine != null ? dirs.toLine : 0, ref: a.ref + '. Code from your S1242155 tipload; check the size.' };
+      entry = { code: 'X T 0127-3Ph', drawing: a.id, attHt: Math.round((hag - a.below) * 1000) / 1000, dir: dirs.toLine != null ? dirs.toLine : 0, ref: a.ref + '. Pick the size from the PNW plant list (Code).' };
       x.plant.push(entry); what = 'Transformer';
     }
     S.design.log = liveLog().concat([logEntry(id, what, what, '', kind === 'stay' ? entry.wire + ' at ' + entry.attHt + ' m, ' + entry.dir + '°' : entry.code + ' (' + entry.drawing + ') at ' + entry.attHt + ' m', 'calculated', entry.ref)]);
     recompute();
+    if (kind !== 'stay') reattach(id, entry.drawing);
   }
   $('selected').addEventListener('click', function (e) {
     var a = e.target.closest('[data-xadd]'), d = e.target.closest('[data-xdel]'), id = S.selected;
     if (a) { addExtra(id, a.dataset.xadd); return; }
     if (d) { var k = d.dataset.xdel.split('|'), x = extras(id), it = x[k[0]].splice(+k[1], 1)[0]; S.design.log = liveLog().concat([logEntry(id, k[0] === 'stays' ? 'Stay' : 'Transformer', 'Removed', JSON.stringify(it), '', 'manual', '')]); recompute(); }
   });
-  $('selected').addEventListener('change', function (e) {
+  $('selected').addEventListener('change', function (e) { xfChange(e); });
+  function xfChange(e) {
     var f = e.target.dataset && e.target.dataset.xf; if (!f) return;
     var k = f.split('|'), it = extras(S.selected)[k[0]][+k[1]], v = e.target.value, before = it[k[2]];
     if (k[2] === 'include') v = e.target.checked;
@@ -616,37 +807,73 @@
       if (v.trim() === '') v = null; else { v = Number(v); if (!isFinite(v) || v < 0 || (k[2] === 'offset' && v > 5) || (k[2] === 'area' && v > 20)) { setStatus('Not a valid ' + (k[2] === 'weight' ? 'weight (kg)' : k[2] === 'offset' ? 'offset (m from the pole side)' : 'wind area (m²)') + '.', 'bad'); renderSelected(); return; } }
     } else if (k[2] === 'attHt' || k[2] === 'dir' || k[2] === 'angle') {
       v = Number(v); var hag = PNW.num((project.poles.filter(function (r) { return r.ID === S.selected; })[0] || {}).HeightAG);
-      if (!isFinite(v) || (k[2] === 'attHt' && (v <= 0 || (hag != null && v > hag))) || (k[2] === 'angle' && (v <= 0 || v >= 90))) { setStatus('Not a valid ' + (k[2] === 'attHt' ? 'height (above ground, below the tip)' : k[2] === 'angle' ? 'stay angle (0–90°)' : 'bearing') + '.', 'bad'); renderSelected(); return; }
+      if (!isFinite(v) || (k[2] === 'attHt' && (v <= 0 || (hag != null && v > hag))) || (k[2] === 'angle' && (v < 0 || v >= 90))) { setStatus('Not a valid ' + (k[2] === 'attHt' ? 'height (above ground, below the tip)' : k[2] === 'angle' ? 'stay angle (0 to under 90°; 0 = horizontal, as PNW allows)' : 'bearing') + '.', 'bad'); renderSelected(); return; }
       if (k[2] === 'dir') v = ((v % 360) + 360) % 360;
     }
     if (k[2] === 'drawing') { var arr = txArr().filter(function (a) { return a.id === v; })[0], hg = PNW.num((project.poles.filter(function (r) { return r.ID === S.selected; })[0] || {}).HeightAG); if (arr && hg != null) { it.attHt = Math.round((hg - arr.below) * 1000) / 1000; it.ref = arr.ref; } }
     it[k[2]] = v;
     S.design.log = liveLog().concat([logEntry(S.selected, k[0] === 'stays' ? 'Stay' : 'Transformer', k[2], before, v, 'manual', '')]);
     recompute();
-  });
+    if (k[2] === 'drawing') reattach(S.selected, v);
+  }
   function xBanner(id) {
     var xp = xPole(id); if (!xp) return '';
     return '<div class="con"><div class="con-title">Intersecting line</div><p class="meta">' + esc(id) + ' is on ' + esc(xp.line.title) + ', which meets the design at ' + esc(Object.keys(xp.line.common).map(function (k) { return xp.line.common[k].id; }).join(', ')) + '.</p><div class="btnrow"><button class="btn small primary" data-xuse="' + esc(xp.line.name) + '">Edit this line as the design</button></div></div>';
   }
-  function polePane(id, p, r, inProf, ex) {
-    var h = '<div class="btnrow" style="margin:0 0 8px">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : (p.survey ? '<button class="btn small primary" id="selAdd">Add to profile</button>' : '<span class="meta">No LiDAR row, so it cannot go in the profile.</span>')) + (p.survey && p.survey.kind === 'Manual' ? '<button class="btn small" data-ctx="editpole" title="Change the position, ground level or length of this pole, or delete it">✎ Edit pole…</button>' : '') + '<button class="btn small" data-instab="photo" title="Rank the PNW constructions and DCSH drawings that match a photo of this pole">✨ AI photo match</button>' + (streetViewUrl(id) ? '<button class="btn small" data-ctx="street" title="Street View inside the app: capture the pole and send it straight to the AI photo analysis">🛣 Street View → AI</button>' : '') + '</div>' + tipSummaryHtml(id) + '<table class="props">';
+  // Survey & asset: the raw data, closed by default. Conflicts first, open defects only, source tags only where edited.
+  function defectOpen(d) { return !/no longer|complete|closed|resolved|cancel|withdrawn/i.test((d.severity || '') + ' ' + (d.status || '')); }
+  function dateOnly(v) { var d = v ? new Date(v) : null; return d && !isNaN(d) ? d.toLocaleDateString('en-AU') : v; }
+  function polePane(id, p, r, inProf, ex, chk) {
+    var h = '', conf = (chk || []).filter(function (c) { return c.conflict; });
+    if (conf.length) h += '<ul class="pd-chk">' + conf.map(function (c) { return '<li class="' + c.level + '">' + esc(c.text) + '</li>'; }).join('') + '</ul>';
+    h += '<table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
-    if (p.survey) { var sk = p.survey.kind || 'LiDAR'; sec('Survey'); row('Easting', fmt(p.survey.easting), tagS(sk)); row('Northing', fmt(p.survey.northing), tagS(sk)); row('Elevation', fmt(p.survey.elevation), tagS(sk)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Bays', p.survey.bays); row('Bay angles', p.survey.bayAngles.join(', ')); row('Equipment no', p.survey.equipNo); row('Surveyed', p.survey.surveyed); row('Source', p.survey.src.file + ' row ' + p.survey.src.row); }
+    if (p.survey) { sec('Survey (' + esc(p.survey.kind || 'LiDAR') + ')'); row('Easting', f2(p.survey.easting, 2)); row('Northing', f2(p.survey.northing, 2)); row('Elevation', f2(p.survey.elevation, 2)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Equipment no', p.survey.equipNo); row('Surveyed', dateOnly(p.survey.surveyed)); }
     else { sec('Survey'); row('Survey', 'No LiDAR survey row'); }
-    if (r) {
-      sec('Ground profile');
-      row('Chainage', fmt(r.chainage, 2) + ' m', '<span class="tag der">derived</span>');
-      if (r.span != null) row('Span from previous', fmt(r.span, 2) + ' m', '<span class="tag der">derived</span>');
-      row('Pole length', r.length != null ? r.length + ' m' : 'unknown', r.lengthSource === 'Edited' ? '<span class="tag edit">edited</span>' : r.lengthSource ? tagS(r.lengthSource) : '');
-      row('Setting depth', r.sunk != null ? r.sunk + ' m' : '', '<span class="tag der">derived</span>');
-      row('Height above ground', r.height != null ? r.height + ' m' : '', '<span class="tag der">derived</span>');
-    } else if (ex.value != null) { sec('Pole'); row('Existing length', ex.value + ' m', tagS(ex.source)); }
-    if (p.gis) { sec('GIS'); row('Description', p.gis.description); row('Length', p.gis.length != null ? p.gis.length + ' m' : ''); row('Stock', p.gis.stock); row('Species', p.gis.species); row('HV feeder', p.gis.feeder); row('LV feeder', p.gis.lvFeeder); row('Equip no', p.gis.equipNo); var ll = poleLatLng(p); if (ll && p.gis.lat != null) row('Offset from LiDAR', map.distance(ll, L.latLng(p.gis.lat, p.gis.lng)).toFixed(1) + ' m'); }
-    ['HV', 'LV'].forEach(function (l) { gisConductorsAt(id, l).forEach(function (t, k) { if (!k) sec('GIS ' + l + ' conductor (by feeder)'); row(t.description, gisText(t).slice(t.description.length + 4)); }); });
-    if (p.insp) { sec('Inspections (latest)'); row('Records', p.insp.count); ['Pole Length', 'Pole Length (M)', 'Strength (kN)', 'Bay 1 Length (m)', 'Bay 2 Length (m)', 'Bay 3 Length (m)', 'Bay 1 HV Conductor Type', 'Bay 1 LV Conductor Type', 'Height Neutral Phase (m)', 'Height Running Earth (m)', 'Stay 1 Type'].forEach(function (k) { var a = p.insp.attrs[k]; if (a) row(k, a.value + (a.date ? ' (' + new Date(a.date).toLocaleDateString('en-AU') + ')' : '')); }); }
-    if (p.defects.length) { sec('Defects (' + p.defects.length + ')'); p.defects.slice(0, 8).forEach(function (d) { row(d.severity || 'Defect', d.description + ' · ' + d.status); }); }
-    return h + '</table>';
+    if (!r && ex.value != null) { sec('Pole'); row('Existing length', ex.value + ' m (' + ex.source + ')'); }
+    if (r && r.lengthSource === 'Edited') { sec('Ground profile'); row('Pole length', r.length + ' m', '<span class="tag edit">edited</span>'); }
+    if (p.gis) { sec('GIS'); row('Description', p.gis.description); row('Length', p.gis.length != null ? p.gis.length + ' m' : ''); row('Stock', p.gis.stock); row('Species', p.gis.species); row('HV feeder', p.gis.feeder); row('LV feeder', p.gis.lvFeeder); var ll = poleLatLng(p); if (ll && p.gis.lat != null) { var off = map.distance(ll, L.latLng(p.gis.lat, p.gis.lng)); if (off > 2) row('Offset from LiDAR', off.toFixed(1) + ' m'); } }
+    ['HV', 'LV'].forEach(function (l) { gisConductorsAt(id, l).forEach(function (t, k) { if (!k) sec('GIS ' + l + ' conductor'); row(t.description, gisText(t).slice(t.description.length + 4)); }); });
+    if (p.insp) { sec('Latest inspection'); ['Pole Length', 'Pole Length (M)', 'Strength (kN)', 'Height Neutral Phase (m)', 'Height Running Earth (m)', 'Stay 1 Type'].forEach(function (k) { var a = p.insp.attrs[k]; if (a && a.value !== '' && a.value != null) row(k, a.value + (a.date ? ' (' + new Date(a.date).getFullYear() + ')' : '')); }); }
+    var od = p.defects.filter(defectOpen);
+    if (od.length) { sec('Open defects (' + od.length + ')'); od.slice(0, 8).forEach(function (d) { row(d.severity || 'Defect', d.description); }); }
+    h += '</table><div class="btnrow">' + (inProf ? '<button class="btn small" id="selRemove" title="Take this pole out of the ground profile">Remove from profile</button>' : '') + (p.survey && p.survey.kind === 'Manual' ? '<button class="btn small" data-ctx="editpole">✎ Edit position…</button>' : '');
+    var prow = project && project.poles.filter(function (x) { return x.ID === id; })[0];
+    if (prow) h += project.segPoles.some(function (s) { return s.id === id; }) ? '' : binBtn('data-pdel="' + esc(id) + '"', 'Remove pole ' + id + ' from the design') + ' <span class="pd-none">Remove from design</span>';
+    return h + '</div>';
+  }
+  // Checks on one pole that change the design or block a calculation. Data gaps (unmatched rows, duplicate GIS rows) stay in the Issues tab.
+  var DATA_GAP = /^(unmatched|duplicate-id|invalid-coordinate|invalid-number|missing-id|unknown-file|no-geometry|missing-value)$/;
+  function isGap(i) { return i.level !== 'error' && DATA_GAP.test(i.code || ''); }
+  function poleChecks(id) {
+    var out = [], p = merged.poles[id], prow = project && project.poles.filter(function (x) { return x.ID === id; })[0], r = built && built.rows.filter(function (x) { return x.id === id; })[0];
+    allIssues.forEach(function (i) { if (i.poleId === id && (i.level === 'error' || i.level === 'warning') && !isGap(i)) out.push({ level: i.level, text: i.message, conflict: i.code === 'length-conflict' }); });
+    var Lp = prow ? PNW.num(prow.Length) : r ? r.length : null, hag = prow ? PNW.num(prow.HeightAG) : r ? r.height : null;
+    if (p && p.insp && !(prow && prow.New === 'True')) {
+      var la = p.insp.attrs['Pole Length (M)'] || p.insp.attrs['Pole Length'], il = la ? parseFloat(la.value) : null, yr = function (a) { return a && a.date ? ' (' + new Date(a.date).getFullYear() + ')' : ''; };
+      if (il > 0 && Lp > 0 && Math.abs(il - Lp) > 0.05) out.push({ level: 'warning', conflict: true, text: 'Length ' + fmt(Lp) + ' m, but the inspection says ' + il + ' m' + yr(la) + '.' });
+      var sa = p.insp.attrs['Strength (kN)'], ik = sa ? parseFloat(sa.value) : null, pt = null; try { pt = poleTypeFor(id, Lp); } catch (e) { pt = null; }
+      if (ik > 0 && pt && pt.kN > 0 && Math.abs(ik - pt.kN) > 0.01) out.push({ level: 'warning', conflict: true, text: 'Pole type ' + pt.code + ' is ' + pt.kN + ' kN, but the inspection says ' + ik + ' kN' + yr(sa) + '.' });
+    }
+    var cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
+    cons.forEach(function (c, i) {
+      var nm = c.descr || c.code;
+      if (c.kingbolt != null && hag != null && c.kingbolt > hag) out.push({ level: 'error', u: c.unique, text: nm + ': king bolt ' + fmt(c.kingbolt) + ' m is above the pole tip (' + hag + ' m).' });
+      var lr = lvRule(id, cons, i);
+      if (lr && lr.value != null && c.kingbolt != null && Math.abs(lr.value - c.kingbolt) > 0.05) out.push({ level: 'warning', u: c.unique, fix: lr.value, ref: lr.src, text: nm + ': king bolt ' + fmt(c.kingbolt) + ' m; the HV–LV separation rule gives ' + lr.value + ' m.' });
+      else if (lr && lr.value == null && lr.why) out.push({ level: 'warning', u: c.unique, text: nm + ' under HV: ' + lr.why });
+    });
+    var clr = PNW.num(S.settings.clr1), ids = lineIds(), k = ids.indexOf(id);
+    if (clr > 0 && k >= 0) [[ids[k - 1], id], [id, ids[k + 1]]].forEach(function (s) { if (!s[0] || !s[1]) return; var v = null; try { v = spanClearance(s[0], s[1]); } catch (e) { v = null; } if (v != null && v < clr) out.push({ level: 'error', text: 'Ground clearance ' + v.toFixed(2) + ' m in span ' + s[0] + ' → ' + s[1] + ' (needs ' + clr + ' m).' }); });
+    return out;
+  }
+  // Line deviation at a pole: the change of bearing between the span in and the span out.
+  function deviationAt(id) {
+    var ids = lineIds(), k = ids.indexOf(id); if (k <= 0 || k >= ids.length - 1) return null;
+    var A = poleXY(ids[k - 1]), B = poleXY(id), C = poleXY(ids[k + 1]); if (!A || !B || !C) return null;
+    var b1 = Math.atan2(B.e - A.e, B.n - A.n), b2 = Math.atan2(C.e - B.e, C.n - B.n), d = Math.abs(b2 - b1) * 180 / Math.PI;
+    if (d > 180) d = 360 - d; return Math.round(d * 10) / 10;
   }
   function startDesignHint() {
     return '<p class="hint">Drop a saved PNW project (.pnwx) to edit its design, or start a new design from this ground profile.</p>' + (built && built.rows.length > 1 ? '<div class="btnrow"><button class="btn small primary" id="designStart">Start a design from this ground profile</button></div>' : '<p class="hint">Build a ground profile with at least two poles first.</p>');
@@ -670,7 +897,7 @@
   $('selected').addEventListener('click', function (e) {
     var t = e.target.closest('[data-instab],[data-act],[data-xuse]'); if (!t) return;
     if (t.dataset.xuse) { linkDesign(t.dataset.xuse); select(S.selected); setStatus('Editing ' + t.dataset.xuse + '. The previous design is shown as an intersecting line.', 'good'); return; }
-    if (t.dataset.instab) { var kk = t.dataset.instab, g0 = GROUPS.filter(function (x) { return x[0] === (U.insGroup || 'config'); })[0] || GROUPS[0]; if (t.classList.contains('acch')) { var o0 = accOpenNow(kk, g0); (U.accOpen = U.accOpen || {})[kk] = !o0; if (!o0) { U.insTab = kk; lastReq = kk; } else if (U.insTab === kk) { U.insTab = ''; lastReq = ''; } } else openSection(kk); saveUi(); renderSelected(); return; }
+    if (t.dataset.instab) { var kk = secKey(t.dataset.instab); if (t.classList.contains('acch')) { var o0 = accOpenNow(kk); (U.accOpen = U.accOpen || {})[kk] = !o0; if (!o0) { U.insTab = kk; lastReq = kk; } else if (U.insTab === kk) { U.insTab = ''; lastReq = ''; } } else openSection(kk); saveUi(); renderSelected(); return; }
     if (t.dataset.act === 'import') $('fileInput').click();
     if (t.dataset.act === 'export') { recompute(); openReview(); }
   });
@@ -704,7 +931,7 @@
     if (tab === 'heights') return renderHeights();
     var q = $('search').value.trim().toLowerCase(), f = $('filter').value;
     var list = Object.keys(merged.poles).map(function (id) { return merged.poles[id]; }).filter(function (p) {
-      if (q && (p.id + ' ' + (p.survey ? p.survey.equipNo : '') + ' ' + (p.gis ? p.gis.equipNo + ' ' + p.gis.description : '')).toLowerCase().indexOf(q) < 0) return false;
+      if (q && !smartScore(q, p.id + ' ' + (p.survey ? p.survey.equipNo : '') + ' ' + (p.gis ? p.gis.equipNo + ' ' + p.gis.description : ''))) return false;
       if (f === 'profile') return prof().poleIds.indexOf(p.id) >= 0;
       if (f === 'error' || f === 'warning') return levelFor(p.id) === f;
       if (f === 'unmatched') return !p.survey || (S.files.some(function (x) { return x.role === 'gisPoles'; }) && !p.gis);
@@ -727,7 +954,7 @@
   }
   function renderIssueTable() {
     var q = $('search').value.trim().toLowerCase();
-    var list = allIssues.filter(function (i) { return !q || (i.message + ' ' + (i.poleId || '') + ' ' + (i.file || '')).toLowerCase().indexOf(q) >= 0; });
+    var list = allIssues.filter(function (i) { return !q || smartScore(q, i.message + ' ' + (i.poleId || '') + ' ' + (i.file || '')); });
     var rank = { error: 0, warning: 1, info: 2 }; list.sort(function (a, b) { return rank[a.level] - rank[b.level]; });
     if (!list.length) { $('tableWrap').innerHTML = '<p class="status good" style="padding:14px">No issues found.</p>'; return; }
     $('tableWrap').innerHTML = '<table class="grid"><thead><tr><th>Level</th><th>Pole</th><th>Issue</th><th>File</th></tr></thead><tbody>' + list.map(function (i) {
@@ -756,8 +983,9 @@
     var matched = ids.filter(function (id) { return merged.poles[id].survey; }).length;
     $('valCount').textContent = e ? e + ' errors' : w ? w + ' warnings' : ids.length ? 'OK' : '';
     $('validation').innerHTML = '<div class="tiles"><div class="tile ' + (e ? 'bad' : '') + '"><small>Errors</small><b>' + e + '</b></div><div class="tile ' + (w ? 'warn' : '') + '"><small>Warnings</small><b>' + w + '</b></div></div>' +
-      '<p class="hint">' + matched + ' of ' + ids.length + ' poles have a LiDAR survey row. ' + inf + ' informational note' + (inf === 1 ? '' : 's') + '.</p><div class="btnrow"><button class="btn small" id="openIssues">Show all issues</button></div>';
+      '<p class="hint">' + matched + ' of ' + ids.length + ' poles have a LiDAR survey row. ' + inf + ' informational note' + (inf === 1 ? '' : 's') + '.</p><div class="btnrow"><button class="btn small" id="openIssues">Show all issues</button>' + (function () { var n = lenFixList().length; return n ? '<button class="btn small" id="fixLens" title="Poles with a missing or invalid length (e.g. -9999) take the length of their pole type">⟲ Auto fix ' + n + ' length' + (n > 1 ? 's' : '') + ' from pole type</button>' : ''; })() + '</div>';
     $('openIssues').onclick = function () { openTab('issues'); };
+    if ($('fixLens')) $('fixLens').onclick = function () { fixFromType(lenFixList()); };
   }
 
   /* ---------- review ---------- */
@@ -781,7 +1009,7 @@
     if (errs.length) h += '<div><h3 class="sub">Fix these before exporting</h3><ul class="issues-list">' + errs.map(function (i) { return '<li class="error">' + esc(i.message) + '</li>'; }).join('') + '</ul></div>';
     h += '<div><h3 class="sub">Profile along the alignment</h3>' + chart() + '</div>';
     h += '<div><h3 class="sub">Groundline sheet preview (exactly what is written)</h3><div class="tablewrap" style="max-height:300px;border:1px solid var(--line);border-radius:10px"><table class="grid"><thead><tr>' + PNW.GROUNDLINE_HEADERS.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      PNW.groundlineAoa(built).slice(1).map(function (r, i) { var src = built.rows[i]; return '<tr>' + r.map(function (v, c) { var t = c === 5 && src.lengthSource === 'Edited' ? ' <span class="tag edit">edited</span>' : ''; return '<td class="' + (typeof v === 'number' ? 'num' : '') + (v == null && c < 7 ? ' miss' : '') + '">' + (v == null ? (c < 7 ? 'missing' : '') : esc(v)) + t + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' +
+      PNW.groundlineAoa(built).slice(1).map(function (r) { var src = r[3] ? built.rows.filter(function (q) { return q.id === r[3]; })[0] || {} : null; return '<tr' + (src ? '' : ' class="muted" title="Survey ground point"') + '>' + r.map(function (v, c) { var t = src && c === 5 && src.lengthSource === 'Edited' ? ' <span class="tag edit">edited</span>' : ''; var need = v == null && c < 7 && (src || c < 3); return '<td class="' + (typeof v === 'number' ? 'num' : '') + (need ? ' miss' : '') + '">' + (v == null ? (need ? 'missing' : '') : esc(v)) + t + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' +
       '<p class="hint">Easting, Northing and Eleveation are copied from the LiDAR survey. Height above Ground and Setting Depth are derived from the pole length. Chainage and spans are shown for checking but are not written to the workbook, the same as your existing files. Segments sheet: ' + (p.segments.length ? p.segments.length + ' segment(s).' : 'headers only, as in your MP219050 workbooks.') + '</p></div>';
     var ref = S.files.filter(function (f) { return f.role === 'groundProfile' && f.items.length; });
     ref.forEach(function (f) {
@@ -851,9 +1079,85 @@
   }
   function xlsxBytes(wb) { return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }); }
   function guard() { recompute(); if (!built || !built.ok) { setStatus('Export blocked: fix the profile errors first.', 'bad'); openReview(); return false; } return true; }
-  function gpBlob() { return new Blob([xlsxBytes(PNW.groundProfileWorkbook(XLSX, built, prof().segments))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); }
-  function pnwxText() { return PNW.profilePnwx(built, { title: 'Ground Profile - ' + baseName(), createdBy: S.settings.createdBy, option: S.settings.optionSet, clearance1: PNW.num(S.settings.clr1), clearance2: PNW.num(S.settings.clr2) }); }
-  function exportDesign() { download(new Blob([projectXml()], { type: 'application/xml' }), linked.name.replace(/\.pnwx$/i, '') + (liveLog().length ? ' (edited)' : '') + '.pnwx'); setStatus('Downloaded the updated PNW project.', 'good'); }
+  function gpBlob() { return new Blob([xlsxBytes(project && project.constructions && project.constructions.length ? designWorkbook() : PNW.groundProfileWorkbook(XLSX, built, prof().segments))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); }
+  // With a design: the Groundline sheet gets Construction and Att Ht columns (extra constructions on the rows below the pole) and the
+  // Segments sheet lists each strain section with its poles, constructions and attachment heights, as in PNW's sample
+  // "ene with constructions4.xlsx". The first eight Groundline columns are unchanged.
+  function designWorkbook() {
+    var gl = PNW.groundlineAoa(built), hdr = gl[0].concat(['Construction', 'Att Ht']), out = [hdr], w = hdr.length;
+    var consOf = function (id) { return project.constructions.filter(function (c) { return c.pole === id; }).sort(function (a, b) { return (PNW.num(b.attht) || 0) - (PNW.num(a.attht) || 0); }); };
+    gl.slice(1).forEach(function (r, i) {
+      var cs = r[3] ? consOf(r[3]) : [], row = r.slice(); while (row.length < w - 2) row.push(null);
+      out.push(row.concat(cs[0] ? [cs[0].code, PNW.num(cs[0].attht)] : [null, null]));
+      cs.slice(1).forEach(function (c) { var x = new Array(w - 2).fill(null); out.push(x.concat([c.code, PNW.num(c.attht)])); });
+    });
+    var seg = [['Conductor', 'Num conds', '%CBL', 'Tension kN', 'Table', 'Temperatures', 'Poles', 'Constructions', 'Att Ht']], order = {};
+    built.rows.forEach(function (r, i) { order[r.id] = i; });
+    (project.segments || []).forEach(function (sg) {
+      var sp = project.segPoles.filter(function (r) { return r.strsection === sg.StrainSect && r.include !== 'False'; }).sort(function (a, b) { return (order[a.id] == null ? 1e9 : order[a.id]) - (order[b.id] == null ? 1e9 : order[b.id]); });
+      var pct = /cbl/i.test(sg.TensionUnits || '') ? PNW.num(sg.Tension) : null, kn = /kn/i.test(sg.TensionUnits || '') ? PNW.num(sg.Tension) : (PNW.num(sg.kN) || null);
+      sp.forEach(function (r, i) {
+        var c = project.constructions.filter(function (x) { return x.pole === r.id && x.descr === r.constr; })[0], code = c ? c.code : String(r.constr || '').replace(/\s*\(\d+\)$/, '');
+        seg.push((i ? [null, null, null, null, null, null] : [sg.Conductor || null, PNW.num(sg.numconds), pct, kn, String(sg.Table || '').trim() || null, String(sg.Conditions || '').trim() || null]).concat([r.id, code, PNW.num(r.attht)]));
+      });
+    });
+    var wb = XLSX.utils.book_new(), ws = XLSX.utils.aoa_to_sheet(out);
+    XLSX.utils.book_append_sheet(wb, ws, 'Groundline'); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(seg), 'Segments');
+    return wb;
+  }
+  // With a design the .pnwx export is the design project itself (poles, constructions, conductors, strain sections and tiploads).
+  // The pole type chosen for each pole (a library type or a calculated Existing-<ID> pole strength type) is app state; write it into the
+  // exported project so PNW opens each pole with that type, its diameters and its calculated strength.
+  function withPoleTypes(xml) {
+    var ty = S.design.poleTypes || {}, ids = Object.keys(ty); if (!xml || !ids.length) return xml;
+    try {
+      var p = M.readPnwx(xml); if (p.kind !== 'profile') return xml;
+      var pl = S.design.poleLib || {}, changed = false;
+      ids.forEach(function (id) {
+        var code = ty[id], t = (pl[id] && pl[id].code === code ? pl[id] : null) || (lib && lib.poles.filter(function (x) { return x.code === code; })[0]);
+        if (t && M.setPoleType(p, id, t)) changed = true;
+      });
+      var out = changed ? M.writePnwx(p) : xml, add = '';
+      // A calculated strength type is not in PNW's own pole database. PNW keeps such a pole's type in the pole's saved tipload
+      // (<pole_ID> with an embedded <poletype>, as in your S1242155 project), so write one for poles that have none yet.
+      ids.forEach(function (id) {
+        var code = ty[id], t = pl[id] && pl[id].code === code ? pl[id] : null;
+        if (!t || (p.tiploads || {})[id] || new RegExp('<pole_' + id.replace(/[^\w-]/g, '') + '>').test(out)) return;
+        var x = tipProjectXml(id, t, p.attrs || {}); if (x) add += x;
+      });
+      if (add) { var NL = /\r\n/.test(out) ? '\r\n' : '\n'; out = out.replace(/<\/profile_project>\s*$/, add.replace(/\n/g, NL) + '</profile_project>' + NL); }
+      return out;
+    } catch (e) { return xml; }
+  }
+  // A PNW tipload project for one pole, in the layout PNW 7.18 saves inside a profile (<pole_ID> CDATA): attributes, the pole type,
+  // and one cct per circuit from this design (conductor, count, bearing, attachment height, span, MES, tension as the section has it).
+  function tipProjectXml(id, t, pa) {
+    var inp = tipInput(id); if (!inp || !(inp.pole.height > 0)) return '';
+    var xe = function (v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    var n = function (v) { return v == null || v === '' || !isFinite(Number(v)) ? '0' : String(Math.round(Number(v) * 1000) / 1000); };
+    var d = new Date(), hh = d.getHours() % 12 || 12, two = function (v) { return (v < 10 ? '0' : '') + v; };
+    var saved = two(d.getDate()) + '/' + two(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + hh + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds()) + ' ' + (d.getHours() < 12 ? 'AM' : 'PM');
+    var st = inp.stays || [], pl2 = (inp.plant || []);
+    var A = [['saved', saved], ['currentoption', pa.currentoption || ''], ['title', id], ['flex', '0'], ['ht', n(inp.pole.height)], ['length', n(inp.pole.length)], ['sink', n(inp.pole.length - inp.pole.height)], ['diam', n(t.diamAvg)], ['poletype', t.code], ['orient', '0'], ['comment', ''], ['filename', '']];
+    [0, 1].forEach(function (k) { var s0 = st[k] || {}; A.push(['stay' + (k + 1) + '_dir', n(s0.dir)], ['stay' + (k + 1) + '_angle', n(st[k] ? s0.angle : 0)], ['stay' + (k + 1) + '_att_ht', n(s0.attHt)], ['stay' + (k + 1) + '_checked', st[k] && s0.include !== false ? 'True' : 'False'], ['stay' + (k + 1) + '_wire', s0.wire || '']); });
+    var p1 = pl2[0] || {}, p2 = pl2[1] || {};
+    A.push(['plant_checked', pl2[0] && p1.include ? 'True' : 'False'], ['plant1', p1.code || ''], ['plant_attht', n(p1.attHt)], ['plant_dir', n(p1.dir)], ['plant_fixedload', '0'], ['plant_checked2', pl2[1] && p2.include ? 'True' : 'False'], ['plant2', p2.code || ''], ['plant_attht2', n(p2.attHt)], ['plant_dir2', n(p2.dir)],
+      ['version', pa.pnw_version || '7.18.1'], ['tipload_version', '2.0.0.911'], ['soiltype', ''], ['footdiam', n(t.diamButt)], ['footfactor', '0'], ['gnddiam', n(t.diamGL)], ['class', '']);
+    var PT = [['code', t.code], ['description', t.description || t.code], ['defLength', n(t.length)], ['soilType', '0'], ['defSunk1', n(t.sinking)], ['defSunk2', '0'], ['defSunk3', '0'], ['defSunk4', '0'], ['defHeight', n(t.height != null ? t.height : t.length - t.sinking)], ['material', t.material || 'Wood'], ['otherDesc', null],
+      ['weightTotal', n(t.weight)], ['widthLong', '0'], ['widthTrans', '0'], ['diamTipLong', n(t.diamTip)], ['diamTipTrans', n(t.diamTip)], ['diamAvLong', n(t.diamAvg)], ['diamAvTrans', n(t.diamAvg)], ['diamGLLong', n(t.diamGL)], ['diamGLTrans', n(t.diamGL)], ['diamButtLong', n(t.diamButt)], ['diamButtTrans', n(t.diamButt)],
+      ['limitLong', null], ['limitTrans', null], ['limitDownload', null], ['limitTorsional', '0,0,0'], ['limitUplift', '0,0,0'], ['limitnowind', '0'], ['limitwind1', '0'], ['limitwind2', '0'], ['limitultimate', n(t.ultimate)], ['limitdownult', n(t.vertical)], ['limitultimatetrans', n(t.ultimate)], ['remarks', null],
+      ['Favourite', 'False'], ['setName', 'Western Power'], ['maxDevAngle', '0'], ['geometry', 'True'], ['strgroup', '6'], ['wallthickness', '0']];
+    var row = function (pairs, ind) { return pairs.map(function (f) { return ind + '<' + f[0] + '>' + (f[1] == null ? '\n' + ind + '</' + f[0] + '>' : xe(f[1]) + '</' + f[0] + '>'); }).join('\n'); };
+    var ccts = inp.circuits.map(function (c, i) {
+      var m = /^\s*([\d.]+)\s*%CBL/i.exec(c.tensionText || ''), pc = !!m;
+      return '    <cct>\n' + row([['Include', 'True'], ['Circuit_ID', String(i + 1)], ['Angle', n(Math.round(c.dir * 10) / 10)], ['Conductor', c.code || ''], ['Num_Conductors', String(c.n || 1)], ['Attach_Ht', n(c.attHt)], ['Span_Length', n(c.span)], ['MES', n(c.mes)], ['vertical', n(c.vdiff)], ['strsect', c.segment || ''], ['sectlen', n(c.mes)], ['iceperc', '1'],
+        ['tenstype', pc ? '%CBL' : 'Tension'], ['tensvalue', pc ? m[1] : n(c.tension)], ['weight', '0'], ['diam', '0'], ['tensionkN', n(c.tension)], ['unique', '0'], ['std_tens', '0']], '      ') + '\n    </cct>';
+    });
+    return '  <pole_' + id + '><![CDATA[<tipload_project ' + A.map(function (a) { return a[0] + '="' + xe(a[1]) + '"'; }).join(' ') + '>\n  <poletype>\n    <poletype>\n' + row(PT, '      ') + '\n    </poletype>\n  </poletype>\n  <ccts>\n' + ccts.join('\n') + '\n  </ccts>\n</tipload_project>]]></pole_' + id + '>\n';
+  }
+  function pnwxText() { return withPoleTypes(pnwxTextRaw()); }
+  function pnwxTextRaw() { if (project && project.constructions && project.constructions.length && projectXml()) return projectXml(); return PNW.profilePnwx(built, { title: 'Ground Profile - ' + baseName(), createdBy: S.settings.createdBy, option: S.settings.optionSet, clearance1: PNW.num(S.settings.clr1), clearance2: PNW.num(S.settings.clr2) }); }
+  function exportDesign() { download(new Blob([withPoleTypes(projectXml())], { type: 'application/xml' }), linked.name.replace(/\.pnwx$/i, '') + (liveLog().length ? ' (edited)' : '') + '.pnwx'); setStatus('Downloaded the updated PNW project.', 'good'); }
   function exportLog() {
     var rows = [['Time', 'Pole', 'Construction', 'Field', 'Original', 'Proposed', 'Approved value', 'Source', 'Reference', 'Approved by']].concat(liveLog().map(function (l) { return [l.t, l.pole, l.construction, l.field, l.from, l.proposed, l.to, l.source, l.reference, l.by]; }));
     download(new Blob([rows.map(function (r) { return r.map(function (v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n')], { type: 'text/csv' }), 'Change log - ' + (linked ? linked.name.replace(/\.pnwx$/i, '') : baseName()) + '.csv');
@@ -867,7 +1171,7 @@
   }
 
   /* ---------- design: PNW project, library, DCSH register and stringing tables ---------- */
-  var TEXT_ROLES = { pnwx: 'PNW project (.pnwx)', library: 'PNW library tables', dcsh: 'DCSH standards register', hvlv: 'HV/LV/RE separation rule', stringing: 'DCSH Part 10 stringing tables' };
+  var TEXT_ROLES = { pnwx: 'PNW project (.pnwx)', library: 'PNW library tables', dcsh: 'DCSH standards register', stringing: 'DCSH Part 10 stringing tables' };
   var textCache = {}, regCache = null, mounted3d = false, lastSnap = null, restoring = false;
   function cached(f, fn) { var k = f.name + '|' + f.text.length; return textCache[k] || (textCache[k] = fn(f.text)); }
   function txtIssue(name, level, message) { return { level: level, code: 'text', message: name + ': ' + message, file: name }; }
@@ -878,10 +1182,6 @@
     if (ext === 'pnwx' || /^\s*<(profile_project|tipload_project)[\s>]/.test(text)) {
       var p = M.readPnwx(text);
       return Object.assign(base, { role: 'pnwx', kind: p.kind, summary: p.kind === 'profile' ? p.poles.length + ' poles, ' + p.constructions.length + ' constructions, ' + p.segments.length + ' strain sections' : 'tipload project (' + (p.attrs.poletype || 'pole') + ')' });
-    }
-    if (ext === 'json' && /"hvToRe"/.test(text)) {
-      var hv = null; try { hv = JSON.parse(text); } catch (e) { /* reported below */ }
-      if (hv && hv.hvToRe && hv.noRe) return Object.assign(base, { role: 'hvlv', rule: hv, summary: Object.keys(hv.hvToRe).length + ' HV drawings in the separation rule' });
     }
     if (ext === 'json') {
       var r = M.parseDcshRegister(text);
@@ -905,26 +1205,58 @@
   function syncDesign() {
     regCache = null;
     var lf = filesOf('library').slice(-1)[0]; lib = lf ? cached(lf, M.parseLibrary) : null;
+    var pl = S.design.poleLib; if (pl) Object.keys(pl).forEach(function (k) { if (pl[k].code === k) { pl[k].code = strCode(k); var ty0 = S.design.poleTypes || {}; if (ty0[k] === k) ty0[k] = pl[k].code; } });
+    if (lib && pl && Object.keys(pl).length) lib = Object.assign({}, lib, { poles: lib.poles.filter(function (x) { return !Object.keys(pl).some(function (k) { return pl[k].code === x.code; }); }).concat(Object.keys(pl).map(function (k) { return pl[k]; })) });
     var profiles = filesOf('pnwx').filter(function (f) { return f.kind === 'profile'; });
     if (S.design.link && !profiles.some(function (f) { return f.name === S.design.link; })) S.design = Object.assign(blankDesign(), { register: S.design.register });
-    if (!S.design.link && profiles.length) S.design.link = profiles[0].name;
+    // No link yet: link the active profile's own line; a profile without one (after a switch) stays unlinked.
+    if (!S.design.link && profiles.length) { var pf0 = prof() && prof().file, pick0 = pf0 ? profiles.filter(function (f) { return f.name === pf0; })[0] : S.profiles.filter(function (q) { return q.file || q.poleIds.length; }).length <= 1 ? profiles[0] : null; if (pick0) S.design.link = pick0.name; }
     linked = profiles.filter(function (f) { return f.name === S.design.link; })[0] || null;
     project = null;
     if (linked) { try { project = M.readPnwx(projectXml()); } catch (e) { setStatus('The linked project could not be read: ' + e.message, 'bad'); } }
+    // Constructions saved without attachment points (so no wire could be strung to them) get the known layout of their code.
+    if (project) { try {
+      var bare = project.constructions.map(function (r) { return { r: r, lay: String(r.attachHt || '').trim() ? null : knownLayout(r.code) }; }).filter(function (x) { return x.lay && x.lay.attachments.length; });
+      if (bare.length) {
+        bare.forEach(function (x) { M.updateConstruction(project, x.r.unique, { attachments: x.lay.attachments }); });
+        S.design.xml = M.writePnwx(project);
+        S.design.log = liveLog().concat(bare.map(function (x) { return logEntry(x.r.pole, x.r.descr, 'Attachment offsets', '', x.lay.attachments.map(function (a) { return a.x + ', ' + a.y; }).join(' / '), 'auto', 'Missing in the project; from ' + x.lay.source); }));
+        setStatus('Added attachment points to ' + bare.length + ' construction' + (bare.length > 1 ? 's' : '') + ' that had none (' + bare.slice(0, 4).map(function (x) { return x.r.pole + ' ' + x.r.code; }).join(', ') + (bare.length > 4 ? '…' : '') + '), from ' + bare[0].lay.source + '. See the Log.', 'good');
+      }
+    } catch (e) { /* leave the project as read */ } }
     $('useProj').hidden = !project;
   }
   function projectXml() { return S.design.xml || (linked ? linked.text : ''); }
   // Switching which line is the design keeps the edits made to the old one (written back to its file) and the pole extras,
   // and gives the new line its own profile instead of overwriting the one being worked on.
+  // Switch the active profile. A profile that has its own PNW line (.pnwx) becomes the design being edited; one without a
+  // line leaves design mode (the previous line's edits are kept in its file).
+  function switchProfile(i) {
+    i = +i; if (!S.profiles[i] || i === S.active) return;
+    // One undo step for the whole switch (linking a line recomputes more than once on the way).
+    if (linked && prof() && !prof().file) prof().file = linked.name;
+    var before = lastSnap; restoring = true;
+    try { switchProfileInner(i); } finally { restoring = false; }
+    var now = snapState(); if (before != null && now !== before) { undoStack.push(before); redoStack = []; } lastSnap = now; renderHistory();
+  }
+  function switchProfileInner(i) {
+    var nm = S.profiles[i].name || '', pf = S.profiles[i].file, f = filesOf('pnwx').filter(function (x) { if (x.kind !== 'profile') return false; if (pf) return x.name === pf; var t = x.name.replace(/^Ground Profile - /i, '').replace(/\.pnwx$/i, ''); return t === nm || t === nm + ' (design)'; })[0];
+    if (f) { if (!linked || linked.name !== f.name) { linkDesign(f.name); S.active = i; S.generated = false; recompute(); } else { S.active = i; S.generated = false; recompute(); } setStatus('Switched to “' + nm + '” (' + f.name + ').', 'good'); return; }
+    if (linked) { // leave the linked design (kept in its file) so the other profile is not shown with this line's design
+      var old = S.design, lf = S.files.filter(function (x) { return x.name === linked.name; })[0]; if (lf && old.xml) lf.text = old.xml; xCache = {}; textCache = {}; regCache = null;
+      S.design = Object.assign(blankDesign(), { register: old.register, log: old.log || [], extras: old.extras, poleTypes: old.poleTypes, tables: old.tables, pstr: old.pstr, poleLib: old.poleLib });
+    }
+    S.active = i; S.generated = false; recompute(); select(null); setStatus('Switched to “' + (nm || 'Profile ' + (i + 1)) + '”. It has no PNW line yet: Create profile or Auto design makes one.', 'good');
+  }
   function linkDesign(name) {
     var old = S.design;
     if (linked && old.xml) { var lf = S.files.filter(function (f) { return f.name === linked.name; })[0]; if (lf) lf.text = old.xml; xCache = {}; textCache = {}; regCache = null; }
-    S.design = Object.assign(blankDesign(), { register: old.register, link: name, log: old.log || [], extras: old.extras, poleTypes: old.poleTypes, tables: old.tables });
+    S.design = Object.assign(blankDesign(), { register: old.register, link: name, log: old.log || [], extras: old.extras, poleTypes: old.poleTypes, tables: old.tables, pstr: old.pstr, poleLib: old.poleLib });
     recompute();
-    var title = ((project && (project.attrs.title || name)) || name).replace(/^Ground Profile - /i, '').replace(/\.pnwx$/i, ''), idx = S.profiles.findIndex(function (q) { return q.name === title; });
+    var title = ((project && (project.attrs.title || name)) || name).replace(/^Ground Profile - /i, '').replace(/\.pnwx$/i, ''), idx = S.profiles.findIndex(function (q) { return q.file === name; }); if (idx < 0) idx = S.profiles.findIndex(function (q) { return q.name === title && !q.file; });
     if (idx < 0 && S.profiles.length === 1 && !S.profiles[0].poleIds.length) idx = 0;
     if (idx < 0) { S.profiles.push(newProfile(title)); idx = S.profiles.length - 1; }
-    S.active = idx; useProject(false);
+    S.active = idx; S.profiles[idx].file = name; useProject(false);
   }
   // Poles of the linked project that have no LiDAR row still appear, using the project's own coordinates and ground levels.
   function projectSurvey(ok) {
@@ -959,8 +1291,11 @@
   // Sag: none, DCSH Part 10 table (per strain section, chosen or matched), or illustrative w·L²/8T.
   function tableFor(seg) {
     var tables = stringing(), pick = S.design.tables && S.design.tables[seg.StrainSect];
-    if (pick) return tables.filter(function (t) { return t.id === pick; })[0] || null;
-    return suggestTable(seg)[0] || null;
+    // A table saved for the section only counts while it still fits the section's conductor and %CBL tension; after the
+    // conductor or tension changes, the matching table (or w·L²/8T at the new tension) is used, so the sag follows the edit.
+    var sug = suggestTable(seg);
+    if (pick && sug.some(function (t) { return t.id === pick; })) return tables.filter(function (t) { return t.id === pick; })[0] || null;
+    return sug[0] || null;
   }
   function suggestTable(seg) {
     var tables = stringing(); if (!tables.length || !seg) return [];
@@ -978,7 +1313,7 @@
       w.sag = null; w.sagSource = 'not shown';
       if (mode === 'auto') { // DCSH Part 10 where a table fits the section, else w·L²/8T at the section's stringing tension
         var sa = p.segments.filter(function (s) { return s.StrainSect === w.segment; })[0], ta = (own ? tableFor(sa || {}) : suggestTable(sa || {})[0] || null), ra = ta ? M.tableSag(ta, 'final', Number(S.sagTemp || 15), w.span, M.rulingSpan(bySeg[w.segment] || [])) : null;
-        if (ra && ra.value != null) { w.sag = ra.value; w.sagSource = ta.title + ' (DCSH Part 10 p' + ta.page + '), existing/final ' + (S.sagTemp || 15) + ' °C'; d.sagNotes[w.segment] = w.segment + ': DCSH ' + ta.title; return; }
+        if (ra && ra.value != null) { w.sag = ra.value; w.sagSource = ta.title + ' (DCSH Part 10 p' + ta.page + '), existing/final ' + (S.sagTemp || 15) + ' °C' + (ra.extrapolated ? ' (extended past the 45 °C column)' : ''); d.sagNotes[w.segment] = w.segment + ': DCSH ' + ta.title; return; }
         var ca = p.conductors.filter(function (c) { return String(c.Code).toUpperCase() === String(w.conductor).toUpperCase(); })[0];
         w.sag = M.illustrativeSag(w.span, ca, sa); w.sagSource = w.sag != null ? 'w·L²/8T at the stringing tension (' + sa.Tension + ' ' + sa.TensionUnits + '), no DCSH table for it' : 'no conductor mass or tension';
         d.sagNotes[w.segment] = w.segment + ': ' + (w.sag != null ? 'w·L²/8T at ' + sa.Tension + ' ' + sa.TensionUnits : 'no sag (no conductor mass or tension)');
@@ -989,7 +1324,7 @@
         var sg = p.segments.filter(function (s) { return s.StrainSect === w.segment; })[0], t = (own ? tableFor(sg || {}) : suggestTable(sg || {})[0] || null), rs = M.rulingSpan(bySeg[w.segment] || []);
         if (!t) { d.sagNotes[w.segment] = 'No DCSH stringing table chosen or matched for ' + w.segment + ' (' + (sg ? sg.Conductor + ' at ' + sg.Tension + ' ' + sg.TensionUnits : '?') + ').'; return; }
         var r = M.tableSag(t, 'final', Number(S.sagTemp || 15), w.span, rs);
-        w.sag = r.value; w.sagSource = r.value != null ? t.title + ' (DCSH Part 10 p' + t.page + '), existing/final ' + (S.sagTemp || 15) + ' °C, ruling span ' + rs.toFixed(1) + ' m' : r.reason;
+        w.sag = r.value; w.sagSource = r.value != null ? t.title + ' (DCSH Part 10 p' + t.page + '), existing/final ' + (S.sagTemp || 15) + ' °C' + (r.extrapolated ? ' (extended past the 45 °C column)' : '') + ', ruling span ' + rs.toFixed(1) + ' m' : r.reason;
         d.sagNotes[w.segment] = w.segment + ': ' + (r.value != null ? t.title + ', p' + t.page + ', ruling span ' + rs.toFixed(1) + ' m' : r.reason);
       }
     });
@@ -1025,7 +1360,7 @@
   }
 
   /* undo / redo: every change to profiles or the design is a snapshot */
-  function snapState() { return JSON.stringify({ profiles: S.profiles, active: S.active, design: S.design }); }
+  function snapState() { return JSON.stringify({ profiles: S.profiles, active: S.active, design: S.design, manual: S.files.filter(function (f) { return f.manual || f.made; }) }); }
   function trackHistory() {
     var now = snapState();
     if (lastSnap != null && now !== lastSnap && !restoring) { undoStack.push(lastSnap); if (undoStack.length > 200) undoStack.shift(); redoStack = []; }
@@ -1034,7 +1369,7 @@
   function restore(from, to) {
     if (!from.length) return;
     to.push(snapState());
-    var s = JSON.parse(from.pop()); S.profiles = s.profiles; S.active = s.active; S.design = s.design;
+    var s = JSON.parse(from.pop()); S.profiles = s.profiles; S.active = s.active; S.design = s.design; if (s.manual) S.files = S.files.filter(function (f) { return !f.manual && !f.made; }).concat(s.manual.map(function (f) { (f.items || []).forEach(function (x) { if (x.date && typeof x.date === 'string') x.date = new Date(x.date); }); return f; })); S.multi = []; if (S.selected && !merged.poles[S.selected]) S.selected = null;
     restoring = true; S.generated = false; recompute(); restoring = false; lastSnap = snapState();
   }
   function renderHistory() { $('tbUndo').disabled = !undoStack.length; $('tbRedo').disabled = !redoStack.length; }
@@ -1060,7 +1395,8 @@
     reg.forEach(function (r) { seen[r.code.toUpperCase()] = 1; });
     (lib ? lib.constructions : []).forEach(function (c) {
       if (seen[String(c.code).toUpperCase()]) return; seen[String(c.code).toUpperCase()] = 1;
-      reg.push({ id: c.code + '|library', code: c.code, attachments: [], phases: 0, sources: [], observedBelowTip: [], fromLibrary: true, status: 'Library entry only: no attachment offsets available, needs engineering review' });
+      var dbl = ((window.PNW_BUILTIN || {}).dbLayouts || []).filter(function (x) { return x.code === c.code; })[0];
+      reg.push({ id: c.code + '|library', code: c.code, attachments: dbl ? dbl.attachments : [], phases: 0, sources: [], observedBelowTip: [], fromLibrary: true, status: dbl ? 'Attachment points from the PNW construction database (Western Power set)' : 'Library entry only: no attachment offsets available, needs engineering review' });
     });
     reg.forEach(function (r) {
       r.lib = M.libraryConstruction(lib, r.code); r.dcsh = M.dcshFor(dc, r.code)[0] || null; r.user = (S.design.register || {})[r.id] || {};
@@ -1071,7 +1407,7 @@
   function regFor(c) { var k = c.code + '|' + JSON.stringify(c.attachments); return registerRows().filter(function (r) { return r.id === k; })[0] || null; }
   // Engineering status of a register row: the engineer's approval wins; otherwise what the DCSH comparison shows.
   // Short status in the construction header; a warning is a small orange bubble with the reason on hover.
-  function statusBadge(st) { return st.cls === 'warn' ? '<span class="wbub" tabindex="0" title="' + esc(st.text) + '" aria-label="' + esc(st.text) + '">!</span>' : '<span class="pill ' + st.cls + '">' + esc(st.text) + '</span>'; }
+  function statusBadge(st) { return st.cls === 'warn' ? '<span class="wbub xinfo" tabindex="0" title="' + esc(st.text) + '" aria-label="' + esc(st.text) + '">!</span>' : '<span class="pill ' + st.cls + (st.cls === 'bad' ? '' : ' xinfo') + '">' + esc(st.text) + '</span>'; }
   function statusOf(r) {
     if (!r) return { cls: 'warn', text: 'Needs engineering review' };
     if (r.user.status === 'approved') return { cls: 'ok', text: 'Approved by ' + (r.user.by || 'engineer') + (r.user.drawing || (r.dcsh && r.dcsh.drawing) ? ' · DCSH ' + (r.user.drawing || r.dcsh.drawing) : '') };
@@ -1084,7 +1420,7 @@
     return { cls: 'warn', text: 'No DCSH reference linked, needs engineering review' };
   }
   function renderRegister() {
-    var q = $('search').value.trim().toLowerCase(), rows = registerRows().filter(function (r) { return !q || (r.code + ' ' + (r.lib ? r.lib.description : '') + ' ' + (r.dcsh ? r.dcsh.drawing + ' ' + r.dcsh.title : '')).toLowerCase().indexOf(q) >= 0; });
+    var q = $('search').value.trim().toLowerCase(), rows = registerRows().filter(function (r) { return !q || smartScore(q, r.code + ' ' + (r.lib ? r.lib.description : '') + ' ' + (r.dcsh ? r.dcsh.drawing + ' ' + r.dcsh.title : '')); });
     if (!rows.length) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">' + (registerRows().length ? 'No constructions match the search.' : 'Import a PNW project (.pnwx) or the PNW library tables to see the construction register.') + '</p>'; return; }
     var h = '<table class="grid reg"><thead><tr><th>Code</th><th>Description (PNW library)</th><th>Below tip</th><th>Below supercct</th><th>Attachments x, y (m from king bolt)</th><th>Seen on</th><th>DCSH drawing</th><th>DCSH conditions</th><th>Status</th><th>Engineer</th></tr></thead><tbody>';
     rows.forEach(function (r) {
@@ -1113,7 +1449,7 @@
     if (!built || built.rows.length < 2) { setStatus('Build a ground profile with at least two poles first.', 'bad'); return; }
     var name = 'Ground Profile - ' + baseName() + ' (design).pnwx', text = pnwxText(), r = importText(name, text);
     r.size = text.length; r.status = 'ok'; upsertFile(r);
-    S.design = Object.assign(blankDesign(), { register: S.design.register, link: name });
+    S.design = Object.assign(blankDesign(), { register: S.design.register, link: name }); prof().file = name;
     recompute(); setStatus('Started a design from the ground profile. Add constructions to each pole, then string conductors in the Strain sections tab.', 'good');
   }
   var secForm = { tension: '', units: '%CBL' }, CT = { on: false, chain: [], hover: null };
@@ -1172,26 +1508,28 @@
     var shown = 0;
     project.segments.forEach(function (sg) {
       var n = sg.StrainSect, mem = project.segPoles.filter(function (x) { return x.strsection === n; }), sp = spansOf(mem.map(function (x) { return x.id; }));
-      if (q && (n + ' ' + sg.Conductor + ' ' + mem.map(function (x) { return x.id + ' ' + x.constr; }).join(' ')).toLowerCase().indexOf(q) < 0) return;
+      if (q && !smartScore(q, n + ' ' + sg.Conductor + ' ' + mem.map(function (x) { return x.id + ' ' + x.constr; }).join(' '))) return;
       shown++;
       var pick = (S.design.tables || {})[n] || '', sug = suggestTable(sg)[0], c = conductorFor(sg.Conductor), lvl = mem[0] ? levelOf(mem[0].constr) : '';
       h += '<tr data-sec="' + esc(n) + '" class="' + (S.selSection === n ? 'sel' : '') + '"><td><b>' + esc(n) + '</b>' + (sg.New === 'True' ? ' <span class="pill info">New</span>' : '') + '</td>' +
         '<td style="white-space:normal;min-width:180px">' + mem.map(function (x) { return esc(x.id) + ' <small class="muted">' + esc(x.constr) + '</small>'; }).join(' → ') + '</td>' +
-        '<td style="min-width:200px">' + combo('seccond|' + n, { value: sg.Conductor, placeholder: 'Search conductor…', aria: 'Conductor of ' + n, groups: function () { return conductorGroups(mem[0] && mem[0].id, lvl); }, onPick: function (v) {
+        '<td class="fitc">' + combo('seccond|' + n, { value: sg.Conductor, placeholder: 'Search conductor…', aria: 'Conductor of ' + n, groups: function () { return conductorGroups(mem[0] && mem[0].id, lvl); }, onPick: function (v) {
           var cc = conductorFor(v); if (!cc) { setStatus(v + ' is not in the PNW library or this project.', 'bad'); renderTable(); return; }
           commit(function (p) { var s0 = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = s0.Conductor; M.updateSection(p, n, { conductor: cc }); return [logEntry('', n, 'Conductor', from, cc.code, 'manual', lib && lib.conductors.indexOf(cc) >= 0 ? 'PNW library ' + cc.code : '')]; });
-        } }) + (c && c.name ? '<small class="muted">' + esc(c.name) + '</small>' : '') + '</td>' +
+        } }) + (c && c.name ? '<small class="muted" style="display:block">' + esc(c.name) + '</small>' : '') + '</td>' +
         '<td><input data-secten="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal" style="width:64px" aria-label="Tension of ' + esc(n) + '"> ' + ((S.design.tensionAuto || {})[n] ? '<span class="tag der" title="Follows the ruling span (DCSH Part 10). Typing a tension makes it manual.">auto</span>' : '<button class="tag edit" data-secauto="' + esc(n) + '" title="Manual tension. Click to follow the ruling span (DCSH Part 10) instead.">manual</button>') + '</td>' +
         '<td><select data-secunits="' + esc(n) + '" aria-label="Tension units of ' + esc(n) + '"><option' + (sg.TensionUnits === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (sg.TensionUnits === 'kN' ? ' selected' : '') + '>kN</option></select></td>' +
         '<td class="num">' + esc(sg.numconds) + '</td><td class="num">' + sp.length + '</td><td class="num">' + (sp.length ? sp.reduce(function (a, b) { return a + b; }, 0).toFixed(1) + ' m' : '') + '</td>' +
         '<td class="num">' + (sp.length ? M.rulingSpan(sp).toFixed(1) + ' m' : '') + '</td>' +
         '<td><select data-secsag="' + esc(n) + '" aria-label="DCSH sag table for ' + esc(n) + '"><option value="">' + (sug ? 'Matched: ' + esc(sug.title) : 'None matched') + '</option>' + tables.filter(function (t) { return !t.legacy; }).map(function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === pick ? ' selected' : '') + '>' + esc(t.title) + ' (p' + t.page + ')</option>'; }).join('') + '</select></td>' +
-        '<td><button class="btn small danger" data-secdel="' + esc(n) + '" title="Remove this strain section">Remove</button></td></tr>';
+        '<td>' + binBtn('data-secdel="' + esc(n) + '"', 'Remove strain section ' + n) + '</td></tr>';
     });
     if (!project.segments.length) h += '<tr><td colspan="11" class="muted">No strain sections yet. String the first one with the form below.</td></tr>';
     else if (!shown) h += '<tr><td colspan="11" class="muted">No strain section matches the search.</td></tr>';
     h += '</tbody></table>';
     $('tableWrap').innerHTML = h + '<div class="con add" style="margin:10px 8px" id="secFormBox">' + (CT.on ? '<p class="hint">Drawing a conductor: use the panel over the view.</p>' : secFormHtml()) + '</div>';
+    // Conductor boxes sized to their text.
+    fitCombos($('tableWrap'));
   }
   // Tension of the section being strung: automatic (DCSH Part 10 table for the ruling span), else the only standard value,
   // else what the user picked. f.tmode: 'auto' | 'default' | 'manual'.
@@ -1230,15 +1568,15 @@
     var h = '<div class="con-title">String conductors (new strain section)</div>' + chipRow('cmat', condFilter, COND_MAT) + '<div class="secform">' +
       '<div class="field f-pole"><label>From pole</label>' + poleSel('from', f.from, 'From pole') + '</div><div class="field f-pole"><label>To pole</label>' + poleSel('to', f.to, 'To pole') + '</div>' +
       '<div class="field f-circ"><label title="Construction code prefix that carries the circuit, with how many poles in the range have it">Circuit</label><select data-secf="level" aria-label="Circuit">' + (levels.length ? levels.map(function (l) { return '<option value="' + esc(l) + '"' + (l === f.level ? ' selected' : '') + '>' + esc(l) + ' · ' + Object.keys(counts[l]).length + ' of ' + run.length + ' poles</option>'; }).join('') : '<option value="">Add constructions first</option>') + '</select></div>' +
-      '<div class="field f-cond"><label>Conductor</label>' + combo('secNewCond', { value: f.cond, placeholder: 'Search code, name or stranding…', aria: 'Conductor for the new strain section', groups: function () { return conductorGroups(f.from, f.level); }, emptyText: 'import the PNW library tables or link a project with conductors.', onPick: function (v) { f.cond = v; f.condUser = true; f.gis = null; refreshSecForm(); } }) + '</div>' +
+      '<div class="field f-cond"><label>Conductor</label>' + combo('secNewCond', { value: f.cond, placeholder: 'Search conductor…', aria: 'Conductor for the new strain section', groups: function () { return conductorGroups(f.from, f.level); }, emptyText: 'import the PNW library tables or link a project with conductors.', onPick: function (v) { f.cond = v; f.condUser = true; f.gis = null; refreshSecForm(); } }) + '</div>' +
       '<div class="field f-ten"><label>Tension ' + tmodeTag(f) + '</label>' + tensionPicker(f, ts, ck.bad.tension) + '</div>' +
-      '<div class="field f-un"><label>Units</label><select data-secf="units"><option' + (f.units === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (f.units === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
+      '<div class="field f-un"><label>Units</label><select data-secf="units"><option' + (f.units === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (f.units === 'kN' ? ' selected' : '') + '>kN</option></select></div>' +
+      '<div class="field f-add"><button class="btn small primary" id="secAdd" title="Add strain section" aria-label="Add strain section"' + (ck.ok ? '' : ' disabled') + '>' + ico('file-plus').replace('width="20" height="20"', 'width="15" height="15"') + ' Add</button></div></div>';
     if (c) h += '<p class="meta"><b>' + esc(c.code) + '</b> ' + esc(c.name || '') + (c.name2 ? ' · ' + esc(c.name2) : '') + (c.material ? ' · ' + esc(c.material) : '') + (c.cbl != null ? ' · CBL ' + c.cbl + ' kN' : '') + (c.mass != null ? ' · ' + c.mass + ' kg/m' : '') + '</p>';
     h += mem.length ? '<p class="meta">' + mem.map(function (m) { var pc = m.c ? parsedCon(m.id, m.c.unique) : null; return '<b>' + esc(m.id) + '</b> ' + (m.options.length > 1 ? '<select data-secpick="' + esc(m.id) + '" aria-label="Construction on ' + esc(m.id) + '">' + m.options.map(function (o) { return '<option value="' + esc(o.unique) + '"' + (o === m.c ? ' selected' : '') + '>' + esc(o.descr) + '</option>'; }).join('') + '</select>' : m.c ? esc(m.c.descr) : '<span class="pill bad">no ' + esc(f.level || '') + ' construction</span>') + (pc ? ' <small class="muted">' + pc.attachments.length + ' pts</small>' : ''); }).join(' → ') + '</p>' : '';
     if (ck.preview) h += '<p class="meta">' + ck.preview + '</p>';
     h += '<ul class="msgs">' + ck.msgs.map(function (m) { return '<li class="' + m.level + '">' + m.text + '</li>'; }).join('') + '</ul>';
-    h += '<div class="btnrow"><button class="btn small primary" id="secAdd"' + (ck.ok ? '' : ' disabled') + '>Add strain section</button></div>' +
-      '<p class="hint explain">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p>';
+    h += '<p class="hint explain">Each pole in between is included in line order. Conductors attach to the chosen construction\'s attachment points; the number of wires is the smallest number of attachment points along the section. The conductor is copied from the PNW library into the project. Load conditions are copied from an existing section, or Hot 75 °C, standard 15 °C, Uplift 0 °C and Warm 40 °C. PNW works out the sags and tiploads when you open the file.</p>';
     return h;
   }
   // Checks on the new strain section before it can be added: errors block it, warnings and notes are shown.
@@ -1248,12 +1586,13 @@
     if (!f.level) E('There are no constructions on these poles yet. Add them in the inspector (Constructions tab) first.');
     var missing = mem.filter(function (m) { return !m.c; });
     if (f.level && missing.length) E('No ' + esc(f.level) + ' construction on ' + esc(missing.map(function (m) { return m.id; }).join(', ')) + '. Add one in the inspector, or choose a shorter range.');
-    var pts = mem.filter(function (m) { return m.c; }).map(function (m) { var pc = parsedCon(m.id, m.c.unique); return { id: m.id, descr: m.c.descr, n: pc ? pc.attachments.length : 0 }; });
-    var none = pts.filter(function (x) { return !x.n; });
-    if (none.length) E(esc(none.map(function (x) { return x.id + ' ' + x.descr; }).join(', ')) + ' ' + (none.length > 1 ? 'have' : 'has') + ' no attachment points, so no wire can be strung. Add them in the inspector.');
+    var pts = mem.filter(function (m) { return m.c; }).map(function (m) { var pc = parsedCon(m.id, m.c.unique), n = pc ? pc.attachments.length : 0, lay = n ? null : knownLayout(m.c.code); return { id: m.id, descr: m.c.descr, n: n || (lay ? lay.attachments.length : 0), fill: lay && lay.attachments.length ? lay.source : '' }; });
+    var none = pts.filter(function (x) { return !x.n; }), fill = pts.filter(function (x) { return x.fill; });
+    if (fill.length) I(esc(fill.map(function (x) { return x.id + ' ' + x.descr; }).join(', ')) + ': attachment points will be added from the ' + esc(fill[0].fill) + '.');
+    if (none.length) E(esc(none.map(function (x) { return x.id + ' ' + x.descr; }).join(', ')) + ' ' + (none.length > 1 ? 'have' : 'has') + ' no attachment points in DCSH, your projects or the PNW construction database, so no wire can be strung. Change the construction code.');
     var ns = pts.map(function (x) { return x.n; }).filter(Boolean), nmin = ns.length ? Math.min.apply(null, ns) : 0;
     if (ns.length && Math.max.apply(null, ns) !== nmin) W('Attachment points differ along the section (' + esc(pts.map(function (x) { return x.id + ' ' + x.n; }).join(', ')) + '), so ' + nmin + ' wire' + (nmin === 1 ? '' : 's') + ' will be strung.');
-    pts.forEach(function (x) { var used = project.segPoles.filter(function (s) { return s.id === x.id && s.constr === x.descr; }).map(function (s) { return s.strsection; }); if (used.length) W(esc(x.id + ' ' + x.descr) + ' already carries ' + esc(used.join(', ')) + '.'); });
+    pts.forEach(function (x) { var used = project.segPoles.filter(function (s) { return s.id === x.id && s.constr === x.descr; }).map(function (s) { return s.strsection; }); if (used.length && U.help) W(esc(x.id + ' ' + x.descr) + ' already carries ' + esc(used.join(', ')) + '.'); });
     if (!f.cond) E('Choose the conductor.', 'cond');
     else if (!c) E(esc(f.cond) + ' is not in the PNW library or this project.', 'cond');
     else {
@@ -1287,7 +1626,7 @@
     var n = 0;
     project.poles.forEach(function (r) {
       var id = r.ID, cons = ((dm.byPole[id]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
-      if (q && (id + ' ' + cons.map(function (c) { return c.descr + ' ' + c.code; }).join(' ')).toLowerCase().indexOf(q) < 0) return;
+      if (q && !smartScore(q, id + ' ' + cons.map(function (c) { return c.descr + ' ' + c.code; }).join(' '))) return;
       h += '<tr class="group" data-id="' + esc(id) + '"><td colspan="12">' + esc(id) + ' <small class="muted">ch ' + esc(r.Distance) + ' m · ' + esc(r.Length) + ' m pole · ' + esc(r.HeightAG) + ' m above ground' + (cons.length ? '' : ' · no constructions') + '</small></td></tr>';
       cons.forEach(function (c) {
         var secs = carry[id + '|' + c.descr] || [], conds = secs.map(function (s) { return s + ' ' + (segCond[s] || ''); }).join(', ');
@@ -1324,7 +1663,9 @@
       commit(function (p) { var sg = p.segments.filter(function (x) { return x.StrainSect === n; })[0], from = sg.Tension + ' ' + sg.TensionUnits; M.updateSection(p, n, d.secten != null ? { tension: tv } : { units: t.value }); return [logEntry('', n, 'Tension', from, sg.Tension + ' ' + sg.TensionUnits, 'manual')]; });
     }
   }
-  function refreshSecForm() { var box = CT.on ? $('ctForm') : $('secFormBox'); if (box && project) box.innerHTML = secFormHtml(); if (CT.on) ctDraw(); }
+  function refreshSecForm() { var box = CT.on ? $('ctForm') : $('secFormBox'); if (box && project) { box.innerHTML = secFormHtml(); fitCombos(box); } if (CT.on) ctDraw(); }
+  // Search boxes in the conductor schedule and the string-conductors form are sized to their text.
+  function fitCombos(root) { if (root) Array.prototype.forEach.call(root.querySelectorAll('td.fitc .combo input, .secform .combo input'), function (el) { el.style.width = 'calc(' + Math.max(6, (el.value || 'Search conductor').length + 1) + 'ch + 30px)'; }); }
   $('tableWrap').addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b && tab === 'sections') { var tr = e.target.closest('tr[data-sec]'); if (tr && !e.target.closest('input,select,.combo')) { var mem0 = project.segPoles.filter(function (x) { return x.strsection === tr.dataset.sec; })[0]; select(S.selected || (mem0 && mem0.id) || null, { segment: S.selSection === tr.dataset.sec ? '' : tr.dataset.sec }); } return; }
@@ -1343,6 +1684,7 @@
       if (!ck.ok) { setStatus(ck.msgs.filter(function (m) { return m.level === 'error'; })[0].text.replace(/<[^>]+>/g, ''), 'bad'); refreshSecForm(); return; }
       var added = null;
       commit(function (p) {
+        fillBare(p, mem.map(function (m) { return m.c.unique; }));
         var name = added = M.addSection(p, { conductor: c, tension: PNW.num(f.tension), units: f.units, poles: mem.map(function (m) { return { id: m.id, unique: m.c.unique }; }) });
         if (f.table) (S.design.tables = S.design.tables || {})[name] = f.table;
         if (f.tmode === 'auto') (S.design.tensionAuto = S.design.tensionAuto || {})[name] = true;
@@ -1352,7 +1694,8 @@
     }
   }
   function renderLog() {
-    var l = liveLog();
+    var l = liveLog(), lq = $('search').value.trim();
+    if (lq && l.length) l = l.filter(function (x) { return smartScore(lq, [x.pole, x.construction, x.field, x.original, x.proposed, x.approved, x.source, x.ref, x.by].join(' ')); });
     if (!l.length) { $('tableWrap').innerHTML = '<p class="status" style="padding:14px">No design changes yet. Changes you make to constructions and register approvals are recorded here.</p>'; return; }
     $('tableWrap').innerHTML = '<table class="grid"><thead><tr><th>Time</th><th>Pole</th><th>Construction</th><th>Field</th><th>Original</th><th>Proposed</th><th>Approved value</th><th>Source</th><th>Reference</th><th>By</th></tr></thead><tbody>' +
       l.slice().reverse().map(function (x) { return '<tr data-id="' + esc(x.pole) + '"><td>' + esc(new Date(x.t).toLocaleString('en-AU')) + '</td><td>' + esc(x.pole) + '</td><td>' + esc(x.construction) + '</td><td>' + esc(x.field) + '</td><td>' + esc(x.from) + '</td><td>' + esc(x.proposed) + '</td><td><b>' + esc(x.to) + '</b></td><td><span class="tag ' + (x.source === 'manual' ? 'edit' : x.source === 'AI suggestion' ? 'ai' : 'der') + '">' + esc(x.source) + '</span></td><td style="white-space:normal">' + esc(x.reference) + '</td><td>' + esc(x.by) + '</td></tr>'; }).join('') + '</tbody></table>';
@@ -1396,7 +1739,7 @@
   function chipRow(kind, cur, opts) { return '<div class="chips" role="group">' + opts.map(function (o) { return '<button type="button" data-chip="' + kind + ':' + o[0] + '" class="' + (o[0] === cur ? 'on' : '') + '" aria-pressed="' + (o[0] === cur) + '">' + o[1] + '</button>'; }).join('') + '</div>'; }
   function conFilterChips() {
     return chipRow('cls', conFilter.cls, [['all', 'Any circuit'], ['hv', 'HV'], ['lv', 'LV'], ['earth', 'Earth'], ['comms', 'Comms']]) +
-      chipRow('arr', conFilter.arr, [['all', 'Any arrangement'], ['intermediate', 'Intermediate'], ['strain', 'Strain / angle'], ['termination', 'Termination'], ['tee-off', 'Tee-off']]);
+      chipRow('arr', conFilter.arr, [['all', 'Any arr.'], ['intermediate', 'Interm.'], ['strain', 'Strain/angle'], ['termination', 'Term.'], ['tee-off', 'Tee-off']]);
   }
 
   // Conductors: on this feeder in GIS, already in the project, then the PNW library.
@@ -1463,8 +1806,11 @@
     var o = combos[key], inp = comboInput(key); if (!o || !inp) return;
     comboKey = key; comboAct = -1; comboShown = [];
     var words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean), h = '';
-    o.groups().forEach(function (g) {
-      var items = g.items.filter(function (it) { var s = (it.value + ' ' + (it.label || '') + ' ' + (it.note || '')).toLowerCase(); return words.every(function (w) { return s.indexOf(w) >= 0; }); }).slice(0, 80);
+    var itTxt = function (it) { return it.value + ' ' + (it.label || '') + ' ' + (it.note || '') + ' ' + (it.keys || ''); };
+    var gs = o.groups().map(function (g, gi) { var items = smartRank(q, g.items, itTxt).slice(0, 80); return { g: g, items: items, gi: gi, top: words.length && items.length ? smartScore(q, itTxt(items[0])) : 0 }; });
+    if (words.length) gs.sort(function (x, y) { return y.top - x.top || x.gi - y.gi; });
+    gs.forEach(function (G) {
+      var g = G.g, items = G.items;
       if (!items.length) return;
       h += '<div class="cg">' + esc(g.label) + '</div>' + items.map(function (it) { comboShown.push(it); return '<div class="ci" role="option" data-ci="' + (comboShown.length - 1) + '"><b>' + esc(it.value) + '</b><span>' + esc(it.label || '') + '</span>' + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</div>'; }).join('');
     });
@@ -1507,7 +1853,7 @@
     setTimeout(function () {
       if (comboKey !== c.dataset.combo || (document.activeElement && document.activeElement.closest && document.activeElement.closest('.combo') === c)) return;
       var typed = e.target.value.trim(), o = combos[c.dataset.combo], exact = comboShown.filter(function (it) { return String(it.value).toUpperCase() === typed.toUpperCase(); })[0];
-      if (o && typed !== (o.value || '') && exact) comboPick(exact); else if (o && o.free && typed && typed !== (o.value || '')) comboPick(null, typed); else comboClose(true);
+      if (o && o.blurClear) comboClose(true); else if (o && typed !== (o.value || '') && exact) comboPick(exact); else if (o && o.free && typed && typed !== (o.value || '')) comboPick(null, typed); else comboClose(true);
     }, 120);
   });
   comboList.addEventListener('mousedown', function (e) { var el = e.target.closest('.ci'); e.preventDefault(); if (el) comboPick(comboShown[+el.dataset.ci]); });
@@ -1520,11 +1866,15 @@
   function knownLayout(code) {
     var d = M.dcshFor(dcshReg(), code)[0];
     if (d && d.attachments && d.attachments.every(function (a) { return a.y != null; })) return { attachments: d.attachments, source: 'DCSH ' + d.drawing };
-    var r = registerRows().filter(function (x) { return x.code === code && x.attachments.length; });
+    var r = registerRows().filter(function (x) { return x.code === code && x.attachments.length && !x.fromLibrary; });
     if (r.length) return { attachments: r[0].attachments, source: 'your project ' + r[0].sources[0] };
+    var db = ((window.PNW_BUILTIN || {}).dbLayouts || []).filter(function (x) { return x.code === code; })[0];
+    if (db && db.attachments.length) return { attachments: db.attachments, source: 'PNW construction database (Western Power set)' };
     var b = ((window.PNW_BUILTIN || {}).layouts || []).filter(function (x) { return x.code === code; })[0];
     return b ? { attachments: b.attachments, source: b.source } : null;
   }
+  // Constructions saved without attachment points get them from the known layout of their code before a wire is strung.
+  function fillBare(p, uniques) { var n = 0; uniques.forEach(function (u) { var r = p.constructions.filter(function (x) { return x.unique === String(u); })[0]; if (!r || String(r.attachHt || '').trim()) return; var lay = knownLayout(r.code); if (lay && lay.attachments.length) { M.updateConstruction(p, r.unique, { attachments: lay.attachments }); n++; } }); return n; }
   function poleTypeOptions(cur, keepLabel) {
     return '<option value="">' + keepLabel + '</option>' + (lib ? lib.poles : []).map(function (t) { return '<option value="' + esc(t.code) + '"' + (t.code === cur ? ' selected' : '') + '>' + esc(t.code) + (t.description ? ' · ' + esc(t.description) : '') + '</option>'; }).join('');
   }
@@ -1573,27 +1923,29 @@
   function designPanel(id) {
     if (!project) return startDesignHint();
     var row = project.poles.filter(function (r) { return r.ID === id; })[0];
-    if (!row) return '<p class="hint">' + esc(id) + ' is not in the linked PNW project ' + esc(linked.name) + '.</p>';
+    if (!row) return '<p class="pd-none">' + esc(id) + ' is not in the linked PNW project ' + esc(linked.name) + '.</p>';
     var hag = PNW.num(row.HeightAG), cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); });
-    var pt = (dm && dm.allPoles.filter(function (p) { return p.id === id; })[0]) || {};
-    var h = '<div class="con-title">Design <span class="pill info">' + esc(linked.name) + '</span></div>' + poleBlock(id, row, pt) + '<div class="con-title" style="margin-top:10px">Constructions (' + cons.length + ')</div>';
-    if (!cons.length) h += '<p class="hint">No constructions on ' + esc(id) + ' yet. Add one below.</p>';
+    var h = '';
+    if (!cons.length) h += '<p class="pd-none">No constructions on ' + esc(id) + ' yet.</p>';
+    else h += '<div class="pd-colh"><span>Code</span><span>King bolt (m)</span></div>';
     cons.forEach(function (c, i) {
-      var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), above = i > 0 ? cons[i - 1].kingbolt : null, def = kbFor(id, c.code, hag, cons.slice(0, i));
-      var carries = project.segPoles.filter(function (s) { return s.id === id && s.constr === c.descr; }).map(function (s) { return s.strsection; });
+      var r = regFor(c), st = statusOf(r), lc = M.libraryConstruction(lib, c.code), def = kbFor(id, c.code, hag, cons.slice(0, i));
+      var carries = project.segPoles.filter(function (s) { return s.id === id && s.constr === c.descr; }).map(function (s) { return s.strsection; }).filter(function (v, k, a) { return a.indexOf(v) === k; });
       var src = lastSource(id, c.descr, 'King bolt height'), d = M.dcshFor(dcshReg(), c.code)[0], cmp = d ? M.compareDcsh(d, c, i === 0 ? hag : null) : null;
-      var u = esc(c.unique);
-      h += '<div class="con" data-u="' + u + '"><div class="con-h"><b>' + esc(c.descr || '(blank construction)') + '</b><span class="pill mute">' + CLASS_LABEL[circuitClass(c.code)] + '</span>' + (lc ? '<small>' + esc(lc.description) + '</small>' : c.code ? '<span class="pill warn" title="This code is not in the PNW library tables">not in library</span>' : '') + statusBadge(st) + lvUnderHvNote(cons, i, id) + '</div>' +
-        '<div class="row2"><div class="field"><label>Code</label>' + combo('ccode|' + c.unique, { value: c.code, placeholder: 'Search code…', aria: 'Construction code of ' + (c.descr || 'construction'), free: true, groups: function () { return constructionGroups(id); }, onPick: function (v) { changeCode(id, c.unique, v, 'manual', ''); if (!M.libraryConstruction(lib, v) && !knownLayout(v)) setStatus(v + ' is not in the PNW library or your projects: no defaults or offsets are known, so it needs engineering review.', 'bad'); } }) + '</div>' +
-        '<div class="field"><label title="Height of the king bolt above ground, in metres">King bolt height (m) <span class="tag ' + (src === 'manual' ? 'edit' : src === 'imported' ? 'src' : 'der') + '">' + esc(src) + '</span></label><input data-ckb="' + u + '" value="' + fmt(c.kingbolt) + '" inputmode="decimal"' + (c.kingbolt != null && hag != null && c.kingbolt > hag ? ' class="invalid" title="Above the pole tip (' + hag + ' m above ground)"' : '') + '></div></div>';
-      if (c.kingbolt != null && hag != null && c.kingbolt > hag) h += '<p class="hint bad">The king bolt is ' + fmt(Math.round((c.kingbolt - hag) * 1000) / 1000) + ' m above the pole tip (' + hag + ' m above ground).</p>';
-      if (def && c.kingbolt != null && Math.abs(def.value - c.kingbolt) > 0.0005) h += '<p class="hint">' + esc(def.source) + ': <b>' + def.value + ' m</b> (' + def.below + ' m). <button class="btn small" data-cdef="' + u + '" data-v="' + def.value + '" data-ref="' + esc(def.source) + '">Use default</button></p>';
-      h += lvRuleHint(id, cons, i, u);
-      if (cmp && cmp.notes.length) h += '<details class="cwarn"><summary title="Click for the full DCSH check">⚠ ' + esc(cmp.notes[0]) + '</summary>' + (cmp.notes.length > 1 || cmp.notes[0].length > 60 ? '<p>' + esc(cmp.notes.join(' ')) + '</p>' : '') + '</details>';
-      h += c.attachments.length ? '<p class="meta">Attachment heights above ground: <b>' + (c.kingbolt != null ? c.attachments.map(function (a) { return fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; }).join(' / ') + ' m' : '–') + '</b> · ' + c.attachments.length + ' conductor' + (c.attachments.length === 1 ? '' : 's') + '</p><details class="offs"><summary>Edit attachment offsets</summary><table class="att"><tr><th>#</th><th>x (m)</th><th>y (m)</th><th class="num">Height AG</th><th></th></tr>' + c.attachments.map(function (a, k) { return '<tr><td>' + a.order + '</td><td><input data-ax="' + u + '|' + k + '" value="' + fmt(a.x) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' x"></td><td><input data-ay="' + u + '|' + k + '" value="' + fmt(a.y) + '" inputmode="decimal" aria-label="Attachment ' + a.order + ' y"></td><td class="num">' + (c.kingbolt != null ? fmt(Math.round((c.kingbolt + a.y) * 1000) / 1000) : '') + '</td><td>' + (carries.length ? '' : '<button class="btn small" data-arm="' + u + '|' + k + '" aria-label="Remove point ' + a.order + '" title="Remove this attachment point">×</button>') + '</td></tr>'; }).join('') + '</table></details>' : '<p class="hint warn">No attachment points yet, so no conductors can be drawn. Add them from the DCSH drawing' + (d && d.attachments ? ' (' + esc(d.drawing) + ': x ' + d.attachments.map(function (a) { return a.x; }).join(' / ') + (d.attachments.some(function (a) { return a.y == null; }) ? ', heights not dimensioned' : '') + ')' : '') + '. Needs engineering review.</p>';
-      h += '<div class="btnrow">' + (carries.length ? '<span class="meta">Carries ' + esc(carries.join(', ')) + ', so points and the construction cannot be removed here.</span>' : '<button class="btn small" data-aadd="' + u + '">Add attachment point</button><button class="btn small danger" data-cdel="' + u + '">Remove construction</button>') + '</div></div>';
+      var u = esc(c.unique), bad = c.kingbolt != null && hag != null && c.kingbolt > hag, lr = lvRule(id, cons, i), off = lr && lr.value != null && c.kingbolt != null && Math.abs(lr.value - c.kingbolt) > 0.05;
+      var hts = c.kingbolt != null ? c.attachments.map(function (a) { return f2(Math.round((c.kingbolt + a.y) * 1000) / 1000, 2); }).filter(function (v, k, arr) { return arr.indexOf(v) === k; }) : [];
+      var tip = [c.descr, lc ? lc.description : c.code ? 'Not in the PNW library tables' : ''].filter(Boolean).join(' · ');
+      h += '<div class="con pd-con" data-u="' + u + '" title="' + esc(tip) + '"><div class="pd-r1"><div class="pd-code">' + combo('ccode|' + c.unique, { value: c.code, placeholder: 'Search code…', aria: 'Construction code of ' + (c.descr || 'construction'), free: true, groups: function () { return constructionGroups(id); }, onPick: function (v) { changeCode(id, c.unique, v, 'manual', ''); if (!M.libraryConstruction(lib, v) && !knownLayout(v)) setStatus(v + ' is not in the PNW library or your projects: no defaults or offsets are known, so it needs engineering review.', 'bad'); } }) + '</div>' +
+        (lc || !c.code ? '' : '<span class="pill warn" title="This code is not in the PNW library tables">?</span>') + lvUnderHvNote(cons, i, id) +
+        '<input class="pd-kb' + (bad ? ' invalid' : off ? ' warnin' : '') + '" data-ckb="' + u + '" value="' + fmt(c.kingbolt) + '" inputmode="decimal" aria-label="King bolt height of ' + esc(c.descr || 'construction') + ' (m above ground)" title="' + (bad ? 'Above the pole tip (' + hag + ' m above ground)' : 'King bolt height above ground (m)' + (src === 'manual' ? ', edited' : '')) + '">' +
+        (off ? '<button class="pd-def warn" data-cdef="' + u + '" data-v="' + lr.value + '" data-ref="' + esc(lr.src) + '" title="' + esc(lr.src) + '">' + lr.value + ' ↺</button>' : def && c.kingbolt != null && Math.abs(def.value - c.kingbolt) > 0.0005 ? '<button class="pd-def xinfo" data-cdef="' + u + '" data-v="' + def.value + '" data-ref="' + esc(def.source) + '" title="' + esc(def.source) + '">' + def.value + ' ↺</button>' : '') +
+        binBtn('data-cdel="' + u + '"', 'Remove ' + (c.descr || 'construction'), carries.length ? 'Carries ' + carries.join(', ') + ': take it out of the conductor schedule first' : '') + '</div>';
+      if (cmp && cmp.notes.length) h += '<details class="cwarn xinfo"><summary title="Click for the full DCSH check">⚠ ' + esc(cmp.notes[0]) + '</summary>' + (cmp.notes.length > 1 ? '<p>' + esc(cmp.notes.slice(1).join(' ')) + '</p>' : '') + '</details>';
+      // What it carries, in one line: strain section, conductor, tension, attachment heights. Click a section to open it.
+      var line = carries.map(function (n) { var sg = project.segments.filter(function (x) { return x.StrainSect === n; })[0] || {}, cd = conductorFor(sg.Conductor); return '<button class="pd-sec' + (S.selSection === n ? ' on' : '') + '" data-secshow="' + esc(n) + '" title="Open strain section ' + esc(n) + '">' + esc(n) + '</button> ' + esc(sg.Conductor || '') + (cd && cd.name ? ' <span class="muted">' + esc(cd.name) + '</span>' : '') + (sg.Tension ? ' · ' + esc(sg.Tension) + ' ' + esc(sg.TensionUnits || '') : ''); }).join('<br>');
+      h += (line || hts.length ? '<div class="pd-carry">' + (line || '') : '<div class="pd-carry xinfo">') + statusBadge(st) + (hts.length ? '<span class="pd-hts" title="Attachment heights above ground (' + c.attachments.length + ' points)">' + hts.join(' / ') + ' m</span>' : '') + '</div></div>';
     });
-    h += '<div class="con add" id="conAddBox">' + conAddHtml(id) + '</div>';
+    h += '<details class="con add pd-add" id="conAddBox"' + (conDraft.pole === id && conDraft.open ? ' open' : '') + '><summary>＋ Add construction</summary>' + conAddHtml(id) + '</details>';
     return h;
   }
   // Add-construction form: searchable code, filters, preview of what will be copied and checks before adding.
@@ -1608,7 +1960,7 @@
     out.lc = M.libraryConstruction(lib, d.code); out.lay = knownLayout(d.code); out.dc = M.dcshFor(dcshReg(), d.code)[0] || null;
     out.def = kbFor(id, d.code, x.hag, x.cons);
     if (!out.lc) out.msgs.push({ level: 'warning', text: esc(d.code) + ' is not in the PNW library tables, so there is no default height or voltage. Check the code.' });
-    if (!out.lay) out.msgs.push({ level: 'warning', text: 'No attachment offsets are known for ' + esc(d.code) + ' (no dimensioned DCSH drawing and not in your projects). It will be added without attachment points and needs engineering review.' });
+    if (!out.lay) out.msgs.push({ level: 'warning', text: 'No attachment offsets are known for ' + esc(d.code) + ' (no dimensioned DCSH drawing, not in your projects and not in the PNW construction database). It will be added without attachment points and needs engineering review.' });
     var kb = PNW.num(d.kb);
     if (d.kb === '' || d.kb == null) out.msgs.push({ level: 'error', text: 'Type the king bolt height' + (out.def ? '' : ' (there is no library default for ' + esc(d.code) + ')') + '.' });
     else if (!(kb > 0) || kb > 60) out.msgs.push({ level: 'error', text: '"' + esc(d.kb) + '" is not a valid king bolt height in metres.' });
@@ -1633,24 +1985,47 @@
     return { html: h, ok: ck.ok };
   }
   function conAddHtml(id) {
-    if (conDraft.pole !== id) conDraft = { pole: id, code: '', kb: '', kbUser: false };
+    if (conDraft.pole !== id) conDraft = { pole: id, code: '', kb: '', kbUser: false, open: false };
     var pv = conPreview(id);
-    return '<div class="con-title">Add a construction to ' + esc(id) + '</div>' + conFilterChips() +
+    return conFilterChips() +
       '<div class="row2"><div class="field"><label>Construction code</label>' + combo('conAdd', { value: conDraft.code, placeholder: 'Search code or description…', aria: 'Construction code to add', free: true, groups: function () { return constructionGroups(id, conFilter); }, onPick: function (v) {
         conDraft.code = v;
         if (!conDraft.kbUser) { var x = conContext(id), df = kbFor(id, v, x.hag, x.cons); conDraft.kb = df ? String(df.value) : ''; }
         refreshConAdd();
       } }) + '</div>' +
-      '<div class="field"><label for="conAddKb">King bolt above ground (m)</label><input id="conAddKb" inputmode="decimal" value="' + esc(conDraft.kb) + '" placeholder="library default"></div></div>' +
+      '<div class="field"><label for="conAddKb">King bolt above ground (m)</label><div style="display:flex;gap:4px;align-items:center"><input id="conAddKb" style="flex:1;min-width:0" inputmode="decimal" value="' + esc(conDraft.kb) + '" placeholder="library default">' +
+        // Add button sits beside the height (Ishan, 2026-11-02), instead of a separate "Add to <pole>" button below the preview.
+        '<button class="btn small primary" id="conAdd" data-pole="' + esc(id) + '" title="Add to ' + esc(id) + '" aria-label="Add to ' + esc(id) + '" style="flex:none;padding:4px 7px;display:inline-flex;align-items:center"' + (pv.ok ? '' : ' disabled') + '><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div></div>' +
       '<div id="conAddPrev">' + pv.html + '</div>' +
-      '<div class="btnrow"><button class="btn small primary" id="conAdd" data-pole="' + esc(id) + '"' + (pv.ok ? '' : ' disabled') + '>Add to ' + esc(id) + '</button>' + '<button class="btn small" id="conKbDefault" title="Go back to the library default height"' + (conDraft.kbUser ? '' : ' hidden') + '>Use default height</button>' + '</div>' +
+      '<div class="btnrow"><button class="btn small" id="conKbDefault" title="Go back to the library default height"' + (conDraft.kbUser ? '' : ' hidden') + '>Use default height</button>' + '</div>' +
       '<p class="hint explain">The king bolt starts at the PNW library default (below the tip, or below the construction above). Offsets are copied from a dimensioned DCSH drawing or one of your projects; nothing is made up. Attach the construction to conductors in the Conductor schedule.</p>';
   }
-  function refreshConAdd() { var box = $('conAddBox'); if (box && S.selected) box.innerHTML = conAddHtml(S.selected); }
+  function refreshConAdd() { var box = $('conAddBox'); if (box && S.selected) box.innerHTML = '<summary>＋ Add construction</summary>' + conAddHtml(S.selected); }
+  $('selected').addEventListener('toggle', function (e) { if (e.target.id === 'conAddBox') conDraft.open = e.target.open; }, true);
   function refreshConPreview() { var id = S.selected, el = $('conAddPrev'); if (!el || !id) return; var pv = conPreview(id); el.innerHTML = pv.html; if ($('conAdd')) $('conAdd').disabled = !pv.ok; if ($('conKbDefault')) $('conKbDefault').hidden = !conDraft.kbUser; }
+  $('selected').addEventListener('click', function (e) { var so = e.target.closest('[data-pstropen]'); if (so) { e.stopPropagation(); strStart(so.dataset.pstropen, so); return; }
+    var b = e.target.closest('[data-pstrgo]'); if (b) { e.stopPropagation(); strApply(b.dataset.pstrgo); } var fx = e.target.closest('[data-pfix]'); if (fx) { e.stopPropagation(); fixFromType([fx.dataset.pfix]); } }, true);
   $('selected').addEventListener('change', function (e) {
     var t = e.target, id = S.selected;
+    if (t.dataset.pps) { var ss = strSet(), v0 = t.value.trim(), k0 = t.dataset.pps, po = ss.poles[id] = ss.poles[id] || {};
+      if (k0 === 'fb') { var sp0 = strRow(id).species; if (sp0) { if (v0 === '') delete ss.fb[sp0]; else ss.fb[sp0] = parseFloat(v0); } }
+      else if (k0 === 'kd' && v0 !== '') { po.kd = parseFloat(v0); }
+      else if (v0 === '') delete po[k0]; else po[k0] = k0 === 'species' ? v0 : parseFloat(v0);
+      save(); openSection('pstr'); renderSelected(); return; }
     if (t.id === 'poleAddType') { var pt = lib && lib.poles.filter(function (x) { return x.code === t.value; })[0]; if (pt) { $('poleAddLen').value = pt.length; $('poleAddSunk').value = pt.sinking != null ? pt.sinking : ''; } return; }
+    if (t.dataset.ptype2 != null) { // pole without a design row: type and length are kept with the profiles
+      var ty2 = lib && lib.poles.filter(function (x) { return x.code === t.value; })[0], tp2 = S.design.poleTypes = S.design.poleTypes || {};
+      if (ty2) { tp2[id] = ty2.code; setLenOv(id, ty2.length); } else delete tp2[id];
+      S.generated = false; recompute(); setStatus(id + ': pole type ' + (ty2 ? ty2.code + ', length ' + ty2.length + ' m.' : 'not set.'), 'good'); return;
+    }
+    if (t.dataset.plen2 != null) {
+      var v2 = PNW.num(t.value);
+      if (t.value.trim() === '') setLenOv(id, null);
+      else if (!(v2 > 0) || v2 > 60) { setStatus('"' + t.value + '" is not a valid pole length in metres.', 'bad'); renderSelected(); return; }
+      else setLenOv(id, v2);
+      if (S.design.poleTypes) delete S.design.poleTypes[id];
+      S.generated = false; recompute(); setStatus(id + ': length ' + (t.value.trim() === '' ? 'back to the imported value.' : v2 + ' m (setting depth ' + defaultSunk(v2) + ' m).'), 'good'); return;
+    }
     if (t.dataset.ptype != null) {
       var ty = lib && lib.poles.filter(function (x) { return x.code === t.value; })[0], types = S.design.poleTypes = S.design.poleTypes || {}, before = types[id] || '';
       if (!ty) { delete types[id]; S.design.log = liveLog().concat([logEntry(id, '', 'Pole type', before, 'not set', 'manual')]); recompute(); return; }
@@ -1779,6 +2154,11 @@
   function conductorsOf(code) { var lay = knownLayout(code); if (lay && lay.attachments.length) return lay.attachments.length; var c = aiCandidates().filter(function (x) { return x.code === code; })[0]; return c && c.phases ? +c.phases || null : null; }
   // The AI is asked for one construction per circuit, but it can still list a code once per conductor it sees.
   // Group by circuit (HV / LV / earth from the code), keep each code once with its best confidence, three options per circuit.
+  function aiLevelFilter(j) { // keep a match only when its circuit level is on the pole by the AI's own account
+    var lv = (j && j.levels) || {}, seen = {};
+    ((j && j.components) || []).forEach(function (c) { if (!/conductor|wire|phase|neutral/i.test(c.name || '') || c.count == null) return; var k = /hv|high/i.test(c.level) ? 'hv' : /earth/i.test(c.level) ? 'earth' : /lv|low/i.test(c.level) ? 'lv' : null; if (k) seen[k] = (seen[k] || 0) + (Number(c.count) || 0); });
+    return function (m) { var k = circuitClass(m.code); return !(lv[k] === false || (k in seen && seen[k] === 0)); };
+  }
   function aiGroups(resp) {
     var groups = {}, order = ['hv', 'lv', 'earth', 'comms', 'other'];
     resp.matches.forEach(function (m) {
@@ -1802,6 +2182,7 @@
     if (r.min) return h + '<p class="meta">' + (r.groups ? r.groups.map(function (g) { return CLASS_LABEL[g.cls] + ': ' + (r.approved && r.approved[g.cls] ? r.approved[g.cls] + ' approved' : g.items[0] ? g.items[0].code : '–'); }).join(' · ') : '') + '</p></div>';
     var sv = streetViewUrl(id);
     h += '<div class="btnrow"><label class="btn small"><input type="file" id="aiPhoto" accept="image/jpeg,image/png,image/webp" hidden>' + (r.photo ? 'Another photo…' : 'Choose a photo…') + '</label>' + (sv ? '<button class="btn small" data-ctx="street" title="Street View inside the app, with capture straight into this analysis">🛣 Street View</button>' : '') + '<button class="btn small" data-ctx="photos" title="Add several photos and match them to poles">Import photos…</button>' + '</div>' +
+      (IN_CLAUDE ? '<p class="meta">' + (aiRefCount() ? 'Learning from ' + aiRefCount() + ' approved photo' + (aiRefCount() === 1 ? '' : 's') + ' (sent as examples). <a href="#" data-airefclear>Clear</a>' : 'Approved matches are kept as example photos to improve later matches.') + '</p>' : '') +
       '<div class="ai-paste" tabindex="0" title="Paste a snip with Ctrl+V, or drop an image here">Paste a snip here (Ctrl+V) or drop an image. It is attached to ' + esc(id) + ' and analysed at once.</div>' + photoListHtml(id, r);
     if (r.thumb) h += '<img class="ai-thumb" src="' + r.thumb + '" alt="Photo of ' + esc(id) + '">';
     if (r.loading) h += '<p class="status">Looking at ' + esc(r.photo) + '…</p>';
@@ -1864,15 +2245,35 @@
     });
   }
   var sampleP = IN_CLAUDE && window.claude && window.claude.use ? window.claude.use('sample') : null;
+  // Reference photos: approved AI matches are kept (2 per code, small JPEG) and sent with later requests as confirmed examples.
+  var AIREF_KEY = 'pnwAiRefs';
+  function aiRefs() { try { return JSON.parse(localStorage.getItem(AIREF_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function aiRefCount() { var o = aiRefs(); return Object.keys(o).reduce(function (n, k) { return n + (o[k] || []).length; }, 0); }
+  function aiRefSave(code, view, pole) {
+    if (!view) return; var im = new Image();
+    im.onload = function () {
+      var k = Math.min(1, 512 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      var o = aiRefs(), l = (o[code] || []).filter(function (x) { return x.pole !== pole; }); l.unshift({ pole: pole, img: c.toDataURL('image/jpeg', 0.7).split(',')[1] }); o[code] = l.slice(0, 2);
+      try { localStorage.setItem(AIREF_KEY, JSON.stringify(o)); } catch (e) { setStatus('Reference photo not kept: browser storage is full.', 'bad'); }
+      if (S.selected === pole) renderSelected();
+    };
+    im.src = 'data:image/jpeg;base64,' + view.split(',').pop();
+  }
+  function aiRefPick(pole) { // one per code, most-used codes first, at most 8
+    var o = aiRefs(), G = window.PNW_AI_GUIDE || {}, codes = (G.common || []).concat(Object.keys(o)).filter(function (c, i, a) { return a.indexOf(c) === i && o[c] && o[c].length; });
+    return codes.map(function (c) { var x = o[c].filter(function (r) { return r.pole !== pole; })[0]; return x && { code: c, pole: x.pole, data: x.img }; }).filter(Boolean).slice(0, 8);
+  }
   function aiPrompt(id, existing) { // photo estimates only: heights and dimensions are never asked of the AI
     return 'You help an Australian power distribution designer. Look at the attached photo of pole ' + id + '. Identify the overhead line hardware you can see and rank which of these Poles n Wires construction codes describe each circuit level (HV, LV, running earth).\n' +
       'A construction code covers a whole circuit, not one conductor: one HV1 carries all three HV phases and one LV1 carries all four LV conductors (R W B N). Return at most 3 alternative codes per circuit level, ranked, and never repeat a code for each conductor. In components, count the conductors on each level (name "conductors", level HV, LV or earth).\n' +
       'Rules: only use codes from the list; if nothing fits a level, return no match for it. Describe only visible hardware (crossarms, insulator type: pin, post, disc/strain, reel; conductors per level; terminations; angle or straight; stays; pole top plant). Confidence 0 to 1, below 0.5 when the photo does not show the hardware clearly. Do not estimate dimensions, heights or pole strength.\n' +
       'Also report what you can see of stays (count), a pole-mounted transformer (present or not) and the conductors on each level; for conductors only name a code from the conductor list below, or null. If a pole number is legible, report it. List anything you cannot tell (field checks). Never present a guess as measured.\n' +
-      'Constructions currently on the pole in the PNW project: ' + (existing.join(', ') || 'none') + '.\n' +
+      'Many poles carry LV only, with no HV. First decide which circuit levels are actually on this pole from the photo alone. Only return an HV match when HV conductors and HV insulators are clearly visible on this pole (taller insulators, wider phase spacing, above the LV). Never add a level because it is common, because it is in the design, or because a reference photo shows it. Return no matches for a level that is not on the pole and set it false in "levels".\n' +
+      'The PNW design currently lists: ' + (existing.join(', ') || 'none') + '. This may be a proposal or wrong: do not copy it; judge only from the photo.\n' +
       'Candidate conductor codes (code | name | material): ' + aiConductors(id).map(function (c) { return c.code + ' | ' + c.name + ' | ' + c.material; }).join('; ') + '\n' +
-      'Candidate codes (code | description | DCSH | phases):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || ''); }).join('\n') +
-      '\nReturn JSON only: {"photo_quality":string,"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
+      (window.PNW_AI_GUIDE ? 'How to read the photo:\n' + PNW_AI_GUIDE.rules.map(function (x, k) { return (k + 1) + '. ' + x; }).join('\n') + '\n' : '') +
+      'Candidate codes (code | description | DCSH | phases | what it looks like):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || '') + ' | ' + ((window.PNW_AI_GUIDE && PNW_AI_GUIDE.looks[c.code]) || ''); }).join('\n') +
+      '\nReturn JSON only: {"photo_quality":string,"levels":{"hv":boolean,"lv":boolean,"earth":boolean},"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
   }
   /* ---- Auto design: profile from QLINK, constructions from pole photos (or a Street View image aimed at the pole when there is
      no photo), strain sections from strain/termination constructions, conductor from the photo or the GIS feeder, tension by
@@ -1884,7 +2285,8 @@
   }
   // Street View image of the pole: nearest outdoor panorama within 50 m, turned toward the pole, pitched to take in its top.
   function svImageFor(id) {
-    var key = gmKey(), ll = poleLL(id); if (!key || !ll) return Promise.resolve(null);
+    var key = gmKey(), ll = poleLL(id); if (!ll) return Promise.resolve(null);
+    if (!key) return IN_CLAUDE || webMapsOn() ? Promise.resolve(svMcpImage(id, ll)).catch(function () { return null; }) : Promise.resolve(null);
     return loadGmaps(key).then(function (gm) {
       return new Promise(function (res) {
         new gm.StreetViewService().getPanorama({ location: new gm.LatLng(ll.lat, ll.lng), radius: 50, source: 'outdoor' }, function (data, status) {
@@ -1916,10 +2318,10 @@
   function adPlan() {
     var ids = project.poles.map(function (r) { return r.ID; }), plan = { poles: [], sections: [], missing: [], notes: [] };
     ids.forEach(function (id) {
-      var r = aiResults[id], resp = r && r.resp, have = {}, P = { id: id, src: r && r.source, thumb: r && r.thumb, picks: [] };
+      var r = aiResults[id], resp = r && r.resp, have = {}, P = { id: id, src: r && r.source, thumb: r && r.thumb, view: r && r.view, picks: [] };
       ((dm && dm.byPole[id]) || []).forEach(function (c) { have[circuitClass(c.code)] = c.code; });
       P.have = have;
-      if (!resp) { plan.missing.push(id + ': ' + ((r && r.error) || (photosOf(id).length ? 'the photo could not be read' : gmKey() ? 'no photo and no Street View within 50 m' : 'no photo (add a Google Maps key to use Street View)'))); plan.poles.push(P); return; }
+      if (!resp) { plan.missing.push(id + ': ' + ((r && r.error) || (photosOf(id).length ? 'the photo could not be read' : gmKey() ? 'no photo and no Street View within 50 m' : (IN_CLAUDE || webMapsOn() ? 'no photo, and no Street View near the pole' : 'no photo (add a Google Maps key to use Street View)')))); plan.poles.push(P); return; }
       var best = {};
       resp.matches.slice().sort(function (a, b) { return a.rank - b.rank || b.confidence - a.confidence; }).forEach(function (m) { var k = circuitClass(m.code); if (AD_ORDER[k] != null && !best[k]) best[k] = m; });
       Object.keys(best).sort(function (a, b) { return AD_ORDER[a] - AD_ORDER[b]; }).forEach(function (k) {
@@ -1954,12 +2356,29 @@
       });
       flush();
     });
+    (plan.extra || []).forEach(function (x) {
+      if (plan.sections.some(function (s) { return s.cls === x.cls && s.ids.join() === x.ids.join(); })) return;
+      var mem = adMembers(plan, x.cls, x.ids); if (mem.ok) { var s1 = adSection(plan, x.cls, mem); s1.user = true; plan.sections.push(s1); }
+    });
+  }
+  // Empties an add-row search box after Add (its blur handler can pick the typed text a moment later).
+  function adClearDraft(key, f) { setTimeout(function () { AD.draft[f] = ''; if (combos[key]) combos[key].value = ''; var ci = comboInput(key); if (ci) ci.value = ''; }, 200); }
+  function adKey(k, ids) { return k + '|' + ids.join(','); }
+  // A construction picked or added by hand in the review: the user's code replaces the AI's.
+  function adSetPick(P, x, v) { x.code = v; x.cls = circuitClass(v); x.on = true; x.conf = 1; x.user = true; x.why = 'Picked by you'; x.ref = 'Picked by the designer in Auto design'; adSections(AD.plan); adShow(); }
+  // Poles of a hand-added section with their construction on that circuit (existing, or ticked in the review).
+  function adMembers(plan, k, ids) {
+    var out = [], missing = [];
+    ids.forEach(function (id) { var P = plan.poles.filter(function (q) { return q.id === id; })[0] || { id: id, picks: [], have: {} }, pk = P.picks.filter(function (x) { return x.cls === k && x.on; })[0], code = P.have[k] || (pk && pk.code); if (!code) missing.push(id); else { var lc = M.libraryConstruction(lib, code); out.push({ id: id, code: code, arr: arrangementOf(lc && lc.description), P: P }); } });
+    out.ok = !missing.length; out.missing = missing; return out;
   }
   function adSection(plan, k, mem) {
     var S1 = { cls: k, ids: mem.map(function (m) { return m.id; }), codes: mem.map(function (m) { return m.code; }), on: true, flags: [] }, votes = {};
     mem.forEach(function (m) { ((m.P.obs && m.P.obs.conductors) || []).forEach(function (c) { if (c.code && aiCls(c.level) === k) votes[c.code] = (votes[c.code] || 0) + (c.confidence || 0.1); }); });
     var vc = Object.keys(votes).sort(function (a, b) { return votes[b] - votes[a]; })[0];
-    if (vc) { S1.cond = vc; S1.csrc = 'photo (' + Object.keys(votes).length + ' type' + (Object.keys(votes).length > 1 ? 's' : '') + ' seen)'; }
+    var mine = plan.condPick && plan.condPick[adKey(k, S1.ids)];
+    if (mine) { S1.cond = mine; S1.csrc = 'picked by you'; }
+    else if (vc) { S1.cond = vc; S1.csrc = 'photo (' + Object.keys(votes).length + ' type' + (Object.keys(votes).length > 1 ? 's' : '') + ' seen)'; }
     else if (k !== 'earth') {
       var g = gisConductorsAt(mem[0].id, k.toUpperCase()).filter(function (t) { return t.lib; }).sort(function (a, b) { return b.length - a.length; })[0];
       if (g) { S1.cond = g.lib.code; S1.csrc = 'GIS ' + g.description + ' on ' + g.feeder; }
@@ -1976,16 +2395,21 @@
     }
     return S1;
   }
+  function adNoLen(id) { var r = project && project.poles.filter(function (x) { return x.ID === id; })[0]; return !!r && !(PNW.num(r.HeightAG) > 0); }
   function adHtml(plan) {
     var pct = function (v) { return Math.round(v * 100) + '%'; }, h = '<p class="hint">Review the proposals. Untick anything that is wrong, then Apply. Each change is logged with its source, and AI picks stay flagged until checked in the field.</p>';
     h += '<h4>Constructions</h4><table class="grid"><thead><tr><th></th><th>Pole</th><th>Construction</th><th class="num">AI</th><th>Seen in</th><th>Why</th></tr></thead><tbody>';
     var n = 0;
-    plan.poles.forEach(function (P, i) { P.picks.forEach(function (x, j) { n++; h += '<tr' + (x.conf < 0.5 ? ' class="warn"' : '') + '><td><input type="checkbox" data-adc="' + i + '-' + j + '"' + (x.on ? ' checked' : '') + ' aria-label="Use ' + esc(x.code) + ' on ' + esc(P.id) + '"></td><td>' + esc(P.id) + '</td><td><b>' + esc(x.code) + '</b> <small class="meta">' + x.cls.toUpperCase() + '</small></td><td class="num">' + pct(x.conf) + '</td><td>' + (P.thumb ? '<img src="' + P.thumb + '" alt="" style="height:28px;vertical-align:middle;border-radius:3px"> ' : '') + esc((P.src || '').replace(/ \(.*/, '')) + '</td><td><small>' + esc(x.why) + '</small></td></tr>'; }); });
+    plan.poles.forEach(function (P, i) { P.picks.forEach(function (x, j) { n++; h += '<tr' + (x.conf < 0.5 ? ' class="warn"' : '') + '><td><input type="checkbox" data-adc="' + i + '-' + j + '"' + (x.on ? ' checked' : '') + (x.done ? ' disabled' : '') + ' aria-label="Use ' + esc(x.code) + ' on ' + esc(P.id) + '"></td><td>' + esc(P.id) + (x.done ? ' <span class="pill ok">added</span>' : '') + (j === 0 && adNoLen(P.id) ? '<br><input type="number" step="0.5" min="4" max="40" data-adlen="' + esc(P.id) + '" value="' + esc((AD.len || {})[P.id] || '') + '" placeholder="Length m" title="' + esc(P.id) + ' has no pole length, so its constructions and conductors cannot be placed. Enter the length here." style="width:84px" aria-label="Pole length of ' + esc(P.id) + '">' : '') + '</td><td class="adpick">' + combo('adc|' + i + '-' + j, { value: x.code, placeholder: 'Search construction…', aria: 'Construction on ' + P.id, free: true, groups: function () { return constructionGroups(P.id); }, onPick: function (v) { adSetPick(P, x, v); } }) + ' <small class="meta">' + x.cls.toUpperCase() + '</small></td><td class="num">' + (x.user ? 'you' : pct(x.conf)) + '</td><td>' + (P.thumb ? '<img class="adthumb" src="' + P.thumb + '" data-big="' + (P.view || P.thumb) + '" alt="Street View of ' + esc(P.id) + '" title="Hover to enlarge" style="height:28px;vertical-align:middle;border-radius:3px;cursor:zoom-in"> ' : '') + esc((P.src || '').replace(/ \(.*/, '')) + '</td><td class="adwhy"><small>' + esc(x.why) + '</small></td></tr>'; }); });
     if (!n) h += '<tr><td colspan="6" class="meta">No new constructions to propose.</td></tr>';
+    var dr = AD.draft = AD.draft || {}, pids = plan.poles.map(function (P) { return P.id; }), psel = function (key, cur) { return '<select data-addr="' + key + '" aria-label="' + key + '">' + pids.map(function (x) { return '<option' + (x === cur ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>'; };
+    if (pids.indexOf(dr.pole) < 0) dr.pole = pids[0]; if (pids.indexOf(dr.from) < 0) dr.from = pids[0]; if (pids.indexOf(dr.to) < 0) dr.to = pids[pids.length - 1];
+    h += '<tr class="adnew"><td>＋</td><td>' + psel('pole', dr.pole) + '</td><td class="adpick">' + combo('adNewCon', { value: dr.con || '', placeholder: 'Add a construction the AI missed…', aria: 'Construction to add', free: true, groups: function () { return constructionGroups(AD.draft.pole); }, onPick: function (v) { AD.draft.con = v; } }) + '</td><td colspan="3"><button class="btn small primary" id="adAddCon">Add</button></td></tr>';
     h += '</tbody></table><h4>Strain sections</h4><table class="grid"><thead><tr><th></th><th>Circuit</th><th>Poles</th><th>Conductor</th><th>Tension</th><th class="num">Ruling span</th><th>Notes</th></tr></thead><tbody>';
-    plan.sections.forEach(function (s, i) { h += '<tr' + (s.flags.length ? ' class="warn"' : '') + '><td><input type="checkbox" data-ads="' + i + '"' + (s.on ? ' checked' : '') + (s.cond && s.tension ? '' : ' disabled') + ' aria-label="String section ' + (i + 1) + '"></td><td>' + s.cls.toUpperCase() + '</td><td>' + esc(s.ids[0] + ' → ' + s.ids[s.ids.length - 1]) + ' <small class="meta">(' + s.ids.length + ')</small></td><td>' + (s.cond ? '<b>' + esc(s.cond) + '</b> <small class="meta">' + esc(s.csrc) + '</small>' : '–') + '</td><td>' + (s.tension ? esc(s.tension + ' ' + s.units) + (s.auto ? ' <small class="meta">auto</small>' : '') : '–') + '</td><td class="num">' + (s.rs ? s.rs.toFixed(1) + ' m' : '–') + '</td><td><small>' + esc(s.flags.join('; ') || s.tsrc || '') + '</small></td></tr>'; });
+    plan.sections.forEach(function (s, i) { var sd = (plan.doneSec || {})[adKey(s.cls, s.ids)]; h += '<tr' + (s.flags.length && !sd ? ' class="warn"' : '') + '><td><input type="checkbox" data-ads="' + i + '"' + (s.on ? ' checked' : '') + (s.cond && s.tension && !sd ? '' : ' disabled') + ' aria-label="String section ' + (i + 1) + '">' + (sd ? ' <span class="pill ok">strung</span>' : '') + '</td><td>' + s.cls.toUpperCase() + '</td><td>' + esc(s.ids[0] + ' → ' + s.ids[s.ids.length - 1]) + ' <small class="meta">(' + s.ids.length + ')</small></td><td>' + '<div class="adpick">' + combo('ads|' + i, { value: s.cond || '', placeholder: 'Search conductor…', aria: 'Conductor for section ' + (i + 1), groups: function () { return conductorGroups(s.ids[0], s.codes[0]); }, onPick: function (v) { (plan.condPick = plan.condPick || {})[adKey(s.cls, s.ids)] = v; adSections(plan); adShow(); } }) + (s.csrc ? ' <small class="meta">' + esc(s.csrc) + '</small>' : '') + '</div></td><td>' + (s.tension ? esc(s.tension + ' ' + s.units) + (s.auto ? ' <small class="meta">auto</small>' : '') : '–') + '</td><td class="num">' + (s.rs ? s.rs.toFixed(1) + ' m' : '–') + '</td><td><small>' + esc(s.flags.join('; ') || s.tsrc || '') + '</small></td></tr>'; });
     if (!plan.sections.length) h += '<tr><td colspan="7" class="meta">No sections to string.</td></tr>';
-    h += '</tbody></table>';
+    h += '<tr class="adnew"><td>＋</td><td><select data-addr="cls" aria-label="Circuit">' + [['lv', 'LV'], ['hv', 'HV'], ['earth', 'Earth']].map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === (dr.cls || 'lv') ? ' selected' : '') + '>' + c[1] + '</option>'; }).join('') + '</select></td><td>' + psel('from', dr.from) + ' → ' + psel('to', dr.to) + '</td><td class="adpick">' + combo('adNewCond', { value: dr.cond || '', placeholder: 'Search conductor…', aria: 'Conductor for the new section', groups: function () { return conductorGroups(AD.draft.from, (AD.draft.cls || 'lv') === 'hv' ? 'H' : 'L'); }, onPick: function (v) { AD.draft.cond = v; } }) + '</td><td colspan="3"><button class="btn small primary" id="adAddSec">Add section</button> <small class="meta">Tension and ruling span come from the spans</small></td></tr>';
+    h += '</tbody></table>' + (AD.err ? '<p class="hint bad" style="display:block">' + esc(AD.err) + '</p>' : '');
     if (plan.missing.length) h += '<h4>Needs you</h4><ul class="hint">' + plan.missing.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>';
     if (plan.notes.length) h += '<h4>Seen, not added</h4><ul class="hint">' + plan.notes.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>';
     return h + '<p class="hint">After Apply, LV king bolts under HV are set by the separation rule where it applies.</p><div class="btnrow"><button class="btn primary" id="adApply">Apply ticked</button><button class="btn" id="adCancel">Cancel</button></div>';
@@ -1996,6 +2420,21 @@
     body.onchange = function (e) {
       var t = e.target; if (t.dataset.adc) { var q = t.dataset.adc.split('-'); AD.plan.poles[+q[0]].picks[+q[1]].on = t.checked; adSections(AD.plan); adShow(); }
       else if (t.dataset.ads) AD.plan.sections[+t.dataset.ads].on = t.checked;
+      else if (t.dataset.addr) AD.draft[t.dataset.addr] = t.value;
+      else if (t.dataset.adlen != null) { var lv = PNW.num(t.value); AD.len = AD.len || {}; if (lv > 0 && lv <= 40) AD.len[t.dataset.adlen] = lv; else delete AD.len[t.dataset.adlen]; }
+    };
+    $('adAddCon').onclick = function () {
+      var d = AD.draft, P = AD.plan.poles.filter(function (q) { return q.id === d.pole; })[0], ci = comboInput('adNewCon'), v = ((ci && ci.value) || d.con || '').trim();
+      if (!P || !v) { AD.err = 'Pick a pole and a construction first.'; adShow(); return; }
+      AD.err = ''; var x = { cls: circuitClass(v), code: '', conf: 1, on: true }; P.picks.push(x); d.con = ''; adSetPick(P, x, v); adClearDraft('adNewCon', 'con');
+    };
+    $('adAddSec').onclick = function () {
+      var d = AD.draft, cn = comboInput('adNewCond'); if (cn && cn.value.trim()) d.cond = cn.value.trim(); var k = d.cls || 'lv', ids = AD.plan.poles.map(function (q) { return q.id; }), a = ids.indexOf(d.from), b = ids.indexOf(d.to);
+      if (a < 0 || b < 0 || a === b) { AD.err = 'Pick two different poles.'; adShow(); return; }
+      var run = ids.slice(Math.min(a, b), Math.max(a, b) + 1), mem = adMembers(AD.plan, k, run);
+      if (!mem.ok) { AD.err = 'No ' + k.toUpperCase() + ' construction on ' + mem.missing.join(', ') + '. Add it in the Constructions table above first.'; adShow(); return; }
+      AD.err = ''; if (d.cond) (AD.plan.condPick = AD.plan.condPick || {})[adKey(k, run)] = d.cond;
+      (AD.plan.extra = AD.plan.extra || []).push({ cls: k, ids: run }); d.cond = ''; adSections(AD.plan); adShow(); adClearDraft('adNewCond', 'cond');
     };
     $('adCancel').onclick = closeGen; $('adApply').onclick = adApply;
   }
@@ -2005,28 +2444,30 @@
     commit(function (p) {
       var out = [];
       plan.poles.forEach(function (P) {
-        var row = project.poles.filter(function (x) { return x.ID === P.id; })[0], hag = PNW.num(row.HeightAG);
+        var row = p.poles.filter(function (x) { return x.ID === P.id; })[0], hag = PNW.num(row.HeightAG), L = (AD.len || {})[P.id];
+        if (!(hag > 0) && L > 0) { try { var from = row.Length, res = M.updatePole(p, P.id, { length: L, sunk: defaultSunk(L) }); hag = res.heightAG; delete AD.len[P.id]; out.push(logEntry(P.id, '', 'Pole length', from, String(L), 'manual', 'Auto design review; setting depth ' + defaultSunk(L) + ' m')); } catch (e) { fails.push(P.id + ': ' + e.message); } }
         var cur = ((dm && dm.byPole[P.id]) || []).slice();
-        P.picks.filter(function (x) { return x.on; }).forEach(function (x) {
-          var d = kbFor(P.id, x.code, hag, cur); if (!d) { fails.push(P.id + ' ' + x.code + ': no default king bolt height'); return; }
+        P.picks.filter(function (x) { return x.on && !x.done; }).forEach(function (x) {
+          var d = hag > 0 ? kbFor(P.id, x.code, hag, cur) : null; if (!d) { fails.push(P.id + ' ' + x.code + ': ' + (hag > 0 ? 'no default king bolt height' : 'the pole has no length (enter it or pick the pole type in Pole Details)')); return; }
           var lay = knownLayout(x.code), lc = M.libraryConstruction(lib, x.code);
           var nr = M.addConstruction(p, P.id, { code: x.code, kingbolt: d.value, voltage: lc && lc.voltageLL != null ? lc.voltageLL : 0, attachments: lay ? lay.attachments : [], isNew: true });
-          out.push(logEntry(P.id, nr.descr, 'Construction', '', 'added at ' + d.value + ' m', 'AI suggestion', 'Auto design; ' + x.ref + '; king bolt from ' + d.source + (lay ? '; offsets from ' + lay.source : ''))); cur.push({ code: x.code, kingbolt: d.value }); nc++;
+          out.push(logEntry(P.id, nr.descr, 'Construction', '', 'added at ' + d.value + ' m', 'AI suggestion', 'Auto design; ' + x.ref + '; king bolt from ' + d.source + (lay ? '; offsets from ' + lay.source : ''))); cur.push({ code: x.code, kingbolt: d.value }); nc++; x.done = true;
         });
       });
       return out;
     });
-    var secs = plan.sections.filter(function (s) { return s.on && s.cond && s.tension; }), names = [];
+    var secs = plan.sections.filter(function (s) { return s.on && s.cond && s.tension && !(plan.doneSec || {})[adKey(s.cls, s.ids)]; }), names = [];
     if (secs.length) commit(function (p) {
       var out = [];
       secs.forEach(function (s) {
         var poles = s.ids.map(function (id) { var c = ((dm.byPole[id]) || []).filter(function (x) { return circuitClass(x.code) === s.cls; }).sort(function (a, b) { return (b.kingbolt || 0) - (a.kingbolt || 0); })[0]; return c && { id: id, unique: c.unique, descr: c.descr }; });
         if (poles.some(function (m) { return !m; })) { fails.push(s.cls.toUpperCase() + ' ' + s.ids[0] + '→' + s.ids[s.ids.length - 1] + ': a pole lost its construction'); return; }
         try {
+          fillBare(p, poles.map(function (m) { return m.unique; }));
           var name = M.addSection(p, { conductor: conductorFor(s.cond), tension: s.tension, units: s.units, poles: poles.map(function (m) { return { id: m.id, unique: m.unique }; }) });
           if (s.table) (S.design.tables = S.design.tables || {})[name] = s.table;
           if (s.auto) (S.design.tensionAuto = S.design.tensionAuto || {})[name] = true;
-          names.push(name); ns++;
+          names.push(name); ns++; (plan.doneSec = plan.doneSec || {})[adKey(s.cls, s.ids)] = name;
           out.push(logEntry(s.ids[0] + '→' + s.ids[s.ids.length - 1], name, 'Strain section', '', s.cond + ' at ' + s.tension + ' ' + s.units + ' on ' + poles.map(function (m) { return m.id + ' ' + m.descr; }).join(', '), 'calculated', 'Auto design; conductor from ' + s.csrc + '; tension from ' + s.tsrc));
         } catch (e) { fails.push(s.cls.toUpperCase() + ' ' + s.ids[0] + '→' + s.ids[s.ids.length - 1] + ': ' + e.message); }
       });
@@ -2038,38 +2479,66 @@
       cons.forEach(function (c, i) { var x = lvRule(r.ID, cons, i); if (x && x.value != null && Math.abs(x.value - (c.kingbolt || 0)) > 0.0005 && plan.poles.some(function (P) { return P.id === r.ID && P.picks.some(function (k) { return k.on && k.code === c.code; }); })) ups.push({ id: r.ID, c: c, v: x.value, src: x.src }); });
     });
     if (ups.length) commit(function (p) { return ups.map(function (u) { M.updateConstruction(p, u.c.unique, { kingbolt: u.v }); nl++; return logEntry(u.id, u.c.descr, 'King bolt', u.c.kingbolt + ' m', u.v + ' m', 'calculated', 'Auto design; ' + u.src); }); });
+    if (fails.length) openGen('🪄 Auto design: not everything was applied', '<p>' + nc + ' construction' + (nc === 1 ? '' : 's') + ' and ' + ns + ' strain section' + (ns === 1 ? '' : 's') + ' were added. These were not:</p><ul>' + fails.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul><p class="hint">Back to review keeps what was added and lets you enter missing pole lengths or change constructions and conductors, then apply the rest.</p><div class="btnrow"><button class="btn primary" id="adFailBack">Back to review</button><button class="btn" id="adFailOk">Close</button></div>', { narrow: true }), $('adFailOk').onclick = closeGen, $('adFailBack').onclick = function () { closeGen(); AD.err = ''; adShow(); };
     setStatus('Auto design applied: ' + nc + ' construction' + (nc === 1 ? '' : 's') + ', ' + ns + ' strain section' + (ns === 1 ? '' : 's') + (nl ? ', ' + nl + ' LV height' + (nl === 1 ? '' : 's') + ' by the separation rule' : '') + '.' + (fails.length ? ' Not done: ' + fails.join('; ') + '.' : ''), fails.length ? 'bad' : 'good');
   }
   function autoDesign() {
     if (AD.busy) return;
     if (!Object.keys(merged.poles).some(function (id) { return merged.poles[id].survey; })) { setStatus('Load the QLINK LiDAR export first. Auto design takes the poles and ground levels from it.', 'bad'); return; }
-    if (!prof().poleIds.length) { seedProfile(); S.generated = false; recompute(); }
+    if (!prof().poleIds.length) { seedProfile(true); S.generated = false; recompute(); }
+    // Constructions need the height above ground: take missing or invalid lengths (e.g. -9999) from the pole type first.
+    var fixIds = lineIds().filter(function (k) { return badLen(curLen(k)) && typeOf(k); }); if (fixIds.length) fixFromType(fixIds);
     if (!project) startDesign();
     if (!project) return;
+    var noLen = project.poles.filter(function (r) { return !(PNW.num(r.HeightAG) > 0); }).map(function (r) { return r.ID; });
+    if (noLen.length && noLen.length === project.poles.length) { openGen('🪄 Auto design', '<p><b>' + esc(noLen.join(', ')) + '</b> ' + (noLen.length > 1 ? 'have' : 'has') + ' no pole length, so no construction can be placed on ' + (noLen.length > 1 ? 'them' : 'it') + ' (king bolts are measured from the pole tip).</p><p class="hint">Select the pole and enter its length or pick its pole type in Pole Details, then run Auto design again.</p><div class="btnrow"><button class="btn primary" id="adLenGo">Show ' + esc(noLen[0]) + '</button><button class="btn" id="adLenNo">Close</button></div>', { narrow: true }); $('adLenNo').onclick = closeGen; $('adLenGo').onclick = function () { closeGen(); select(noLen[0]); }; return; }
     var ids = project.poles.map(function (r) { return r.ID; }), i = 0;
     AD.busy = true;
     openGen('🪄 Auto design', '<p class="hint" id="adProg">Reading pole photos…</p><div class="btnrow"><button class="btn" id="adStop">Stop and review what is done</button></div>', { noFocus: true });
     var stop = false; $('adStop').onclick = function () { stop = true; };
-    (function next() {
-      if (stop || i >= ids.length) { AD.busy = false; AD.plan = adPlan(); adShow(); return; }
-      var id = ids[i++], el = $('adProg'); if (el) el.textContent = 'Pole ' + i + ' of ' + ids.length + ': ' + id + (aiResults[id] && aiResults[id].resp ? ' (already analysed)' : photosOf(id).length ? ' (photo)' : gmKey() ? ' (Street View)' : '');
-      aiFor(id).then(next, next);
-    })();
+    // Poles are analysed AD_PAR at a time (was one by one); a pole that hits the rate limit is retried once after a pause.
+    var done = 0, live = 0, finished = false, AD_PAR = 4;
+    var finish = function () { if (finished) return; finished = true; AD.busy = false; AD.err = ''; AD.draft = {}; AD.plan = adPlan(); adShow(); };
+    var prog = function () { var el = $('adProg'); if (el) el.textContent = 'Analysed ' + done + ' of ' + ids.length + ' poles' + (live ? ' (' + live + ' in progress, ' + (gmKey() || IN_CLAUDE || webMapsOn() ? 'photos / Street View' : 'photos') + ')' : '') + '…'; };
+    var one = function (id, again) {
+      return aiFor(id).then(null, function () {}).then(function () {
+        var r = aiResults[id];
+        if (!again && r && !r.resp && /Too many requests/.test(r.error || '')) { delete aiResults[id]; return new Promise(function (res) { setTimeout(res, 4000); }).then(function () { return one(id, true); }); }
+      });
+    };
+    var worker = function () {
+      if (stop || i >= ids.length) { if (!live || stop) finish(); return; }
+      var id = ids[i++]; live++; prog();
+      one(id).then(function () { live--; done++; prog(); worker(); });
+    };
+    prog(); for (var w = 0; w < AD_PAR; w++) worker();
   }
   function runAiClaude(id, file, meta) {
     var r = aiResults[id] = { photo: file.name, loading: true, source: (meta && meta.source) || 'photo' }; renderSelected();
     var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
-    Promise.all([sampleP || Promise.resolve(null), shrink(file)]).then(function (x) {
-      var sample = x[0], img = x[1]; r.thumb = img.thumb; r.view = img.view; if (!(meta && meta.noAttach)) r.photoId = attachPhoto(id, file.name, img, meta).id; else if (meta && meta.photoId) r.photoId = meta.photoId; renderSelected();
+    // meta.extra: more photos of the same pole (Street View from the other side); the AI says which one is best.
+    var shots = [{ file: file, meta: meta || {} }].concat((meta && meta.extra) || []), imgs = [];
+    Promise.all([sampleP || Promise.resolve(null)].concat(shots.map(function (s) { return shrink(s.file); }))).then(function (x) {
+      var sample = x[0]; imgs = x.slice(1); var img = imgs[0]; r.thumb = img.thumb; r.view = img.view;
+      if (shots.length === 1) { if (!(meta && meta.noAttach)) r.photoId = attachPhoto(id, file.name, img, meta).id; else if (meta && meta.photoId) r.photoId = meta.photoId; }
+      renderSelected();
       if (!sample) throw new Error('Asking Claude is not available in this view of the page.');
-      var bytes = atob(img.data), arr = new Uint8Array(bytes.length); for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      return sample.json(aiPrompt(id, existing), { images: [new Blob([arr], { type: 'image/jpeg' })], modelTier: 'default' });
+      var refs = aiRefPick(id), blobs = imgs.concat(refs).map(function (im) { var bytes = atob(im.data), arr = new Uint8Array(bytes.length); for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i); return new Blob([arr], { type: 'image/jpeg' }); });
+      var pr = aiPrompt(id, existing) + (shots.length > 1 ? '\nThere are ' + shots.length + ' photos of the same pole, taken one step either side of it along the road and all facing the pole (photo 1 = ' + shots.map(function (s, k) { return 'photo ' + (k + 1) + ': ' + s.file.name; }).join(', ') + '). Base the answer on the clearest photo, using the other to confirm hardware that is hidden or unclear. Add "best_photo": the number (1 to ' + shots.length + ') of the clearest view of the pole top hardware.' : '') +
+        (refs.length ? '\nPhotos ' + (shots.length + 1) + ' to ' + (shots.length + refs.length) + ' are NOT this pole: they are reference photos of other poles the designer has confirmed (' + refs.map(function (f, k) { return 'photo ' + (shots.length + k + 1) + ' = ' + f.code; }).join(', ') + '). Use them only to recognise what those constructions look like; analyse only photo 1' + (shots.length > 1 ? ' to ' + shots.length : '') + '.' : '');
+      r.refs = refs.length;
+      return sample.json(pr, { images: blobs, modelTier: 'default' });
     }).then(function (j) {
+      if (shots.length > 1) { // keep the best photo with the pole
+        var bi = Math.max(1, Math.min(shots.length, Number(j && j.best_photo) || 1)) - 1, bs = shots[bi], bm = Object.assign({}, bs.meta); delete bm.extra;
+        r.photo = bs.file.name; r.source = (bm.source || 'Street View') + (shots.length > 1 ? ' · best of ' + shots.length : ''); r.thumb = imgs[bi].thumb; r.view = imgs[bi].view; r.best = bi + 1;
+        r.photoId = attachPhoto(id, bs.file.name, imgs[bi], bm).id;
+      }
       var valid = {}; aiCandidates().forEach(function (c) { valid[String(c.code).toUpperCase()] = c.code; });
       var conf = function (v) { return Math.max(0, Math.min(1, Number(v) || 0)); }, all = Array.isArray(j.matches) ? j.matches : [];
-      var matches = all.filter(function (m) { return valid[String(m.code || '').toUpperCase()]; }).map(function (m) { return { level: String(m.level || ''), code: valid[String(m.code).toUpperCase()], rank: Number(m.rank) || 99, confidence: conf(m.confidence), reasons: (m.reasons || []).map(String).slice(0, 5) }; });
+      var lvOk = aiLevelFilter(j), matches = all.filter(function (m) { return valid[String(m.code || '').toUpperCase()]; }).filter(function (m) { return lvOk({ code: valid[String(m.code).toUpperCase()] }); }).map(function (m) { return { level: String(m.level || ''), code: valid[String(m.code).toUpperCase()], rank: Number(m.rank) || 99, confidence: conf(m.confidence), reasons: (m.reasons || []).map(String).slice(0, 5) }; });
       r.resp = { model: 'Claude', photo_quality: String(j.photo_quality || ''), components: (j.components || []).map(function (c) { return { name: String(c.name || ''), level: String(c.level || ''), count: Number(c.count) || null, confidence: conf(c.confidence) }; }),
-        matches: matches, cautions: (j.cautions || []).map(String).concat(all.length > matches.length ? [(all.length - matches.length) + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []),
+        matches: matches, cautions: (j.cautions || []).map(String).concat((function () { var bad = all.filter(function (m) { return !valid[String(m.code || '').toUpperCase()]; }).length; return bad ? [bad + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []; })()),
         obs: aiObservations(j) };
     }).catch(function (e) { r.error = e && e.code === 'not_granted' ? 'Claude was not allowed to look at the photo. Allow it when asked to use this.' : e && e.code === 'rate_limited' ? 'Too many requests at once. Wait a moment and try again.' : (e && e.message) || String(e); })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
@@ -2080,20 +2549,21 @@
     shrink(file).then(function (img) {
       r.thumb = img.thumb; r.view = img.view; if (!(meta && meta.noAttach)) r.photoId = attachPhoto(id, file.name, img, meta).id; else if (meta && meta.photoId) r.photoId = meta.photoId; renderSelected();
       var existing = ((dm && dm.byPole[id]) || []).map(function (c) { return c.descr; });
-      return fetch(AI_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + AI_KEY }, body: JSON.stringify({ mime: 'image/jpeg', image: img.data, pole: id, existing: existing, candidates: aiCandidates(), conductors: aiConductors() }) });
+      return fetch(AI_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + AI_KEY }, body: JSON.stringify({ mime: 'image/jpeg', image: img.data, pole: id, existing: existing, candidates: aiCandidates() }) });
     }).then(function (res) {
       if (res.status === 404) throw new Error('The AI photo service is not switched on yet (the pnw-pole-photo-ai function is not deployed).');
       return res.json().then(function (j) { if (!res.ok || !j.ok) throw new Error(j.error || 'AI request failed (' + res.status + ').'); return j; });
-    }).then(function (j) { r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
+    }).then(function (j) { var ok = aiLevelFilter(j); j.matches = (j.matches || []).filter(ok); r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
   $('selected').addEventListener('change', function (e) { if (e.target.id === 'aiPhoto' && e.target.files[0]) runAi(S.selected, e.target.files[0]); });
   $('selected').addEventListener('click', function (e) {
+    if (e.target.closest('[data-airefclear]')) { e.preventDefault(); try { localStorage.removeItem(AIREF_KEY); } catch (x) {} setStatus('Reference photos cleared.', 'good'); renderSelected(); return; }
     var b = e.target.closest('[data-aiok]'); if (!b) return;
     var id = S.selected, r = aiResults[id], gi = b.dataset.aiok.split('-'), g = r.groups[+gi[0]], m = g.items[+gi[1]];
     if (m.confidence < 0.5 && !b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Low confidence: click again to approve'; b.classList.add('danger'); setStatus('The AI is under 50% sure of ' + m.code + ' for ' + id + '. Approve only if you can confirm it from the photo or the field.', 'bad'); return; }
     var target = document.querySelector('[data-aitarget="' + b.dataset.aiok + '"]').value, ref = 'Photo ' + r.photo + ', ' + m.level + ' rank ' + m.rank + ', ' + Math.round(m.confidence * 100) + '% (' + r.resp.model + ')';
-    var mark = function () { (r.approved || (r.approved = {}))[g.cls] = m.code; };
+    var mark = function () { (r.approved || (r.approved = {}))[g.cls] = m.code; aiRefSave(m.code, r.view, id); };
     if ((((dm && dm.byPole[id]) || []).some(function (c) { return String(c.code).toUpperCase() === m.code.toUpperCase(); }))) { setStatus(m.code + ' is already on ' + id + '; one construction carries the whole circuit.', 'bad'); return; }
     if (target !== 'new') { mark(); changeCode(id, target, m.code, 'AI suggestion', ref); return; }
     var cons = ((dm && dm.byPole[id]) || []).slice().sort(function (a, c) { return (c.kingbolt || 0) - (a.kingbolt || 0); }), row = project.poles.filter(function (x) { return x.ID === id; })[0];
@@ -2133,7 +2603,7 @@
       setTimeout(function () { if (!window.PNW3D) $('v3host').innerHTML = '<p class="v3msg">The 3D viewer could not load (three.js from cdn.jsdelivr.net). Check the internet connection and reload.</p>'; }, 10000);
       return;
     }
-    window.PNW3D.mount($('v3host'), function (id, info) { select(id, id ? info : { segment: '' }); });
+    window.PNW3D.mount($('v3host'), function (id, info) { clr3d = id && info && info.to ? [id, info.to, info.segment] : null; select(id, id ? info : { segment: '' }); show3dClr(); if (SV3.on && id && !(info && info.to)) sv3Show(id); });
     mounted3d = true; update3d(); window.PNW3D.select(S.selected); window.PNW3D.selectSection(S.selSection); base3d();
     if ($('stage').clientWidth < 820) $('v3legend').open = false;
     var fade = function () { $('v3help').classList.add('fade'); }; setTimeout(fade, 6000); $('v3host').addEventListener('pointerdown', fade, { once: true });
@@ -2168,14 +2638,14 @@
   function base3d() {
     if (!window.PNW3D || !mounted3d) return;
     var def = '+proj=utm +zone=' + S.zone + ' +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
-    $('v3base').value = U.base3d || 'none'; $('v3terrain').checked = !!U.terrain3d;
-    window.PNW3D.basemap({ kind: U.base3d || 'none', terrain: !!U.terrain3d, toLL: function (e, n) { var l = toLatLng(e, n); return l ? [l.lat, l.lng] : null; }, toEN: function (lat, lng) { try { return proj4('EPSG:4326', def, [lng, lat]); } catch (x) { return null; } } });
+    $('v3base').value = U.base3d || (IN_CLAUDE ? 'satellite' : 'none'); $('v3terrain').checked = !!U.terrain3d;
+    window.PNW3D.basemap({ kind: $('v3base').value, terrain: !!U.terrain3d, fetch: IN_CLAUDE ? function (kind, z, x, y) { var n2 = Math.pow(2, z), lon = (x + 0.5) / n2 * 360 - 180, yy = Math.PI - 2 * Math.PI * (y + 0.5) / n2, lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(yy) - Math.exp(-yy))); return mapsCall('static_map', { lat: +lat.toFixed(7), lng: +lon.toFixed(7), zoom: z, width: 256, height: 256, scale: 2, maptype: kind === 'street' ? 'roadmap' : 'satellite' }).then(function (r) { var im = mapsImg(r); return im ? im.url : null; }, function (e) { if (!base3d.err) { base3d.err = true; setStatus('3D map: ' + mapsErr(e), 'bad'); } return null; }); } : null, attr: 'Map data © Google', toLL: function (e, n) { var l = toLatLng(e, n); return l ? [l.lat, l.lng] : null; }, toEN: function (lat, lng) { try { return proj4('EPSG:4326', def, [lng, lat]); } catch (x) { return null; } } });
   }
   $('v3base').onchange = function () { U.base3d = this.value; saveUi(); base3d(); };
   $('v3terrain').onchange = function () { U.terrain3d = this.checked; saveUi(); base3d(); };
   function update3d() {
     if (!mounted3d) return;
-    var d = data3d(); window.PNW3D.update(d);
+    var d = data3d(); window.PNW3D.update(d); show3dClr(); if (SV3.on) sv3Draw();
     if (CT.on) ctDraw();
     $('v3empty').hidden = d.poles.length > 0;
   }
@@ -2212,7 +2682,7 @@
     if (c < r.x0 + m || c > r.x1 - m) pvSet(c - w / 2, c + w / 2);
   }
   function renderProfileView() {
-    var box = $('profileView'), cs = getComputedStyle(box), W = Math.max(box.clientWidth - 16, 300), H = Math.max(box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 38 - (box.querySelector('.pv-legend') ? box.querySelector('.pv-legend').offsetHeight : 20), 140), m = { l: 52, r: 20, t: 14, b: 30 };
+    var box = $('profileView'), cs = getComputedStyle(box), W = Math.max(box.clientWidth - 16, 300), H = Math.max(box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 38 - (box.querySelector('.pv-legend') ? box.querySelector('.pv-legend').offsetHeight : 20), 90), m = { l: 52, r: 20, t: 14, b: 30 };
     var poles, ground, clr = [];
     if (dm && dm.allPoles.length) {
       poles = dm.allPoles.filter(function (p) { return p.chainage != null && p.ground != null; });
@@ -2220,7 +2690,7 @@
       clr = ground.filter(function (g) { return g.c1 > 0; });
     } else if (built) {
       poles = built.rows.filter(function (r) { return r.chainage != null && isFinite(r.elevation); }).map(function (r) { return { id: r.id, chainage: r.chainage, ground: r.elevation, height: r.height, sunk: r.sunk }; });
-      ground = poles.map(function (p) { return { c: p.chainage, z: p.ground }; });
+      ground = PNW.groundSeq(built).filter(function (r) { return r.chainage != null && isFinite(r.elevation); }).map(function (r) { return { c: r.chainage, z: r.elevation }; });
     } else poles = [];
     if (poles.length < 2) {
       var only = prof().poleIds.length === 1 ? ' ' + esc(prof().poleIds[0]) + ' is the first pole of ' + esc(prof().name || 'this profile') + '. Select the next poles on the plan and choose <b>Add to profile</b>.' : '';
@@ -2315,7 +2785,7 @@
   Array.prototype.forEach.call(document.querySelectorAll('[data-cam]'), function (b) { b.onclick = function () { cam(function (v) { v.view(b.dataset.cam); }); }; });
   $('sagMode').onchange = function () { S.sagMode = this.value; buildDesignModel(); save(); renderViews(); };
   $('sagTemp').onchange = function () { S.sagTemp = Number(this.value); buildDesignModel(); save(); renderViews(); };
-  [5, 10, 15, 20, 25, 30, 35, 40, 45].forEach(function (t) { $('sagTemp').insertAdjacentHTML('beforeend', '<option value="' + t + '">' + t + ' °C final</option>'); });
+  [5, 10, 15, 20, 25, 30, 35, 40, 45, 50].forEach(function (t) { $('sagTemp').insertAdjacentHTML('beforeend', '<option value="' + t + '">' + t + ' °C final' + (t > 45 ? ' (extended)' : '') + '</option>'); });
   if (window.ResizeObserver) new ResizeObserver(function () { if (S.view === 'profile' || S.view === 'split') renderProfileView(); }).observe($('profileView'));
   $('useProj').onclick = function () { useProject(false); };
 
@@ -2336,14 +2806,17 @@
   $('tbSave').onclick = function () { saveProjectFile(); markDirty(false); };
   $('tbOpen').onclick = function () { $('projInput').click(); };
   $('projInput').onchange = function () { if (this.files[0]) openProjectFile(this.files[0]); this.value = ''; };
-  $('tbUndo').onclick = function () { restore(undoStack, redoStack); setStatus('Undone.'); };
-  $('tbRedo').onclick = function () { restore(redoStack, undoStack); setStatus('Redone.'); };
+  $('tbUndo').onclick = function () { if (!undoStack.length) { setStatus('Nothing to undo.'); return; } restore(undoStack, redoStack); setStatus('Undone (' + undoStack.length + ' more step' + (undoStack.length === 1 ? '' : 's') + ' to undo). Ctrl+Y redoes.', 'good'); };
+  $('tbRedo').onclick = function () { if (!redoStack.length) { setStatus('Nothing to redo.'); return; } restore(redoStack, undoStack); setStatus('Redone.', 'good'); };
+  // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) work everywhere except while typing in a text box, where the browser's own undo applies.
   document.addEventListener('keydown', function (e) {
-    if (!(e.ctrlKey || e.metaKey) || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
-    var k = e.key.toLowerCase();
-    if (k === 'z' && !e.shiftKey) { e.preventDefault(); $('tbUndo').click(); }
-    if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); $('tbRedo').click(); }
-  });
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    var a = document.activeElement, typing = a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|range|file|color)$/i.test(a.type)));
+    var k = (e.key || '').toLowerCase(); if (k !== 'z' && k !== 'y') return;
+    if (typing && a.value !== a.defaultValue) return;
+    e.preventDefault(); if (a && a !== document.body && a.blur) a.blur();
+    if (k === 'z' && !e.shiftKey) $('tbUndo').click(); else $('tbRedo').click();
+  }, true);
 
   /* ---------- toolbar and wiring ---------- */
   var drop = $('drop');
@@ -2370,17 +2843,27 @@
   /* ---------- tipload (PNW method, pnw-tipload.js): circuits from the design, stays and plant from the pole's extras ---------- */
   var TIP = window.PNWTip, BUILTIN_TIP = (window.PNW_BUILTIN || {}).tipload || null, tipSel = null, tipOptsOpen = null;
   var TIP_COL = ['#c2410c', '#2f6ea4', '#0f766e', '#7c3aed', '#a16207', '#be185d', '#475569'];
+  // PNW option sets (load combinations) by the name PNW stores in a tipload project's "currentoption". AM-SL1 from the
+  // S1242155 report; A-SL1 from the S802232 report (09/09/2026), both Options pages. A tipload file uses its own set.
+  var OPT_SETS = {};
+  if (BUILTIN_TIP) OPT_SETS['v7 REGION AM-SL1'] = BUILTIN_TIP.cases;
+  OPT_SETS['v7 REGION A-SL1'] = [
+    { name: 'Max wind load', ice: 'None', temp: 15, windPole: 1170, windCond: 900, windPlant: 1710, Ft: 1.25, Wn: 1, Gs: 1.1, Gc: 1.25, strengthClass: 'Ultimate limit', phi: 1, include: true },
+    { name: 'Everyday', ice: 'None', temp: 15, windPole: 0, windCond: 0, windPlant: 0, Ft: 1.1, Wn: 1, Gs: 1.1, Gc: 1.25, strengthClass: 'Ultimate limit', phi: 0.57, include: true }];
+  function optSetOf(name) { name = String(name || '').trim(); if (OPT_SETS[name]) return name; var k = Object.keys(OPT_SETS).filter(function (x) { return x.toUpperCase() === name.toUpperCase(); })[0]; return k || null; }
   function tipSet() {
     if (!S.tipload) S.tipload = BUILTIN_TIP ? { cases: JSON.parse(JSON.stringify(BUILTIN_TIP.cases)), options: Object.assign({}, TIP.DEFAULT_OPTIONS, BUILTIN_TIP.options), source: BUILTIN_TIP.name } : { cases: [], options: Object.assign({}, TIP.DEFAULT_OPTIONS), source: '' };
     S.tipload.options = Object.assign({}, TIP.DEFAULT_OPTIONS, S.tipload.options);
     return S.tipload;
   }
   // Plant weight, centre-of-mass offset and wind area by code: the user's entries first, then the private built-in set.
+  // PNW pole-mounted plant database (Western Power set, from Ishan's PNW export pnwdata-wp-may19.xml): code, weight kg, offset m, wind area m².
+  var PLANT_DB = {}; [["GS0311 AND XT0026",582.0,0.9,1.77],["GS0310 AND XT0018",187.0,0.71,1.22],["RC0001 AND XT0026",470.0,0.76,1.08],["RC0001 AND XT0018",400.0,0.73,0.95],["RC0002 AND XT0026",420.0,0.76,1.08],["RC0002 AND XT0018",350.0,0.73,0.95],["GS6016 AND XT0018",253.0,1.39,1.51],["GS0131 AND XT0022",278.0,1.39,1.57],["GS6016 AND XT0026",323.0,1.39,1.7],["GS0131 AND XT0040",408.0,1.39,1.84],["GS0320 AND XT0026",377.0,1.3575,1.77],["GS0320 AND XT0018",307.0,1.3575,1.59],["GS0319 AND XT0018",242.0,1.3575,1.59],["''XT0040 -1 Phase",280.0,0.784,0.251],["'GS0319-LBS",117.0,1.358,0.73],["GS0320-LBS",182.0,1.358,0.73],["GS0311-3Ph-Rec",387.0,0.8975,0.77],["GS0312-3Ph-Rec",387.0,0.935,0.792],["GS0315-3Ph-Rec",148.0,1.0565,0.579],["GS6016 - LBS/SC",128.0,1.395,0.65],["GS0131 - LBS/SC",128.0,1.395,0.65],["XT 0184 - 3Ph",1680.0,0.898,1.942],["GS0314- 1 PhRec",82.0,1.057,0.579],["GS 0310 -1PhRec",62.0,0.708,0.519],["X T 000 8-3Ph",360.0,0.768,0.461],["XT0010-3Ph",1310.0,0.823,1.489],["XT 00 13 -3Ph",340.0,0.768,0.392],["X T0030-3Ph",340.0,0.778,0.48],["X T0032-3Ph",850.0,0.846,0.942],["X T 0033-3Ph",1330.0,0.843,1.684],["X T00 35 - 3Ph",580.0,0.818,0.634],["X T0 038 -3Ph",1150.0,0.843,1.053],["X T 0039-3Ph",1460.0,0.838,1.214],["X T 0127-3Ph",960.0,0.813,0.851],[".. XT 0140 -3Ph",500.0,0.765,0.534],[".XT0141-3Ph",780.0,0.787,0.666],["GS0319 AND XT0022",242.0,1.3575,1.59],["RC0001 - CB",275.0,0.7305,0.342],["RC0002 - CB",225.0,0.7305,0.342],["..X T 0142-3Ph",550.0,0.812,0.495],[".   XT0143-3Ph",640.0,0.828,0.595],["..XT..0181-3Ph",1860.0,0.898,1.986],[". XT. 0182 - 3 Ph",1600.0,0.858,1.92],["X T 0007-1Ph",175.0,0.724,0.205],[".X T 0018-1Ph",125.0,0.714,0.148],[".XT0020-1Ph",240.0,0.746,0.212],[".XT0022-1Ph",150.0,0.759,0.161],["XT  0024 - 1Ph",265.0,0.803,0.234],["XT0039-3ph",245.0,0.743,0.214],["XT0039",195.0,0.7565,0.201],["GS0312 AND XT0035",967.0,0.94,2.96],["GS0311 AND XT0018",512.0,0.9,1.61],["GS0312 AND XT0022",537.0,0.94,1.68],["XT0214",1960.0,0.7,1.8],["XT0219",1860.0,0.7,1.85],["XT0224",1955.0,0.7,1.9]].forEach(function (r) { PLANT_DB[r[0]] = { weight: r[1], offset: r[2], area: r[3], source: 'PNW plant database (Western Power set)' }; });
   function plantData(code) {
     if (!code) return null;
     var k = String(code).trim(), own = S.tipload && S.tipload.plant && S.tipload.plant[k], db = BUILTIN_TIP && BUILTIN_TIP.plant;
     if (own && own.weight != null && own.offset != null && own.area != null) return Object.assign({ source: 'your plant data' }, own);
-    return db ? db[k] || null : null;
+    return PLANT_DB[k] || (db ? db[k] || null : null);
   }
   function plantCodes() {
     var out = [];
@@ -2421,7 +2904,8 @@
     inp.circuits.forEach(function (c) { c.to = ''; c.line = ''; });
     if (inp.circuits.some(function (c) { return !c.cond; })) inp.notes.push('Some conductors are not in the PNW library tables, so they have no properties.');
     inp.plant.forEach(function (p) { var db = plantData(p.code); if (db && p.include) inp.notes.push(p.code + ': ' + db.source); });
-    inp.file = name;
+    inp.file = name; inp.optionSet = (t.attrs && t.attrs.currentoption) || '';
+    if (inp.optionSet && !optSetOf(inp.optionSet)) inp.notes.push('This file uses option set “' + inp.optionSet + '”, which is not built in here, so the load combinations below are used. Paste that report’s Options page to add it.');
     return inp;
   }
   function tipInput(id) {
@@ -2443,36 +2927,42 @@
       return r;
     });
     return { pole: pole, circuits: cct, notes: notes, plant: plant,
-      stays: ex.stays.map(function (s) { var w = stays.filter(function (x) { return (x.code || x.Code) === s.wire; })[0]; return { wire: s.wire, attHt: Number(s.attHt), dir: Number(s.dir), angle: Number(s.angle) || 45, include: s.include !== false, strength: w ? w.strength : null }; }) };
+      stays: ex.stays.map(function (s) { var w = stays.filter(function (x) { return (x.code || x.Code) === s.wire; })[0]; return { wire: s.wire, attHt: Number(s.attHt), dir: Number(s.dir), angle: s.angle === '' || s.angle == null || !isFinite(Number(s.angle)) ? 45 : Number(s.angle), include: s.include !== false, strength: w ? w.strength : null }; }) };
   }
-  function tipCalc(id) { var inp = tipInput(id); if (!inp) return null; var st = tipSet(), r = TIP.calc(inp, st.cases, st.options); r.input = inp; return r; }
+  function tipCalc(id) { var inp = tipInput(id); if (!inp) return null; var st = tipSet(), os = inp.optionSet && optSetOf(inp.optionSet), cases = os ? OPT_SETS[os] : st.cases, r = TIP.calc(inp, cases, st.options); r.input = inp; if (os && !inp._osNote) { inp._osNote = 1; inp.notes.unshift('Load combinations: ' + os + ' (the option set saved in this file).'); } r.optionSet = os || st.source || ''; return r; }
   function tipPoles() { return (dm ? dm.allPoles.filter(function (p) { return p.height > 0; }).map(function (p) { return p.id; }) : []).concat(tipFiles().map(function (f) { return 'tip:' + f.name; })); }
   function tipName(id) { return /^tip:/.test(id) ? 'PNW tipload ' + id.slice(4).replace(/\.pnwx$/i, '') : id; }
   var f2 = function (v, dp) { return v == null || !isFinite(v) ? '–' : Number(v).toFixed(dp == null ? 2 : dp); };
   function tipBadge(r) { return r.pass == null ? '<span class="pill mute">no strength</span>' : r.pass ? '<span class="pill ok">PASS</span>' : '<span class="pill bad">FAIL</span>'; }
 
   function tipPolar(r) {
-    var S0 = 300, c = S0 / 2, R = c - 30, inp = r.input, res = r.results, max = Math.max.apply(null, res.map(function (x) { return x.load; }).concat([0.001]));
+    var S0 = 300, c = S0 / 2, R = c - 40, inp = r.input, res = r.results, max = Math.max.apply(null, res.map(function (x) { return x.load; }).concat([0.001]));
     var step = niceStep(max, 3), top = Math.ceil(max / step) * step, k = R / top;
     var P = function (b, rad) { return [c + Math.sin(b * Math.PI / 180) * rad, c - Math.cos(b * Math.PI / 180) * rad]; };
     var g = '';
-    for (var v = step; v <= top + 1e-9; v += step) { var lp0 = P(160, v * k); g += '<circle cx="' + c + '" cy="' + c + '" r="' + (v * k) + '" fill="none" stroke="#e6ebf0"/><text x="' + (lp0[0] + 3) + '" y="' + (lp0[1] + 10) + '" class="ax">' + +v.toFixed(2) + ' kN</text>'; }
-    ['N', 'E', 'S', 'W'].forEach(function (t, i) { var p = P(i * 90, R + 14); g += '<text x="' + p[0] + '" y="' + (p[1] + 4) + '" text-anchor="middle" class="ax b">' + t + '</text>'; });
-    var lblN = {}; inp.circuits.forEach(function (cc) { var p = P(cc.dir, R + 2); g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#94a3b8" stroke-width="1.5"/>'; var dk = Math.round(cc.dir / 20), nn = lblN[dk] = (lblN[dk] || 0) + 1, lp = P(cc.dir, R - 18); g += '<text x="' + lp[0] + '" y="' + (lp[1] + (nn - 1) * 12) + '" text-anchor="middle" class="ax">' + esc(cc.code) + '×' + cc.n + '</text>'; });
-    inp.stays.forEach(function (s) { var p = P(s.dir, R); g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#8b6b4a" stroke-width="1.5" stroke-dasharray="2 3"' + (s.include ? '' : ' opacity=".45"') + '/><text x="' + P(s.dir, R - 6)[0] + '" y="' + P(s.dir, R - 6)[1] + '" text-anchor="middle" class="ax">stay' + (s.include ? '' : ' (off)') + '</text>'; });
-    inp.plant.forEach(function (pl) { if (!isFinite(pl.dir)) return; var p = P(pl.dir, 22); g += '<rect x="' + (p[0] - 6) + '" y="' + (p[1] - 6) + '" width="12" height="12" rx="2" fill="#fff" stroke="#475569" stroke-width="1.5"><title>' + esc(pl.code) + '</title></rect>'; });
+    var used = inp.circuits.map(function (q) { return q.dir; }).concat(inp.stays.map(function (q) { return q.dir; }), inp.plant.map(function (q) { return q.dir; }), res.map(function (q) { return q.dir; }), res.filter(function (q) { return q.wind; }).map(function (q) { return q.windFrom; }));
+    var gap = function (b) { return Math.min.apply(null, used.map(function (u) { var d = Math.abs(((u - b) % 360 + 540) % 360 - 180); return d; }).concat([180])); }, rb = [135, 45, 225, 315, 160, 200, 20, 340].sort(function (a, b) { return gap(b) - gap(a); })[0];
+    for (var v = step; v <= top + 1e-9; v += step) { var lp0 = P(rb, v * k); g += '<circle cx="' + c + '" cy="' + c + '" r="' + (v * k) + '" fill="none" stroke="#e6ebf0"/><text x="' + (lp0[0] + 3) + '" y="' + (lp0[1] + 10) + '" class="ax">' + +v.toFixed(2) + ' kN</text>'; }
+    ['N', 'E', 'S', 'W'].forEach(function (t, i) { if (inp.circuits.some(function (q) { return Math.abs(((q.dir - i * 90) % 360 + 540) % 360 - 180) < 14; })) return; var p = P(i * 90, R + 14); g += '<text x="' + p[0] + '" y="' + (p[1] + 4) + '" text-anchor="middle" class="ax b">' + t + '</text>'; });
+    var grp = {}; inp.circuits.forEach(function (cc) { var p = P(cc.dir, R); g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#94a3b8" stroke-width="1.5"/>'; var dk = Math.round(cc.dir / 10) * 10 % 360, gg = grp[dk] = grp[dk] || { dir: cc.dir, t: [] }, t = esc(cc.code) + '×' + cc.n; if (gg.t.indexOf(t) < 0) gg.t.push(t); });
+    Object.keys(grp).forEach(function (dk) { var gg = grp[dk], b = gg.dir, p = P(b, R + 6), sx = Math.sin(b * Math.PI / 180), sy = -Math.cos(b * Math.PI / 180), anc = sx > 0.3 ? 'start' : sx < -0.3 ? 'end' : 'middle', y0 = p[1] + (sy > 0.3 ? 10 : sy < -0.3 ? -2 - (gg.t.length - 1) * 11 : 4 - (gg.t.length - 1) * 5.5); g += '<text text-anchor="' + anc + '" class="ax cl">' + gg.t.map(function (t, j) { return '<tspan x="' + p[0] + '" y="' + (y0 + j * 11) + '">' + t + '</tspan>'; }).join('') + '</text>'; });
+    inp.stays.forEach(function (s, i) { // stay: line from the pole to its anchor, with the anchor bar across the end (as PNW draws it)
+      var b = s.dir, p = P(b, R * 0.82), q1 = P(b + 90, 9), q2 = P(b - 90, 9), dx = q1[0] - c, dy = q1[1] - c, op = s.include ? '' : ' opacity=".45" stroke-dasharray="5 3"', lp = P(b, R * 0.82 + 14);
+      g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#ef4444" stroke-width="2.5"' + op + '/><line x1="' + (p[0] + dx) + '" y1="' + (p[1] + dy) + '" x2="' + (p[0] - dx) + '" y2="' + (p[1] - dy) + '" stroke="#ef4444" stroke-width="3" stroke-linecap="round"' + op + '/>';
+      g += '<text x="' + lp[0] + '" y="' + (lp[1] + 4) + '" text-anchor="middle" class="ax cl" fill="#fca5a5">Stay ' + (i + 1) + ' ' + f2(+s.angle || 45, 0) + '°' + (s.include ? '' : ' (off)') + '</text>'; });
+    inp.plant.forEach(function (pl) { if (!isFinite(pl.dir)) return; var p = P(pl.dir, 20); g += '<g transform="rotate(' + pl.dir + ' ' + p[0] + ' ' + p[1] + ')"' + (pl.include ? '' : ' opacity=".5"') + '><rect x="' + (p[0] - 13) + '" y="' + (p[1] - 8) + '" width="26" height="16" rx="3" fill="#1e3a8a" stroke="#3b82f6" stroke-width="2"/></g><text x="' + p[0] + '" y="' + (p[1] + 3.5) + '" text-anchor="middle" class="ax b" style="font-size:9px">TX<title>' + esc(pl.code) + (pl.weight != null ? ', ' + pl.weight + ' kg' : '') + '</title></text>'; });
     res.forEach(function (x, i) {
       var col = TIP_COL[i % TIP_COL.length], p = P(x.dir, x.load * k);
       if (x.wind && x.windFrom != null) { var w0 = P(x.windFrom, R); g += '<line x1="' + w0[0] + '" y1="' + w0[1] + '" x2="' + c + '" y2="' + c + '" stroke="' + col + '" stroke-width="1.2" stroke-dasharray="5 4"/>'; }
       g += '<line x1="' + c + '" y1="' + c + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="' + col + '" stroke-width="2.5" marker-end="url(#tipArr' + i + ')"/>';
     });
     var defs = res.map(function (x, i) { return '<marker id="tipArr' + i + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="' + TIP_COL[i % TIP_COL.length] + '"/></marker>'; }).join('');
-    return '<svg class="tip-polar" viewBox="0 0 ' + S0 + ' ' + S0 + '" role="img" aria-label="Polar diagram: circuits, stays and the resultant tipload of each load case"><defs>' + defs + '</defs>' + g + '<circle cx="' + c + '" cy="' + c + '" r="4" fill="#5b4636"/></svg>';
+    return '<svg class="tip-polar" viewBox="0 0 ' + S0 + ' ' + S0 + '" role="img" aria-label="Polar diagram: circuits, stays and the resultant tipload of each load case"><defs>' + defs + '</defs>' + g + '<circle cx="' + c + '" cy="' + c + '" r="6" fill="#8b6b4a" stroke="#f472b6" stroke-width="2"><title>Pole</title></circle></svg>';
   }
   function tipCurve(r) {
     var res = r.results.filter(function (x) { return x.wind; });
     if (!res.length) return '';
-    var W = 520, H = 220, m = { l: 44, r: 12, t: 12, b: 30 }, max = Math.max.apply(null, res.map(function (x) { return Math.max.apply(null, x.curve.map(function (c) { return Math.max(c.load, c.unstayed); })); }));
+    var W = 340, H = 190, m = { l: 36, r: 8, t: 10, b: 28 }, max = Math.max.apply(null, res.map(function (x) { return Math.max.apply(null, x.curve.map(function (c) { return Math.max(c.load, c.unstayed); })); }));
     var step = niceStep(max || 1, 4), top = Math.ceil((max || 1) / step) * step;
     var X = function (v) { return m.l + v / 360 * (W - m.l - m.r); }, Y = function (v) { return H - m.b - v / top * (H - m.t - m.b); }, g = '';
     for (var v = 0; v <= top + 1e-9; v += step) g += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#e6ebf0"/><text x="' + (m.l - 5) + '" y="' + (Y(v) + 3) + '" text-anchor="end" class="ax">' + +v.toFixed(2) + '</text>';
@@ -2494,7 +2984,7 @@
     var h = '<details class="tip-opts"' + ((tipOptsOpen != null ? tipOptsOpen : !st.cases.length) ? ' open' : '') + '><summary>Load combinations and options' + (st.source ? ' · ' + esc(st.source) : '') + '</summary>';
     h += '<div class="tablewrap"><table class="grid"><thead><tr><th>Use</th><th>Name</th><th class="num">Temp °C</th><th class="num">Wind on pole Pa</th><th class="num">Wind on conductors Pa</th><th class="num">Wind on plant Pa</th><th class="num">Ft</th><th class="num">Wn</th><th class="num">Gs</th><th class="num">Gc</th><th class="num">Strength factor Ø</th><th></th></tr></thead><tbody>' +
       st.cases.map(function (c, i) { return '<tr><td><input type="checkbox" data-lc="' + i + '|include"' + (c.include !== false ? ' checked' : '') + ' aria-label="Use ' + esc(c.name) + '"></td><td><input data-lc="' + i + '|name" value="' + esc(c.name) + '" style="width:120px" aria-label="Name"></td><td>' + inp(i, 'temp', c.temp) + '</td><td>' + inp(i, 'windPole', c.windPole) + '</td><td>' + inp(i, 'windCond', c.windCond) + '</td><td>' + inp(i, 'windPlant', c.windPlant) + '</td><td>' + inp(i, 'Ft', c.Ft, 46) + '</td><td>' + inp(i, 'Wn', c.Wn, 46) + '</td><td>' + inp(i, 'Gs', c.Gs, 46) + '</td><td>' + inp(i, 'Gc', c.Gc, 46) + '</td><td>' + inp(i, 'phi', c.phi, 46) + '</td><td><button class="btn small" data-lcdel="' + i + '" aria-label="Remove ' + esc(c.name) + '">×</button></td></tr>'; }).join('') +
-      '</tbody></table></div><div class="btnrow"><button class="btn small" id="lcAdd">Add load combination</button></div>';
+      '</tbody></table></div><div class="btnrow"><button class="btn small" id="lcAdd">Add load combination</button><label class="meta" style="display:flex;gap:6px;align-items:center">Option set for design poles <select id="lcSet"><option value="">Choose…</option>' + Object.keys(OPT_SETS).map(function (k) { return '<option' + (st.source && st.source.indexOf(k) >= 0 ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('') + '</select></label><span class="meta">Dropped tipload files use their own option set.</span></div>';
     h += '<div class="tip-optrow"><label>Wind direction step (°) <input data-to="step" value="' + o.step + '" inputmode="decimal" style="width:50px"></label><label title="Tipload is the moment divided by (tip height − this distance)">Load point below tip (m) <input data-to="loadBelowTip" value="' + o.loadBelowTip + '" inputmode="decimal" style="width:50px"></label>' +
       '<label>Wind on pole applied <select data-to="poleWindAt"><option value="half"' + (o.poleWindAt === 'half' ? ' selected' : '') + '>half way up</option><option value="centroid"' + (o.poleWindAt === 'centroid' ? ' selected' : '') + '>at the centroid</option></select></label>' +
       '<label>Wind on conductor <select data-to="condWindage"><option value="cos2"' + (o.condWindage === 'cos2' ? ' selected' : '') + '>cos² of incidence</option><option value="independent"' + (o.condWindage === 'independent' ? ' selected' : '') + '>independent of incidence</option></select></label>' +
@@ -2512,10 +3002,11 @@
   function tipPoleHtml(id) {
     var r = tipCalc(id); if (!r) return '<p class="hint">Pick a pole.</p>';
     var inp = r.input, P = inp.pole, res = r.results, h = '';
-    if (!/^tip:/.test(id) && unverifiedFor(id)) h += '<div class="verifybar"><b>Provisional: ' + unverifiedFor(id) + ' photo-derived input' + (unverifiedFor(id) > 1 ? 's' : '') + ' on this pole ' + (unverifiedFor(id) > 1 ? 'are' : 'is') + ' not field-verified.</b> Heights and offsets come from the library and DCSH rules, not from measurement. Mark them verified in the pole\'s AI photo tab once checked on site.</div>';
+    if (!/^tip:/.test(id) && unverifiedFor(id)) h += '<div class="verifybar"><b>Provisional: ' + unverifiedFor(id) + ' photo-derived input' + (unverifiedFor(id) > 1 ? 's' : '') + ' on this pole ' + (unverifiedFor(id) > 1 ? 'are' : 'is') + ' not field-verified.</b> Heights and offsets come from the library and DCSH rules, not from measurement. Once checked on site: <button class="btn small" data-tipverify="' + esc(id) + '">✓ Mark as verified in the field</button></div>';
     h += '<div class="tip-head"><h3 class="sub">' + esc(tipName(id)) + '</h3><span class="meta">' + esc(P.type || 'no pole type') + ' · ' + f2(P.height) + ' m above ground' + (P.diamAvg ? ' · average diameter ' + P.diamAvg + ' mm' : '') + (P.strength ? ' · strength ' + P.strength + '/' + (P.strengthVert || '–') + ' kN' : '') + '</span>' + (inp.file ? '<span class="pill info">calculated from the PNW file as saved</span>' : '<button class="btn small" data-tipgo="' + esc(id) + '">Show pole</button>') + '</div>';
     if (!res.length) h += '<p class="status bad">No load combinations ticked.</p>';
     else {
+      h += '<div class="tip-tiles">' + res.map(function (x, i) { return '<div class="tile ' + (x.pass === false ? 'bad' : x.pass ? 'ok' : '') + '"><small><span class="sw" style="background:' + TIP_COL[i % TIP_COL.length] + '"></span>' + esc(x.name) + '</small><b>' + f2(x.load) + ' kN</b><span>' + (x.pctHor != null ? f2(x.pctHor, 0) + '% loaded · ' : '') + f2(x.dir, 0) + '°</span></div>'; }).join('') + '</div>';
       var row = function (k, fn) { return '<tr><th>' + k + '</th>' + res.map(function (x) { return '<td class="num">' + fn(x) + '</td>'; }).join('') + '</tr>'; };
       h += '<div class="tip-grid"><div><table class="grid tip-res"><thead><tr><th>Load name</th>' + res.map(function (x, i) { return '<th class="num"><span class="sw" style="background:' + TIP_COL[i % TIP_COL.length] + '"></span>' + esc(x.name) + '</th>'; }).join('') + '</tr></thead><tbody>' +
         row('Result', function (x) { return tipBadge(x) + (x.bc != null ? ' <small class="muted">(combined B&amp;C)</small>' : ''); }) +
@@ -2526,7 +3017,7 @@
         '</tbody></table>';
       h += '<h3 class="sub">Kingbolt loadings</h3><table class="grid"><thead><tr><th class="num">Attach. Ht (m)</th><th class="num">Load (kN)</th><th class="num">Direction (°)</th><th>Load case</th></tr></thead><tbody>' +
         res.filter(function (x) { return x.wind; }).slice(0, 1).concat(res.filter(function (x) { return x.wind; }).length ? [] : res.slice(0, 1)).map(function (x) { return x.kingbolt.map(function (k) { return '<tr><td class="num">' + f2(k.attHt) + '</td><td class="num">' + f2(k.load) + '</td><td class="num">' + f2(k.dir, 0) + '</td><td>' + esc(x.name) + '</td></tr>'; }).join(''); }).join('') + '</tbody></table></div>' +
-        '<div class="tip-figs">' + tipLegend(r) + tipPolar(r) + tipCurve(r) + '</div></div>';
+        '<div class="tip-figs">' + tipLegend(r) + '<div class="tip-fig"><small>Plan: loads and directions</small>' + tipPolar(r) + '</div>' + tipCurve(r) + '</div></div>';
     }
     h += '<h3 class="sub">Circuits</h3>' + (inp.circuits.length ? '<div class="tablewrap"><table class="grid"><thead><tr><th>Section</th><th class="num">Direction (°)</th><th>Conductor</th><th class="num">Number</th><th class="num">Attach Ht (m)</th><th class="num">Span (m)</th><th class="num">RS/MES (m)</th><th class="num">Vertical diff (m)</th><th>Tension</th><th class="num">kN</th><th>To</th></tr></thead><tbody>' +
       inp.circuits.map(function (c) { return '<tr><td>' + esc((c.line ? c.line + ' · ' : '') + c.segment) + '</td><td class="num">' + f2(c.dir, 1) + '</td><td>' + esc(c.code) + (c.cond ? '' : ' <span class="tag bad">no data</span>') + '</td><td class="num">' + c.n + '</td><td class="num">' + f2(c.attHt) + '</td><td class="num">' + f2(c.span) + '</td><td class="num">' + f2(c.mes) + '</td><td class="num">' + f2(c.vdiff) + '</td><td>' + esc(c.tensionText) + '</td><td class="num">' + f2(c.tension) + '</td><td>' + esc(c.to) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="hint">No conductors attached to this pole.</p>');
@@ -2578,9 +3069,10 @@
     download(new Blob([csv], { type: 'text/csv' }), 'Tiploads - ' + (linked ? linked.name.replace(/\.pnwx$/i, '') : baseName()) + '.csv'); setStatus('Downloaded the tipload table.', 'good');
   }
   $('tipBody').addEventListener('click', function (e) {
+    var tv = e.target.closest('[data-tipverify]'); if (tv) { (S.design.verified = S.design.verified || {})[tv.dataset.tipverify] = { at: new Date().toISOString(), by: S.settings.createdBy || 'designer' }; save(); recompute(); renderTip(); setStatus('Marked the photo-derived inputs for ' + tv.dataset.tipverify + ' as verified in the field.', 'good'); return; }
     var t = e.target, pick = t.closest('[data-tippick]'), go = t.closest('[data-tipgo]'), del = t.closest('[data-lcdel]'), use = t.closest('[data-tipuse]');
     if (pick) { tipSel = pick.dataset.tippick; renderTip(); var tp = $('tipBody').querySelector('.tip-pole'); if (tp) tp.scrollIntoView({ block: 'nearest' }); return; }
-    if (go) { $('tipDlg').hidden = true; select(go.dataset.tipgo); zoomTo(go.dataset.tipgo); return; }
+    if (go) { select(go.dataset.tipgo); zoomTo(go.dataset.tipgo); return; }
     if (del) { tipSet().cases.splice(+del.dataset.lcdel, 1); save(); renderTip(); return; }
     if (t.id === 'lcAdd') { tipSet().cases.push({ name: 'Load ' + (tipSet().cases.length + 1), ice: 'None', temp: 15, windPole: 0, windCond: 0, windPlant: 0, Ft: 1, Wn: 1, Gs: 1, Gc: 1, strengthClass: 'Ultimate limit', phi: 1, include: true }); save(); renderTip(); return; }
     if (t.id === 'lcRead') {
@@ -2719,8 +3211,11 @@
   $('dockMin').onclick = function () { U.dockMin = !U.dockMin; applyLayout(); };
   Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function (b) { b.onclick = function () { if (b.dataset.close === 'left') U.left = false; else U.right = false; applyLayout(); }; });
   // Help: explanations are hidden by default and shown everywhere with the ? Help button.
-  function applyHelp() { document.body.classList.toggle('help-on', !!U.help); $('vHelp').classList.toggle('on', !!U.help); $('vHelp').setAttribute('aria-pressed', !!U.help); }
-  $('vHelp').onclick = function () { U.help = !U.help; saveUi(); applyHelp(); };
+  // The Info toggle in the title bar shows or hides all notes, hints and explanations (off by default); ? in the view bar does the same.
+  function applyHelp() { document.body.classList.toggle('help-on', !!U.help); ['vHelp', 'infoBtn'].forEach(function (k) { if ($(k)) { $(k).classList.toggle('on', !!U.help); $(k).setAttribute('aria-pressed', !!U.help); } }); if ($('infoBtn')) $('infoBtn').title = U.help ? 'Hide the extra information (notes, hints, checks)' : 'Show the extra information (notes, hints, checks)'; }
+  $('vHelp').onclick = $('infoBtn').onclick = function () { U.help = !U.help; saveUi(); applyHelp(); };
+  function applyTheme() { var l = U.theme === 'light'; document.documentElement.dataset.theme = l ? 'light' : 'dark'; var b = $('themeBtn'); if (b) { b.innerHTML = l ? '☾ <span class="tbl">Dark</span>' : '☀ <span class="tbl">Light</span>'; b.title = l ? 'Switch to dark mode' : 'Switch to light mode'; } }
+  $('themeBtn').onclick = function () { U.theme = U.theme === 'light' ? 'dark' : 'light'; saveUi(); applyTheme(); }; applyTheme();
   applyHelp();
   // Full window: one panel fills the browser window (not the screen); Esc or the same button restores it.
   var fullEl = null;
@@ -2766,12 +3261,15 @@
     $('genTitle').textContent = title;
     var body = $('genBody'); body.innerHTML = '';
     if (typeof content === 'string') body.innerHTML = content; else if (content && content.nodeType) body.appendChild(content);
-    $('genDlg').querySelector('.dlg-card').className = 'dlg-card gen' + (opts.narrow ? ' narrow' : '');
+    $('genDlg').querySelector('.dlg-card').className = 'dlg-card gen' + (opts.narrow ? ' narrow' : '') + (opts.side ? ' side' : '');
     $('genDlg').hidden = false;
     if (opts.onClose) genRestore.push(opts.onClose);
     setTimeout(function () { var f = body.querySelector('[autofocus],input:not([type=hidden]):not([type=file]),select,button'); if (f && !opts.noFocus) f.focus(); }, 30);
   }
-  function closeGen() { var r = genRestore; genRestore = []; r.forEach(function (fn) { try { fn(); } catch (e) { /* ignore */ } }); $('genDlg').hidden = true; $('genBody').innerHTML = ''; }
+  function closeGen() { var r = genRestore; genRestore = []; r.forEach(function (fn) { try { fn(); } catch (e) { /* ignore */ } }); $('genDlg').hidden = true; $('genBody').innerHTML = ''; var z = document.querySelector('.adzoom'); if (z) z.hidden = true; }
+  (function () { var pv = document.createElement('div'); pv.className = 'adzoom'; pv.hidden = true; pv.innerHTML = '<img alt="">'; document.body.appendChild(pv);
+    $('genBody').addEventListener('mouseover', function (e) { var im = e.target.closest && e.target.closest('img.adthumb'); if (!im) return; pv.firstChild.src = im.dataset.big || im.src; var r = im.getBoundingClientRect(), w = Math.min(720, innerWidth - 24), h = w * 0.75; pv.style.width = w + 'px'; pv.style.left = Math.max(12, Math.min(innerWidth - w - 12, r.left - w / 2)) + 'px'; pv.style.top = (r.top > innerHeight / 2 ? Math.max(12, r.top - h - 10) : Math.min(innerHeight - h - 12, r.bottom + 10)) + 'px'; pv.hidden = false; });
+    $('genBody').addEventListener('mouseout', function (e) { if (e.target.closest && e.target.closest('img.adthumb')) pv.hidden = true; }); })();
   $('genClose').onclick = closeGen;
   $('genDlg').addEventListener('mousedown', function (e) { if (e.target === $('genDlg')) closeGen(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('genDlg').hidden) { e.preventDefault(); closeGen(); } });
@@ -2807,7 +3305,9 @@
     }, true);
   });
   document.addEventListener('click', function (e) { if (!e.target.closest('.menu')) closeMenus(); });
-  $('dispBtn').onclick = function (e) { e.stopPropagation(); var p = $('dispPop'); p.hidden = !p.hidden; this.setAttribute('aria-expanded', String(!p.hidden)); };
+  $('dispBtn').onclick = function (e) { e.stopPropagation(); var p = $('dispPop'); p.hidden = !p.hidden; this.setAttribute('aria-expanded', String(!p.hidden));
+    // The view header scrolls sideways (overflow), which clipped this popup: place it in the window, under the button.
+    if (!p.hidden) { var b = this.getBoundingClientRect(); p.style.top = (b.bottom + 4) + 'px'; p.style.left = Math.max(8, Math.min(b.right - p.offsetWidth, innerWidth - p.offsetWidth - 8)) + 'px'; } };
   document.addEventListener('click', function (e) { var p = $('dispPop'); if (!p.hidden && !e.target.closest('.dispwrap')) { p.hidden = true; $('dispBtn').setAttribute('aria-expanded', 'false'); } });
   function refreshMenus() { var has = !!(S.selected && poleXY(S.selected)); $('mNewX').disabled = !has; $('mStreet').disabled = !has; }
 
@@ -3161,7 +3661,7 @@
     }
     h += '</table><p class="hint">Conductor types are never changed from a photo: set them in the <button class="btn small" data-instab="conductors">Conductors</button> tab. New stays and transformers are added with library and DCSH default heights, flagged <span class="pill unv">unverified</span>, and appear in the change log as AI suggestions.</p>';
     var miss = missingInputs(id), checks = (o && o.checks) || [];
-    if (miss.length || checks.length || (o && o.dropped)) h += '<div class="con-title" style="margin-top:6px">To check before relying on the results</div><ul class="msgs">' + miss.map(function (m) { return '<li class="warning">' + esc(m) + '</li>'; }).join('') + checks.map(function (m) { return '<li class="info">Field check: ' + esc(m) + '</li>'; }).join('') + (o && o.dropped ? '<li class="info">' + o.dropped + ' conductor suggestion(s) named a code that is not in your PNW library and were ignored.</li>' : '') + '</ul>';
+    if (miss.length || checks.length || (o && o.dropped)) h += '<div class="con-title xinfo" style="margin-top:6px">To check before relying on the results</div><ul class="msgs">' + miss.map(function (m) { return '<li class="warning">' + esc(m) + '</li>'; }).join('') + checks.map(function (m) { return '<li class="info">Field check: ' + esc(m) + '</li>'; }).join('') + (o && o.dropped ? '<li class="info">' + o.dropped + ' conductor suggestion(s) named a code that is not in your PNW library and were ignored.</li>' : '') + '</ul>';
     return h + verifyBar(id) + '</div>';
   }
   $('selected').addEventListener('click', function (e) {
@@ -3255,15 +3755,262 @@
     });
   }
   function closeStreetView() { $('svPanel').hidden = true; $('svPanel').innerHTML = ''; sv = { id: null, pano: null, gm: null, pov: null }; }
-  function openStreetView(id) {
-    var ll = poleLL(id); if (!ll) { setStatus(id + ' has no location, so Street View cannot be opened for it.', 'bad'); return; }
+  function openStreetView(id, llo) {
+    var ll = llo || poleLL(id); if (!ll) { setStatus(id + ' has no location, so Street View cannot be opened for it.', 'bad'); return; }
     var panel = $('svPanel'), key = gmKey(); sv = { id: id, pano: null, gm: null, pov: null, ll: ll, mode: key ? 'api' : 'embed' };
     panel.hidden = false;
-    panel.innerHTML = '<div class="svh"><b>🛣 Street View · ' + esc(id) + '</b><span class="grow" style="flex:1"></span><a class="btn small" id="svNew" target="_blank" rel="noopener" href="' + esc(streetViewUrl(id)) + '" title="Open Google Street View in its own window (then snip and paste)">New window ↗</a><button class="btn small" id="svKey" title="Optional Google Maps API key for a capture that needs no screen sharing">API key…</button><button class="ibtn" id="svClose" aria-label="Close Street View">✕</button></div>' +
+    panel.innerHTML = '<div class="svh"><b>🛣 Street View · ' + esc(id) + '</b><span class="grow" style="flex:1"></span><a class="btn small" id="svNew" target="_blank" rel="noopener" href="' + esc(llo ? 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + ll.lat.toFixed(6) + ',' + ll.lng.toFixed(6) : streetViewUrl(id)) + '" title="Open Google Street View in its own window (then snip and paste)">New window ↗</a><button class="btn small" id="svKey" title="Optional Google Maps API key for a capture that needs no screen sharing">API key…</button><button class="ibtn" id="svClose" aria-label="Close Street View">✕</button></div>' +
       '<div class="svb" id="svBody"></div><div class="svf"><button class="btn primary" id="svCap" title="Capture what is shown and send it to the AI for ' + esc(id) + '">📸 Capture and analyse</button><span class="meta grow" id="svHint"></span></div>';
     $('svClose').onclick = closeStreetView; $('svKey').onclick = svKeyDlg; $('svCap').onclick = svCapture;
-    if (key) svStartApi(id, ll, key); else svStartEmbed(id, ll);
-    if (S.selected !== id) select(id);
+    if (llo) { $('svCap').hidden = true; sv.free = true; }
+    if (key) svStartApi(id, ll, key); else if (IN_CLAUDE) svStartMcp(id, ll);
+    else if (webMapsOn()) { $('svBody').innerHTML = '<p class="hint" style="padding:12px">Finding Street View near ' + esc(id) + '…</p>'; mapsCall('street_view_metadata', { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50 }).then(function () { if (sv.id === id) svStartMcp(id, ll); }, function () { if (sv.id === id) svStartEmbed(id, ll); }); }
+    else svStartEmbed(id, ll);
+    if (!llo && S.selected !== id) select(id);
+  }
+  function poleHag(id) { var row = project && project.poles.filter(function (r) { return r.ID === id; })[0]; return row ? PNW.num(row.HeightAG) || 9 : 9; }
+  function b64Blob(b64, type) { var bin = atob(b64), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: type }); }
+  // Auto design photo: not the panorama right beside the pole (Ishan: it looks straight up the pole), but one a step back or
+  // ahead along the line, 12–45 m away, looking at the pole. Tries along the line both ways, then across it, then the nearest.
+  function svPickPano(id, ll) {
+    var ids = lineIds(), k = ids.indexOf(id), dirs = [];
+    [ids[k - 1], ids[k + 1]].forEach(function (o) { var q = o && poleLL(o); if (q) dirs.push(bearingTo(ll, q)); });
+    if (!dirs.length) dirs = [0, 180]; dirs = dirs.concat(dirs.map(function (b) { return (b + 180) % 360; }), dirs.map(function (b) { return (b + 90) % 360; }), dirs.map(function (b) { return (b + 270) % 360; }));
+    var seen = {}, tries = [];
+    dirs.forEach(function (b) { var k2 = Math.round(b); if (seen[k2]) return; seen[k2] = 1; tries.push(L.latLng(ll.lat + 22 * Math.cos(b * Math.PI / 180) / 111320, ll.lng + 22 * Math.sin(b * Math.PI / 180) / (111320 * Math.cos(ll.lat * Math.PI / 180)))); });
+    var i = 0;
+    return (function next() {
+      if (i >= tries.length) return Promise.resolve(null);
+      var t = tries[i++];
+      return mapsCall('street_view_metadata', { lat: +t.lat.toFixed(7), lng: +t.lng.toFixed(7), radius: 15 }).then(function (r) {
+        var m = mapsInfo(r); if (!m.found) return next();
+        var d = L.latLng(m.lat, m.lng).distanceTo(ll); return d >= 12 && d <= 45 ? m.pano : next();
+      }, function () { return next(); });
+    })();
+  }
+  // Two Street View panoramas one step either side of the pole along the line (toward the next and the previous pole),
+  // each looking at the pole. Returns [{pano, side}] (one or two), or [] when there is none.
+  function svStepPanos(id, ll) {
+    var ids = lineIds(), k = ids.indexOf(id), nx = ids[k + 1] && poleLL(ids[k + 1]), pv = ids[k - 1] && poleLL(ids[k - 1]);
+    var fwd = nx ? bearingTo(ll, nx) : pv ? (bearingTo(ll, pv) + 180) % 360 : 0, back = pv ? bearingTo(ll, pv) : (fwd + 180) % 360;
+    var at = function (b, m) { return L.latLng(ll.lat + m * Math.cos(b * Math.PI / 180) / 111320, ll.lng + m * Math.sin(b * Math.PI / 180) / (111320 * Math.cos(ll.lat * Math.PI / 180))); };
+    var used = {};
+    function find(b, side) {
+      var steps = [12, 20, 30, 8], i = 0;
+      return (function next() {
+        if (i >= steps.length) return Promise.resolve(null);
+        var t = at(b, steps[i++]);
+        return mapsCall('street_view_metadata', { lat: +t.lat.toFixed(7), lng: +t.lng.toFixed(7), radius: 12 }).then(function (r) {
+          var m = mapsInfo(r); if (!m.found || used[m.pano]) return next();
+          var dd = L.latLng(m.lat, m.lng).distanceTo(ll); if (dd < 5 || dd > 45) return next();
+          used[m.pano] = 1; return { pano: m.pano, side: side };
+        }, function () { return next(); });
+      })();
+    }
+    // Both sides at once; if both land on the same panorama, look again behind (that pano is now marked used).
+    return Promise.all([find(fwd, 'ahead'), find(back, 'behind')]).then(function (x) { return x[0] && x[1] && x[0].pano === x[1].pano ? find(back, 'behind').then(function (b) { return [x[0], b].filter(Boolean); }) : x.filter(Boolean); });
+  }
+  function svShot(id, ll, pano, side) {
+    var inp = { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50, height_m: poleHag(id), width: 640, height: 640, fov: pano ? 45 : 70 }; if (pano) inp.pano = pano;
+    return mapsCall('street_view', inp).then(function (r) {
+      var info = mapsInfo(r), im = mapsImg(r); if (!info.found || !im) return null;
+      return { file: new File([b64Blob(im.b64, im.type)], 'Street View ' + id + (side ? ' ' + side : '') + ' (auto).jpg', { type: im.type }), cam: { heading: Number(info.heading), pitch: Number(info.pitch) || 0, fov: Number(info.fov) || inp.fov, dist: Number(info.distance_m), lat: info.lat, lng: info.lng, date: info.date || '' }, meta: { source: 'Street View (auto, PNW Maps, ' + (side ? side + ', ' : '') + Math.round(info.distance_m) + ' m away' + (info.date ? ', ' + info.date : '') + ')', pov: { heading: Math.round(info.heading), pitch: Math.round(info.pitch), fov: info.fov, pano: info.pano } } };
+    }, function () { return null; });
+  }
+  // For the AI: the photos from one step ahead and one step behind, both facing the pole; the AI uses the better one.
+  function svMcpImage(id, ll) {
+    return svStepPanos(id, ll).then(function (ps) {
+      if (!ps.length) return svPickPano(id, ll).then(function (pano) { return Promise.all([svShot(id, ll, pano, '')]); });
+      return Promise.all(ps.map(function (p) { return svShot(id, ll, p.pano, p.side); }));
+    }).then(function (list) {
+      list = (list || []).filter(Boolean); if (!list.length) return null;
+      var first = list[0]; first.meta.extra = list.slice(1); return first;
+    }, function () { return null; });
+  }
+  /* 3D › Street View: the panorama one step ahead of (or behind) a pole, facing it, with the design's poles and
+     conductors projected over the photo from the camera position (pinhole camera, Street View heading/pitch/fov,
+     camera 2.5 m above the ground interpolated from the surveyed pole levels). */
+  var SV3 = { on: false, side: 0, id: null, panos: null, panosFor: null, req: 0, cam: null, url: null };
+  function sv3Ids() { var d = data3d(); return d.poles.filter(function (p) { return isFinite(p.easting) && isFinite(p.ground); }).map(function (p) { return p.id; }); }
+  function sv3Msg(t) { $('sv3msg').textContent = t || ''; $('sv3msg').hidden = !t; }
+  function sv3Toggle(on) {
+    SV3.on = on == null ? !SV3.on : on; $('v3svp').hidden = !SV3.on; $('v3sv').classList.toggle('on', SV3.on);
+    if (SV3.on) sv3Show(S.selected && sv3Ids().indexOf(S.selected) >= 0 ? S.selected : null);
+  }
+  function sv3Show(id) {
+    var ids = sv3Ids(); id = id || SV3.id; if (ids.indexOf(id) < 0) id = ids[0];
+    if (!id) { sv3Msg('No poles with coordinates and ground levels yet.'); return; }
+    if (!IN_CLAUDE && !webMapsOn()) { sv3Msg('Street View is not available on this page right now (the Street View service did not answer).'); return; }
+    var ll = poleLL(id); if (!ll) { sv3Msg(id + ' has no map position.'); return; }
+    if (SV3.id !== id) SV3.side = 0;
+    SV3.id = id; var req = ++SV3.req; $('sv3t').textContent = id; sv3Msg('Loading Street View for ' + id + '…');
+    (SV3.panosFor === id ? Promise.resolve(SV3.panos) : svStepPanos(id, ll)).then(function (ps) {
+      SV3.panos = ps; SV3.panosFor = id; var p = ps.length ? ps[SV3.side % ps.length] : null;
+      return svShot(id, ll, p && p.pano, p ? p.side : '').then(function (sh) { return { sh: sh, p: p, n: ps.length }; });
+    }).then(function (x) {
+      if (req !== SV3.req) return;
+      if (!x.sh) { sv3Msg('No Street View near ' + id + '.'); return; }
+      var c = x.sh.cam, pole = data3d().poles.filter(function (q) { return q.id === id; })[0];
+      // Camera: back from the pole along the view heading (grid bearing = true heading plus the direction of true north on the grid).
+      var def = '+proj=utm +zone=' + S.zone + ' +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs', gam = 0, ce = null;
+      try { var a0 = proj4('EPSG:4326', def, [ll.lng, ll.lat]), a1 = proj4('EPSG:4326', def, [ll.lng, ll.lat + 0.0005]); gam = Math.atan2(a1[0] - a0[0], a1[1] - a0[1]) * 180 / Math.PI; if (c.lat != null && c.lng != null) ce = proj4('EPSG:4326', def, [Number(c.lng), Number(c.lat)]); } catch (e) { gam = 0; }
+      var hg = c.heading + gam, hr = hg * Math.PI / 180;
+      if (!ce) ce = [pole.easting - Math.sin(hr) * c.dist, pole.northing - Math.cos(hr) * c.dist];
+      SV3.cam = { e: ce[0], n: ce[1], heading: hg, pitch: c.pitch, fov: c.fov, side: x.p ? x.p.side : '', count: x.n, date: c.date, dist: c.dist };
+      SV3.view = { pano: x.sh.meta.pov.pano, lat: c.lat != null ? Number(c.lat) : null, lng: c.lng != null ? Number(c.lng) : null, th: c.heading, pitch: c.pitch, fov: c.fov, date: c.date, gam: gam };
+      if (SV3.url) URL.revokeObjectURL(SV3.url); SV3.url = URL.createObjectURL(x.sh.file);
+      sv3Img(SV3.url);
+      $('sv3side').disabled = x.n < 2; sv3Msg(''); sv3Title();
+    }, function (e) { if (req === SV3.req) sv3Msg('Street View: ' + mapsErr(e)); });
+  }
+  // Look around like Google Street View: drag to turn (the overlay follows at once; the photo is fetched for the new
+  // view when the drag ends), wheel to zoom, Walk / Back to move to the next panorama along the view, ◎ to face the pole.
+  var DEF_UTM = function () { return '+proj=utm +zone=' + S.zone + ' +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'; };
+  function sv3Img(src) { var im = $('sv3img'); im.onload = function () { im.style.transform = ''; sv3Draw(); }; im.src = src; }
+  function sv3Title() {
+    var v = SV3.view, ll = poleLL(SV3.id), dd = v && v.lat != null && ll ? L.latLng(v.lat, v.lng).distanceTo(ll) : null;
+    $('sv3t').textContent = SV3.id + (dd != null ? ' · ' + Math.round(dd) + ' m away' : '') + (v && v.date ? ' · ' + v.date : '');
+  }
+  function sv3Cam() { // camera for the overlay from the Street View position and true heading
+    var v = SV3.view; if (!v || v.lat == null) return;
+    try { var def = DEF_UTM(), ce = proj4('EPSG:4326', def, [v.lng, v.lat]), a1 = proj4('EPSG:4326', def, [v.lng, v.lat + 0.0005]), gam = Math.atan2(a1[0] - ce[0], a1[1] - ce[1]) * 180 / Math.PI;
+      SV3.cam = Object.assign({}, SV3.cam, { e: ce[0], n: ce[1], heading: v.th + gam, pitch: v.pitch, fov: v.fov }); } catch (e) { /* keep the last camera */ }
+  }
+  var sv3T = null;
+  function sv3Load(delay) { // the photo for the current view (after a pause, so a drag or wheel makes one request)
+    clearTimeout(sv3T); sv3T = setTimeout(function () {
+      var v = SV3.view, ll = poleLL(SV3.id); if (!v || !ll) return; var req = ++SV3.req;
+      var inp = { lat: +ll.lat.toFixed(7), lng: +ll.lng.toFixed(7), radius: 50, heading: +(((v.th % 360) + 360) % 360).toFixed(1), pitch: +v.pitch.toFixed(1), fov: +v.fov.toFixed(1), width: 640, height: 640 }; if (v.pano) inp.pano = v.pano;
+      mapsCall('street_view', inp).then(function (r) {
+        if (req !== SV3.req) return; var im = mapsImg(r), info = mapsInfo(r); if (!im) { sv3Msg('No Street View image here.'); return; }
+        if (info.date) v.date = info.date; sv3Img(im.url); sv3Title(); sv3Msg('');
+      }, function (e) { if (req === SV3.req) sv3Msg('Street View: ' + mapsErr(e)); });
+    }, delay == null ? 0 : delay);
+  }
+  function sv3Walk(back) { // to the next panorama 8–25 m along the view (or behind it)
+    var v = SV3.view; if (!v || v.lat == null) return; var b = (v.th + (back ? 180 : 0)) * Math.PI / 180, steps = [10, 15, 22], i = 0, req = ++SV3.req;
+    sv3Msg(back ? 'Stepping back…' : 'Walking…');
+    (function next() {
+      if (i >= steps.length) { if (req === SV3.req) sv3Msg('No Street View further ' + (back ? 'back' : 'this way') + '.'); return; }
+      var m = steps[i++], la = v.lat + m * Math.cos(b) / 111320, lo = v.lng + m * Math.sin(b) / (111320 * Math.cos(v.lat * Math.PI / 180));
+      mapsCall('street_view_metadata', { lat: +la.toFixed(7), lng: +lo.toFixed(7), radius: 10 }).then(function (r) {
+        if (req !== SV3.req) return; var k = mapsInfo(r); if (!k.found || k.pano === v.pano) return next();
+        v.pano = k.pano; v.lat = Number(k.lat); v.lng = Number(k.lng); v.date = k.date || v.date; sv3Cam(); sv3Draw(); sv3Load(0);
+      }, function () { next(); });
+    })();
+  }
+  function sv3Face() { var v = SV3.view, ll = poleLL(SV3.id); if (!v || v.lat == null || !ll) return; v.th = bearingTo(L.latLng(v.lat, v.lng), ll); v.pitch = 15; sv3Cam(); sv3Draw(); sv3Load(0); }
+  (function () {
+    var wrap = document.querySelector('#v3svp .sv3wrap'), drag = null;
+    var scale = function () { var im = $('sv3img'), r = wrap.getBoundingClientRect(), s = Math.min(r.width, r.height); return SV3.view ? SV3.view.fov / (s || 1) : 0.1; };
+    wrap.addEventListener('pointerdown', function (e) { if (!SV3.view || e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, th: SV3.view.th, p: SV3.view.pitch, k: scale(), hit: e.target.closest && e.target.closest('[data-sv3p],[data-sv3w]'), moved: false }; wrap.setPointerCapture(e.pointerId); wrap.classList.add('drag'); });
+    wrap.addEventListener('pointermove', function (e) {
+      if (!drag) return; var dx = e.clientX - drag.x, dy = e.clientY - drag.y, v = SV3.view;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return; drag.moved = true;
+      v.th = drag.th - dx * drag.k; v.pitch = Math.max(-60, Math.min(80, drag.p + dy * drag.k));
+      $('sv3img').style.transform = 'translate(' + dx + 'px,' + (v.pitch === drag.p + dy * drag.k ? dy : (v.pitch - drag.p) / drag.k) + 'px)';
+      sv3Cam(); sv3Draw();
+    });
+    // A click (no drag) on a pole or conductor drawn over the photo selects it, as in the plan and 3D views.
+    var end = function () { if (!drag) return; var d0 = drag; drag = null; wrap.classList.remove('drag'); if (d0.moved) { sv3Load(150); return; } if (d0.hit) sv3Pick(d0.hit); };
+    function sv3Pick(el) {
+      if (el.dataset.sv3p) { select(el.dataset.sv3p, { noSwitch: true }); setStatus(el.dataset.sv3p + ' selected in Street View.', 'good'); }
+      else { var k = el.dataset.sv3w.split('|'); clr3d = [k[0], k[1], k[2]]; select(k[0], { segment: k[2] || '', noSwitch: true }); show3dClr(); var c = spanClearance(k[0], k[1]); setStatus('Conductor ' + (k[2] || '') + ', span ' + k[0] + ' → ' + k[1] + (c != null ? ': ground clearance ' + c.toFixed(2) + ' m' : '') + '.', 'good'); }
+      sv3Draw();
+    }
+    wrap.addEventListener('contextmenu', function (e) { var h = e.target.closest && e.target.closest('[data-sv3p],[data-sv3w]'); if (!h) return; e.preventDefault(); if (h.dataset.sv3p) poleMenu(h.dataset.sv3p, e.clientX, e.clientY); else { var k = h.dataset.sv3w.split('|'); spanMenu(k[0], k[1], e.clientX, e.clientY, k[2]); } });
+    wrap.addEventListener('pointerup', end); wrap.addEventListener('pointercancel', end);
+    wrap.addEventListener('wheel', function (e) {
+      if (!SV3.view) return; e.preventDefault(); var v = SV3.view, f0 = v.fov;
+      v.fov = Math.max(15, Math.min(100, v.fov * Math.exp(e.deltaY * 0.0015)));
+      var s = Math.tan(f0 * Math.PI / 360) / Math.tan(v.fov * Math.PI / 360), im = $('sv3img'), cur = /scale\(([\d.]+)\)/.exec(im.style.transform);
+      im.style.transform = 'scale(' + ((cur ? Number(cur[1]) : 1) * s).toFixed(3) + ')'; sv3Cam(); sv3Draw(); sv3Load(350);
+    }, { passive: false });
+    wrap.addEventListener('dblclick', function (e) { // walk toward where you double-click
+      if (!SV3.view) return; var r = wrap.getBoundingClientRect(); SV3.view.th += (e.clientX - (r.left + r.width / 2)) * scale(); sv3Walk(false);
+    });
+    $('v3svp').addEventListener('keydown', function (e) {
+      if (!SV3.view || /INPUT|SELECT/.test(e.target.tagName)) return; var v = SV3.view, k = e.key;
+      if (k === 'ArrowUp') sv3Walk(false); else if (k === 'ArrowDown') sv3Walk(true);
+      else if (k === 'ArrowLeft' || k === 'ArrowRight') { v.th += k === 'ArrowLeft' ? -15 : 15; sv3Cam(); sv3Draw(); sv3Load(250); } else return;
+      e.preventDefault();
+    });
+  })();
+  function sv3Draw() {
+    var svg = $('sv3svg'), im = $('sv3img'), c = SV3.cam; if (!SV3.on || !c || !im.naturalWidth) return;
+    var W = im.naturalWidth, H = im.naturalHeight, d = data3d(), R = Math.PI / 180, h = c.heading * R, pt = c.pitch * R, f = (W / 2) / Math.tan(c.fov * R / 2);
+    var F = [Math.sin(h) * Math.cos(pt), Math.cos(h) * Math.cos(pt), Math.sin(pt)], Rv = [Math.cos(h), -Math.sin(h), 0], U = [-Math.sin(h) * Math.sin(pt), -Math.cos(h) * Math.sin(pt), Math.cos(pt)];
+    var near = d.poles.filter(function (p) { return isFinite(p.easting) && isFinite(p.ground); }).map(function (p) { return { p: p, d: Math.hypot(p.easting - c.e, p.northing - c.n) }; }).sort(function (a, b) { return a.d - b.d; }).slice(0, 2);
+    var gw = 0, gz = 0; near.forEach(function (q) { var k = 1 / Math.max(q.d, 0.5); gw += k; gz += k * q.p.ground; });
+    var cz = (gw ? gz / gw : 0) + 2.5;
+    var P = function (e, n, z) { var dx = e - c.e, dy = n - c.n, dz = z - cz, zc = dx * F[0] + dy * F[1] + dz * F[2]; if (zc < 0.5) return null; return [W / 2 + f * (dx * Rv[0] + dy * Rv[1]) / zc, H / 2 - f * (dx * U[0] + dy * U[1] + dz * U[2]) / zc, zc]; };
+    var out = '', col = { hv: '#fb923c', lv: '#60a5fa', earth: '#cbd5e1', other: '#2dd4bf' };
+    var show = $('sv3ov').checked;
+    if (show) {
+      d.wires.forEach(function (w) {
+        var segs = [], cur = [];
+        for (var k = 0; k <= 24; k++) { var t = k / 24, q = P(w.from.easting + (w.to.easting - w.from.easting) * t, w.from.northing + (w.to.northing - w.from.northing) * t, w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0)); if (q) cur.push(q[0].toFixed(1) + ',' + q[1].toFixed(1)); else if (cur.length) { segs.push(cur); cur = []; } }
+        if (cur.length) segs.push(cur);
+        var son = S.selSection && w.segment === S.selSection, key = esc(w.from.pole + '|' + w.to.pole + '|' + (w.segment || ''));
+        segs.forEach(function (s) { if (s.length > 1) out += '<polyline points="' + s.join(' ') + '" fill="none" stroke="#0008" stroke-width="' + (son ? 6 : 4) + '"/><polyline points="' + s.join(' ') + '" fill="none" stroke="' + (son ? '#facc15' : col[wireKind(w)]) + '" stroke-width="' + (son ? 4 : 2) + '"/><polyline class="sv3hit" data-sv3w="' + key + '" points="' + s.join(' ') + '" fill="none" stroke="transparent" stroke-width="14"><title>' + esc((w.segment || '') + ' ' + (w.code || '') + ': ' + w.from.pole + ' → ' + w.to.pole) + '</title></polyline>'; });
+      });
+      d.poles.forEach(function (p) {
+        if (!isFinite(p.easting) || !(p.height > 0)) return;
+        var a = P(p.easting, p.northing, p.ground), b = P(p.easting, p.northing, p.ground + p.height); if (!a || !b) return;
+        var wpx = Math.max(2, Math.min(40, 0.3 * f / a[2])), on = p.id === (S.selected || SV3.id);
+        out += '<line x1="' + a[0].toFixed(1) + '" y1="' + a[1].toFixed(1) + '" x2="' + b[0].toFixed(1) + '" y2="' + b[1].toFixed(1) + '" stroke="#000a" stroke-width="' + (wpx + 3).toFixed(1) + '" stroke-linecap="round"/>' +
+          '<line x1="' + a[0].toFixed(1) + '" y1="' + a[1].toFixed(1) + '" x2="' + b[0].toFixed(1) + '" y2="' + b[1].toFixed(1) + '" stroke="' + (on ? '#f59e0b' : '#a3e635') + '" stroke-opacity=".75" stroke-width="' + wpx.toFixed(1) + '" stroke-linecap="round"/>' +
+          '<text x="' + (b[0] + wpx / 2 + 4).toFixed(1) + '" y="' + (b[1] + 4).toFixed(1) + '" class="sv3lbl' + (on ? ' on' : '') + '">' + esc(p.id) + '</text>' +
+          '<line class="sv3hit" data-sv3p="' + esc(p.id) + '" x1="' + a[0].toFixed(1) + '" y1="' + a[1].toFixed(1) + '" x2="' + b[0].toFixed(1) + '" y2="' + b[1].toFixed(1) + '" stroke="transparent" stroke-width="' + (wpx + 16).toFixed(1) + '"><title>' + esc(p.id) + '</title></line>';
+      });
+    }
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.innerHTML = out;
+  }
+  $('v3sv').onclick = function () { sv3Toggle(); };
+  $('v3svp').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-sv3]'); if (!b) return; var k = b.dataset.sv3, ids = sv3Ids(), i = ids.indexOf(SV3.id);
+    if (k === 'close') sv3Toggle(false);
+    else if (k === 'side') { SV3.side++; sv3Show(SV3.id); }
+    else if (k === 'walk' || k === 'back') sv3Walk(k === 'back');
+    else if (k === 'face') sv3Face();
+    else if (k === 'prev' || k === 'next') { var j = i + (k === 'next' ? 1 : -1); if (ids[j]) { select(ids[j], { noSwitch: true }); sv3Show(ids[j]); } }
+  });
+  $('sv3ov').onchange = sv3Draw;
+  function svStartMcp(id, ll) {
+    sv.mode = 'mcp'; sv.hag = poleHag(id); sv.img = null;
+    $('svBody').innerHTML = '<img class="svimg" id="svImg" alt="Street View toward ' + esc(id) + '"><div class="svnav"><button class="btn small" data-svm="f" title="Walk forward to the next panorama">⬆ Walk</button><button class="btn small" data-svm="b" title="Walk back">⬇</button><button class="btn small" data-svm="p" title="Turn to face the pole">◎ Pole</button><button class="btn small" data-svm="l" title="Turn left">⟲</button><button class="btn small" data-svm="r" title="Turn right">⟳</button><button class="btn small" data-svm="u" title="Look up">▲</button><button class="btn small" data-svm="d" title="Look down">▼</button><button class="btn small" data-svm="i" title="Zoom in">＋</button><button class="btn small" data-svm="o" title="Zoom out">−</button></div>';
+    $('svBody').onclick = function (e) {
+      var b = e.target.closest('[data-svm]'), p = sv.pov; if (!b || !p) return; var k = b.dataset.svm;
+      if (k === 'f' || k === 'b') { svWalk(k === 'f' ? p.heading : (p.heading + 180) % 360); return; }
+      if (k === 'p') { p.face = true; svMcpLoad(); return; }
+      if (k === 'l') p.heading = (p.heading + 340) % 360; else if (k === 'r') p.heading = (p.heading + 20) % 360; else if (k === 'u') p.pitch = Math.min(80, p.pitch + 8); else if (k === 'd') p.pitch = Math.max(-30, p.pitch - 8); else if (k === 'i') p.fov = Math.max(15, p.fov / 1.5); else p.fov = Math.min(110, p.fov * 1.5);
+      svMcpLoad();
+    };
+    svMcpLoad();
+  }
+  // Walk: the panorama about 12 m along the view direction (Street View links panoramas roughly every 10 m).
+  function svWalk(hd) {
+    var a = sv.at, p = sv.pov; if (!a || !p) return; var id = sv.id, cur = p.pano, tried = 0;
+    $('svHint').textContent = 'Walking…';
+    (function go(dist) {
+      var r = hd * Math.PI / 180, lat = a.lat + dist * Math.cos(r) / 111320, lng = a.lng + dist * Math.sin(r) / (111320 * Math.cos(a.lat * Math.PI / 180));
+      mapsCall('street_view_metadata', { lat: +lat.toFixed(7), lng: +lng.toFixed(7), radius: 8 }).then(function (m0) {
+        if (sv.id !== id) return; var m = mapsInfo(m0);
+        if (m.found && m.pano !== cur) { p.pano = m.pano; p.face = false; svMcpLoad(); return; }
+        if (++tried < 3) go(dist + 10); else $('svHint').textContent = 'No panorama further that way.';
+      }, function (e) { $('svHint').textContent = mapsErr(e); });
+    })(12);
+  }
+  function svMcpLoad() {
+    var id = sv.id, p = sv.pov, inp = { lat: +sv.ll.lat.toFixed(7), lng: +sv.ll.lng.toFixed(7), radius: 80, height_m: sv.hag, width: 640, height: 480 };
+    if (p) { inp.pano = p.pano; if (!p.face) { inp.heading = Math.round(p.heading); inp.pitch = Math.round(p.pitch); } inp.fov = Math.round(p.fov); }
+    $('svCap').disabled = true; $('svHint').textContent = 'Loading Street View through PNW Maps…';
+    mapsCall('street_view', inp).then(function (r) {
+      if (sv.id !== id) return; var info = mapsInfo(r), im = mapsImg(r);
+      if (!info.found || !im) { $('svHint').textContent = 'No Street View coverage within 80 m of ' + id + '.'; return; }
+      sv.pov = { pano: info.pano, heading: info.heading, pitch: info.pitch, fov: info.fov }; sv.at = { lat: info.lat, lng: info.lng }; sv.img = im; $('svImg').src = im.url; $('svCap').disabled = false;
+      $('svHint').textContent = 'Facing ' + id + ' from ' + Math.round(info.distance_m) + ' m away' + (info.date ? ' (' + info.date + ')' : '') + '. Turn or zoom, then Capture.';
+    }, function (e) { if (sv.id === id) $('svHint').textContent = mapsErr(e) + ' Or use “New window”, snip the pole and paste it here.'; });
   }
   function svStartEmbed(id, ll) {
     var f = document.createElement('iframe'); f.id = 'svFrame'; f.title = 'Street View at ' + id; f.allow = 'fullscreen; display-capture'; f.referrerPolicy = 'no-referrer';
@@ -3294,6 +4041,7 @@
     var id = sv.id, hint = $('svHint'), btn = $('svCap'); if (!id) return; btn.disabled = true; hint.textContent = 'Capturing…';
     var done = function (blob, how, pov) { btn.disabled = false; hint.textContent = 'Captured and sent. Aim at another angle and capture again if needed.'; submitPhoto(id, new File([blob], 'Street View ' + id + ' ' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '') + '.jpg', { type: 'image/jpeg' }), { source: 'Street View capture (' + how + ')', pov: pov || null }); };
     var fail = function (e) { btn.disabled = false; hint.textContent = ((e && e.message) || 'Capture was not possible here.') + ' Use “New window”, snip the pole (Win+Shift+S) and paste it with Ctrl+V: it is analysed straight away.'; };
+    if (sv.mode === 'mcp') { if (!sv.img) return fail(new Error('No Street View image yet.')); return done(b64Blob(sv.img.b64, sv.img.type), 'PNW Maps', { heading: Math.round(sv.pov.heading), pitch: Math.round(sv.pov.pitch), fov: Math.round(sv.pov.fov), pano: sv.pov.pano }); }
     if (sv.mode === 'api' && sv.panorama) {
       var pov = sv.panorama.getPov(), z = sv.panorama.getZoom ? sv.panorama.getZoom() : 1, fov = Math.max(10, Math.min(120, 180 / Math.pow(2, z))), pano = sv.panorama.getPano();
       var url = 'https://maps.googleapis.com/maps/api/streetview?size=1280x960&pano=' + encodeURIComponent(pano) + '&heading=' + pov.heading.toFixed(1) + '&pitch=' + pov.pitch.toFixed(1) + '&fov=' + fov.toFixed(0) + '&key=' + encodeURIComponent(gmKey());
@@ -3332,12 +4080,15 @@
   /* plan tools: select, pan, measure, draw, fit */
   function plClick(id, e) {
     L.DomEvent.stopPropagation(e);
-    if (planTool === 'pan' || planTool === 'draw') return;
+    if (planTool === 'pan' || planTool === 'draw' || planTool === 'rect' || planTool === 'lasso') return;
+    if (planTool === 'poly') { lassoAdd(poleLL(id) || e.latlng); return; }
     if (planTool === 'measure') { var p = merged.poles[id], ll = p && (poleLatLng(p) || (p.gis && p.gis.lat != null ? L.latLng(p.gis.lat, p.gis.lng) : null)); measureAdd(ll || e.latlng); return; }
     select(id, addInfo(e));
   }
-  function plSpan(a, b, e) { L.DomEvent.stopPropagation(e); if (planTool === 'select') selectSpan(a, b); else if (planTool === 'measure') measureAdd(e.latlng); }
+  function plSpan(a, b, e) { L.DomEvent.stopPropagation(e); if (planTool === 'poly') lassoAdd(e.latlng); else if (planTool === 'select') selectSpan(a, b); else if (planTool === 'measure') measureAdd(e.latlng); }
   function planMapClick(ll) {
+    if (planTool === 'poly') { lassoAdd(ll); return; }
+    if (planTool === 'rect' || planTool === 'lasso') return;
     if (planTool === 'measure') { measureAdd(ll); return; }
     if (planTool === 'draw') { var xy = fromLatLng(ll); setTool('select'); if (xy) openPoleDlg(null, { mode: 'coord', e: Math.round(xy.e * 100) / 100, n: Math.round(xy.n * 100) / 100 }); return; }
     if (planTool === 'pan') return;
@@ -3363,11 +4114,81 @@
     planTool = t; var w = $('mapWrap'); w.className = w.className.replace(/\btool-\w+/g, '').trim() + ' tool-' + t;
     Array.prototype.forEach.call(document.querySelectorAll('#planTools [data-tool]'), function (b) { b.classList.toggle('on', b.dataset.tool === t); });
     if (t === 'measure') drawMeasure(); else if (t !== 'measure') clearMeasure();
+    lassoClear(); if (t === 'rect' || t === 'lasso') map.dragging.disable(); else map.dragging.enable(); if (t === 'poly') map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+    if (t === 'rect') setStatus('Box select: drag a rectangle on the plan. Every pole inside is selected (hold Shift to add to the selection).');
+    if (t === 'lasso') setStatus('Lasso select: hold the mouse button and draw a loop around the poles. Release to select (hold Shift to add to the selection).');
+    if (t === 'poly') setStatus('Polygon select: click the corners of a shape, then double-click, press Enter or click the first corner to finish. Esc cancels.');
     if (t === 'draw') setStatus('Draw: click the plan where the new pole goes.');
     if (t === 'move') setStatus('Move: select a hand-made pole, then click its new position.');
     try { updToolStatus(); } catch (e) { /* before the ribbon exists */ }
   }
   $('planTools').addEventListener('click', function (e) { var b = e.target.closest('[data-tool]'); if (b) setTool(b.dataset.tool); });
+  /* box and shape selection: every pole inside the outline is selected (a span goes with its two poles) */
+  var lassoPts = [], lyLasso = null, rectStart = null, rectAdd = false;
+  function lassoLayer() { if (!lyLasso) lyLasso = L.layerGroup().addTo(map); return lyLasso; }
+  function lassoClear() { lassoPts = []; rectStart = null; if (lyLasso) lyLasso.clearLayers(); }
+  function lassoDraw(hover) {
+    var g = lassoLayer(); g.clearLayers(); var pts = hover ? lassoPts.concat([hover]) : lassoPts;
+    if (pts.length > 1) L.polygon(pts, { color: '#2563eb', weight: 2, dashArray: '5 4', fillOpacity: 0.08, interactive: false }).addTo(g);
+    lassoPts.forEach(function (ll, i) { L.circleMarker(ll, { radius: i ? 3 : 5, color: '#2563eb', fillColor: '#fff', fillOpacity: 1, weight: 2, interactive: false }).addTo(g); });
+  }
+  function lassoAdd(ll) {
+    if (!ll) return;
+    if (lassoPts.length > 2) { var a = map.latLngToContainerPoint(lassoPts[0]), b = map.latLngToContainerPoint(ll); if (a.distanceTo(b) < 10) { lassoFinish(); return; } }
+    lassoPts.push(ll); lassoDraw();
+  }
+  function inPoly(pt, poly) { var x = pt.x, y = pt.y, c = false; for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) { var a = poly[i], b = poly[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) c = !c; } return c; }
+  function polesInside(poly) { return Object.keys(merged.poles).filter(function (id) { var ll = poleLL(id); return ll && inPoly(map.latLngToContainerPoint(ll), poly); }); }
+  function selectArea(ids, add) {
+    var base = add ? (S.multi && S.multi.length ? S.multi.slice() : (S.selected ? [S.selected] : [])) : [];
+    ids.forEach(function (k) { if (base.indexOf(k) < 0) base.push(k); });
+    lassoClear();
+    if (!base.length) { select(null); setStatus('No poles inside the shape.', 'bad'); return; }
+    if (base.length === 1) select(base[0]); else { S.multi = base; select(base[base.length - 1], { keepMulti: true }); }
+    setStatus(base.length + ' pole' + (base.length === 1 ? '' : 's') + ' selected. Delete them, add them to a profile or make a profile from them in Properties.', 'good');
+  }
+  function lassoFinish() { if (lassoPts.length < 3) { lassoClear(); return; } var poly = lassoPts.map(function (ll) { return map.latLngToContainerPoint(ll); }); selectArea(polesInside(poly), multiMode || lassoAdd.shift); }
+  map.on('mousemove', function (e) {
+    if (planTool === 'poly' && lassoPts.length) lassoDraw(e.latlng);
+    else if (planTool === 'rect' && rectStart) { var g = lassoLayer(); g.clearLayers(); L.rectangle(L.latLngBounds(rectStart, e.latlng), { color: '#2563eb', weight: 2, dashArray: '5 4', fillOpacity: 0.08, interactive: false }).addTo(g); }
+  });
+  map.on('mousedown', function (e) { if (planTool !== 'rect') return; var o = e.originalEvent; if (o && o.button) return; rectStart = e.latlng; rectAdd = !!(o && (o.shiftKey || o.ctrlKey || o.metaKey)); });
+  map.on('mouseup', function (e) {
+    if (planTool !== 'rect' || !rectStart) return;
+    var a = map.latLngToContainerPoint(rectStart), b = map.latLngToContainerPoint(e.latlng); rectStart = null;
+    if (a.distanceTo(b) < 4) { lassoClear(); return; }
+    selectArea(polesInside([a, L.point(b.x, a.y), b, L.point(a.x, b.y)]), multiMode || rectAdd);
+  });
+  map.on('dblclick', function () { if (planTool === 'poly') { lassoPts.pop(); lassoFinish(); } });
+  // Lasso: freehand loop while the button is held (pointer events, so it works with a pen or finger too).
+  var lassoFree = null;
+  map.getContainer().addEventListener('pointerdown', function (e) {
+    if (planTool !== 'lasso' || e.button || e.target.closest('.leaflet-control')) return;
+    lassoClear(); lassoFree = { add: !!(e.shiftKey || e.ctrlKey || e.metaKey), pts: [map.mouseEventToContainerPoint(e)] };
+    try { map.getContainer().setPointerCapture(e.pointerId); } catch (er) { /* old browser */ }
+    e.preventDefault(); e.stopPropagation();
+  }, true);
+  map.getContainer().addEventListener('pointermove', function (e) {
+    if (!lassoFree) return; var p = map.mouseEventToContainerPoint(e), l = lassoFree.pts[lassoFree.pts.length - 1];
+    if (p.distanceTo(l) < 3) return; lassoFree.pts.push(p);
+    var g = lassoLayer(); g.clearLayers(); L.polygon(lassoFree.pts.map(function (q) { return map.containerPointToLatLng(q); }), { color: '#2563eb', weight: 2, dashArray: '5 4', fillOpacity: 0.08, interactive: false }).addTo(g);
+  }, true);
+  function lassoEnd(e) {
+    if (!lassoFree) return; var f = lassoFree; lassoFree = null;
+    if (f.pts.length < 3) { lassoClear(); return; }
+    selectArea(polesInside(f.pts), f.add || lassoAdd.shift);
+    if (e) e.stopPropagation();
+  }
+  map.getContainer().addEventListener('pointerup', lassoEnd, true);
+  map.getContainer().addEventListener('pointercancel', function () { lassoFree = null; lassoClear(); }, true);
+  document.addEventListener('keydown', function (e) {
+    if (planTool !== 'poly' && planTool !== 'rect' && planTool !== 'lasso') return; if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || !$('genDlg').hidden) return;
+    if (e.key === 'Escape' && (lassoPts.length || rectStart || lassoFree)) { lassoFree = null; lassoClear(); e.stopPropagation(); }
+    else if (e.key === 'Enter' && planTool === 'poly') lassoFinish();
+    else if (e.key === 'Backspace' && lassoPts.length) { lassoPts.pop(); lassoDraw(); e.preventDefault(); }
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Shift') lassoAdd.shift = true; });
+  document.addEventListener('keyup', function (e) { if (e.key === 'Shift') lassoAdd.shift = false; });
   $('measureOut').addEventListener('click', function (e) { var b = e.target.closest('[data-meas]'); if (!b) return; if (b.dataset.meas === 'clear') { clearMeasure(); if (planTool === 'measure') drawMeasure(); } else { measurePts.pop(); drawMeasure(); } });
   setTool('select');
 
@@ -3403,7 +4224,7 @@
     if (!project) { setStatus('Start a design first: drop a PNW project, or generate a ground profile and start the design.', 'bad'); return; }
     var ids = project.poles.map(function (r) { return r.ID; });
     var go = function (id) {
-      if (kind === 'cond') { U.insTab = 'design'; U.right = true; applyLayout(); saveUi(); select(id); setTimeout(function () { var b = $('conAddBox'); if (b) { b.scrollIntoView({ block: 'nearest' }); var f = b.querySelector('select,input'); if (f) f.focus(); } }, 40); return; }
+      if (kind === 'cond') { U.insTab = 'design'; U.right = true; applyLayout(); saveUi(); select(id); setTimeout(function () { var b = $('conAddBox'); if (b) { b.open = true; conDraft.open = true; b.scrollIntoView({ block: 'nearest' }); var f = b.querySelector('select,input'); if (f) f.focus(); } }, 40); return; }
       var cons = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; });
       if (!cons.length) { U.insTab = 'design'; select(id); setStatus(id + ' has no construction yet. Add a conductor/construction first, then the ' + (kind === 'stay' ? 'stay' : 'transformer') + '.', 'bad'); return; }
       var list = kind === 'stay' ? extras(id).stays : extras(id).plant, n0 = list.length;
@@ -3465,15 +4286,28 @@
   }
   function groundAtFn() {
     var g = project && project.ground ? project.ground.map(function (q) { return { c: PNW.num(q.Chainage), z: PNW.num(q.Level) }; }).filter(function (q) { return isFinite(q.c) && isFinite(q.z); }) : [];
+    if (g.length < 2 && built && built.ground && built.ground.length) g = PNW.groundSeq(built).filter(function (r) { return r.chainage != null && isFinite(r.elevation); }).map(function (r) { return { c: r.chainage, z: r.elevation }; });
     return g.length < 2 ? null : function (c) { for (var i = 1; i < g.length; i++) if (g[i].c >= c) { var a = g[i - 1], b = g[i], t = b.c === a.c ? 0 : (c - a.c) / (b.c - a.c); return a.z + (b.z - a.z) * Math.max(0, Math.min(1, t)); } return g[g.length - 1].z; };
   }
   function spanWires(a, b) { return dm ? dm.wires.filter(function (w) { return (w.from.pole === a && w.to.pole === b) || (w.from.pole === b && w.to.pole === a); }) : []; }
-  function spanClearance(a, b) {
-    var gz = groundAtFn(), ws = spanWires(a, b); if (!gz || !ws.length) return null;
-    var min = Infinity;
-    ws.forEach(function (w) { var c0 = chainOfPole(w.from.pole), c1 = chainOfPole(w.to.pole); if (c0 == null || c1 == null) return; for (var k = 0; k <= 10; k++) { var t = k / 10, z = w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0); min = Math.min(min, z - gz(c0 + (c1 - c0) * t)); } });
-    return isFinite(min) ? min : null;
+  // Lowest conductor point above the ground in a span: {clr, e, n, z, code}. Ground from the profile, else straight between the poles.
+  function spanLowest(a, b, seg) {
+    var gz = groundAtFn(), ws = spanWires(a, b).filter(function (w) { return !seg || w.segment === seg; }), best = null; if (!ws.length) return null;
+    var gp = function (id) { var p = dm && (dm.allPoles || dm.poles).filter(function (q) { return q.id === id; })[0]; return p ? p.ground : null; };
+    ws.forEach(function (w) {
+      var c0 = chainOfPole(w.from.pole), c1 = chainOfPole(w.to.pole), g0 = gp(w.from.pole), g1 = gp(w.to.pole);
+      if (gz ? c0 == null || c1 == null : g0 == null || g1 == null) return;
+      for (var k = 0; k <= 24; k++) {
+        var t = k / 24, z = w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0), c = z - (gz ? gz(c0 + (c1 - c0) * t) : g0 + (g1 - g0) * t);
+        if (isFinite(c) && (!best || c < best.clr)) best = { clr: c, z: z, code: w.code || w.conductor || '', e: w.from.easting + (w.to.easting - w.from.easting) * t, n: w.from.northing + (w.to.northing - w.from.northing) * t };
+      }
+    });
+    return best;
   }
+  function spanClearance(a, b) { var r = spanLowest(a, b); return r ? r.clr : null; }
+  // 3D: clicking a conductor shows its ground clearance (lowest point of that conductor in the span above the ground).
+  var clr3d = null;
+  function show3dClr() { if (!window.PNW3D || !window.PNW3D.clearance) return; var r = clr3d ? spanLowest(clr3d[0], clr3d[1], clr3d[2]) : null; window.PNW3D.clearance(r ? Object.assign(r, { text: 'Ground clearance ' + r.clr.toFixed(2) + ' m' + (r.code ? ' (' + r.code + ')' : '') }) : null); }
   function spanList() {
     var ids = lineIds(), out = [];
     for (var i = 1; i < ids.length; i++) {
@@ -3486,9 +4320,9 @@
   }
   function spanTable() {
     var L0 = spanList(); if (!L0.length) return '<p class="anmsg">No spans yet: a profile needs at least two poles.</p>';
-    return '<table class="grid"><thead><tr><th>#</th><th>From</th><th>To</th><th class="num">Length (m)</th><th>Conductors</th><th class="num">Max sag (m)</th><th class="num">Min ground clearance (m)</th></tr></thead><tbody>' + L0.map(function (s, i) {
+    return '<table class="grid"><thead><tr><th>#</th><th>From</th><th>To</th><th class="num">Length (m)</th><th>Conductors</th><th class="num">Max sag (m)</th><th class="num">Min ground clearance (m)</th><th></th></tr></thead><tbody>' + L0.map(function (s, i) {
       var on = S.selSpan && !S.selected && ((S.selSpan.a === s.a && S.selSpan.b === s.b) || (S.selSpan.a === s.b && S.selSpan.b === s.a));
-      return '<tr data-span="' + esc(s.a) + '|' + esc(s.b) + '" class="' + (on ? 'sel' : '') + '"><td>' + (i + 1) + '</td><td><b>' + esc(s.a) + '</b></td><td><b>' + esc(s.b) + '</b></td><td class="num">' + f2(s.len) + '</td><td>' + (s.conds.length ? esc(s.conds.join(', ')) : '<span class="muted">none strung</span>') + '</td><td class="num">' + f2(s.sag) + '</td><td class="num">' + f2(s.clr) + '</td></tr>';
+      return '<tr data-span="' + esc(s.a) + '|' + esc(s.b) + '" class="' + (on ? 'sel' : '') + '"><td>' + (i + 1) + '</td><td><b>' + esc(s.a) + '</b></td><td><b>' + esc(s.b) + '</b></td><td class="num">' + f2(s.len) + '</td><td>' + (s.conds.length ? esc(s.conds.join(', ')) : '<span class="muted">none strung</span>') + '</td><td class="num">' + f2(s.sag) + '</td><td class="num">' + f2(s.clr) + '</td><td><button class="btn small ghost" data-spdel="' + esc(s.a) + '|' + esc(s.b) + '" title="Delete span ' + esc(s.a) + ' → ' + esc(s.b) + '">🗑</button></td></tr>';
     }).join('') + '</tbody></table>';
   }
   function sectionRows() {
@@ -3561,7 +4395,7 @@
     var t = $('pvTools');
     t.insertAdjacentHTML('beforeend', '<select id="pvProf" class="btn small" aria-label="Active profile" title="Switch profile without leaving the view"></select><span class="seg pvtog" role="group" aria-label="Profile layers"><button class="btn small on" data-pvt="ground" title="Ground profile (terrain)">Ground</button><button class="btn small on" data-pvt="clr" title="Clearance line above the ground">Clearance</button><button class="btn small on" data-pvt="hv" title="HV conductors">HV</button><button class="btn small on" data-pvt="lv" title="LV conductors">LV</button><button class="btn small on" data-pvt="earth" title="Earth wire">Earth</button><button class="btn small on" data-pvt="att" title="Attachment points and heights">Attach.</button></span>');
     t.addEventListener('click', function (e) { var b = e.target.closest('[data-pvt]'); if (!b) return; var s = U.pvShow = U.pvShow || {}, k = b.dataset.pvt; s[k] = s[k] === false; saveUi(); syncPvTools(); renderProfileView(); });
-    $('pvProf').onchange = function () { S.active = +this.value; S.generated = false; recompute(); };
+    $('pvProf').onchange = function () { switchProfile(this.value); };
     $('anMin').parentNode.insertAdjacentHTML('afterbegin', '<span id="anPv" class="seg" hidden><button data-anpv="out" title="Zoom out" aria-label="Zoom out">−</button><button data-anpv="in" title="Zoom in" aria-label="Zoom in">＋</button><button data-anpv="fit" title="Fit the whole profile">⤢ Fit</button></span>');
     $('anPv').addEventListener('click', function (e) { var b = e.target.closest('[data-anpv]'); if (!b) return; if (b.dataset.anpv === 'fit') pvFit(); else pvZoom(b.dataset.anpv === 'in' ? 0.7 : 1 / 0.7); });
   })();
@@ -3585,9 +4419,9 @@
     ws.forEach(function (w) { if (w.sag != null && (mx == null || w.sag > mx)) mx = w.sag; });
     var h = '<div class="facts">' + fact('Conductor', sg.Conductor) + fact('Tension', sg.Tension + ' ' + (sg.TensionUnits || '')) + fact('Spans', sp.length) + fact('Ruling span (m)', sp.length ? M.rulingSpan(sp).toFixed(1) : '') + fact('Max sag (m)', mx != null ? mx.toFixed(2) : '') + fact('Temperature (°C)', S.sagMode === 'none' || S.sagMode === 'illustrative' ? '–' : (S.sagTemp || 15), '', 'Set in Display: sag and temperature') + '</div>';
     h += '<div class="row2"><div class="field"><label for="ctn">Tension</label><input id="ctn" data-ctn="' + esc(n) + '" value="' + esc(sg.Tension) + '" inputmode="decimal"></div><div class="field"><label for="ctu">Units</label><select id="ctu" data-ctu="' + esc(n) + '"><option' + (sg.TensionUnits === '%CBL' ? ' selected' : '') + '>%CBL</option><option' + (sg.TensionUnits === 'kN' ? ' selected' : '') + '>kN</option></select></div></div>';
-    if (cd) { var skip = { weight_per_m: 0 }, rows = Object.keys(cd).filter(function (k) { return cd[k] != null && cd[k] !== '' && typeof cd[k] !== 'object' && String(cd[k]).length < 90; }).slice(0, 12); h += '<h3 class="sub" style="margin-top:6px">Specification</h3><table class="props">' + rows.map(function (k) { return '<tr><th>' + esc(k) + '</th><td>' + esc(cd[k]) + '</td></tr>'; }).join('') + '</table>'; }
+    if (cd) { var skip = { weight_per_m: 0 }, rows = Object.keys(cd).filter(function (k) { return cd[k] != null && cd[k] !== '' && typeof cd[k] !== 'object' && String(cd[k]).length < 90; }).slice(0, 12); h += '<h3 class="sub xinfo" style="margin-top:6px">Specification</h3><table class="props xinfo">' + rows.map(function (k) { return '<tr><th>' + esc(k) + '</th><td>' + esc(cd[k]) + '</td></tr>'; }).join('') + '</table>'; }
     else h += '<p class="hint warn">' + esc(sg.Conductor) + ' is not in the PNW library tables, so it has no properties here.</p>';
-    var cases = tipSet().cases; h += '<h3 class="sub" style="margin-top:8px">Loading conditions</h3><p class="meta">' + (cases.length ? cases.map(function (c) { return esc(c.name); }).join(' · ') : 'No tipload load combinations entered yet.') + '</p>';
+    var cases = tipSet().cases; h += '<h3 class="sub xinfo" style="margin-top:8px">Loading conditions</h3><p class="meta">' + (cases.length ? cases.map(function (c) { return esc(c.name); }).join(' · ') : 'No tipload load combinations entered yet.') + '</p>';
     var by = {}; p1.forEach(function (w) { by[w.from.pole + '|' + w.to.pole] = w; });
     h += '<h3 class="sub" style="margin-top:8px">Sag by span</h3><table class="att"><tr><th>Span</th><th class="num">Length (m)</th><th class="num">Sag (m)</th></tr>' + Object.keys(by).map(function (k) { var w = by[k]; return '<tr data-span="' + esc(k) + '" style="cursor:pointer" title="' + esc(w.sagSource || '') + '"><td>' + esc(w.from.pole) + ' → ' + esc(w.to.pole) + '</td><td class="num">' + w.span.toFixed(2) + '</td><td class="num">' + (w.sag != null ? w.sag.toFixed(2) : '–') + '</td></tr>'; }).join('') + '</table>';
     h += '<div class="btnrow"><button class="btn small" data-wb="recalc">⟳ Recalculate</button><button class="btn small" data-secshow="' + esc(n) + '">Highlight in 3D</button><button class="btn small" data-gotab="sections">Conductor schedule</button><button class="btn small" data-wb="unsec">Done</button></div>';
@@ -3596,34 +4430,26 @@
   function multiPane() {
     var ids = S.multi.slice(), p = prof(), inP = ids.filter(function (k) { return p.poleIds.indexOf(k) >= 0; }), dsg = project ? ids.filter(function (k) { return project.poles.some(function (r) { return r.ID === k; }); }) : [];
     var chs = ids.map(chainOfPole).filter(function (v) { return v != null; });
-    var h = '<div class="inspane"><div class="ins-title"><b>' + ids.length + ' poles selected</b><span class="pill info">Bulk edit</span></div><div class="facts">' + fact('Selected', ids.length) + fact('In profile', inP.length + ' of ' + ids.length) + fact('Design poles', dsg.length) + (chs.length > 1 ? fact('Chainage span (m)', (Math.max.apply(null, chs) - Math.min.apply(null, chs)).toFixed(1)) : '') + '</div>';
+    var h = '<div class="inspane"><div class="ins-title"><b>' + ids.length + ' poles selected</b><span class="pill info">Bulk edit</span>' + binBtn('data-wb="mdel"', 'Delete the selected poles') + '</div><div class="facts">' + fact('Selected', ids.length) + fact('In profile', inP.length + ' of ' + ids.length) + fact('Design poles', dsg.length) + (chs.length > 1 ? fact('Chainage span (m)', (Math.max.apply(null, chs) - Math.min.apply(null, chs)).toFixed(1)) : '') + '</div>';
     h += '<div class="chipsel">' + ids.map(function (k) { return '<button data-pick="' + esc(k) + '" title="Select only ' + esc(k) + '">' + esc(k) + '</button>'; }).join('') + '</div>';
-    h += '<h3 class="sub">Profile</h3><div class="bulk"><button class="btn small" data-wb="madd"' + (inP.length === ids.length ? ' disabled' : '') + '>Add all to profile</button><button class="btn small" data-wb="mrem"' + (inP.length ? '' : ' disabled') + '>Remove from profile</button><button class="btn small" data-wb="mzoom">⌖ Zoom to selection</button></div>';
+    h += '<h3 class="sub">Profile</h3><div class="bulk"><button class="btn small" data-wb="madd"' + (inP.length === ids.length ? ' disabled' : '') + '>Add all to profile</button><button class="btn small" data-wb="mrem"' + (inP.length ? '' : ' disabled') + '>Remove from profile</button><button class="btn small" data-wb="mzoom">⌖ Zoom to selection</button><button class="btn small" data-wb="mprof" title="A new profile (PNW line) from these poles; a pole shared with another profile is a tee-off">＋ Create profile</button></div>';
     h += '<h3 class="sub">Pole length</h3><div class="bulk"><div class="field"><input id="bkLen" inputmode="decimal" placeholder="m" style="width:80px" aria-label="New pole length for all selected poles in the profile"></div><button class="btn small" data-wb="mlen"' + (inP.length ? '' : ' disabled title="Only poles in the profile have a length"') + '>Set length on ' + inP.length + ' pole' + (inP.length === 1 ? '' : 's') + '</button></div>';
     h += '<h3 class="sub">Design</h3><div class="bulk"><button class="btn small" data-wb="mstay"' + (dsg.length ? '' : ' disabled title="Needs poles in the linked design"') + '>＋ Stay on each</button><button class="btn small" data-wb="mver"' + (dsg.length ? '' : ' disabled') + ' title="Mark photo-derived changes on these poles as verified in the field">✓ Mark verified</button><button class="btn small" data-wb="mtip">⇲ Tipload</button></div>';
     h += '<p class="hint">Shift- or Ctrl-click poles on the plan, profile or in the tables to add or remove them. Click a pole name above to work on it alone.</p><div class="btnrow"><button class="btn small" data-ctx="clear">Clear selection</button></div></div>';
     return h;
   }
-  var GROUPS = [['config', 'Pole', ['pole', 'equip']], ['cons', 'Construction', ['design']], ['cond', 'Conductors', ['cond', 'conductors']], ['att', 'Attachments', ['attach']], ['load', 'Load', ['load', 'photo', 'checks']]];
-  var SEC_TITLE = { pole: 'General', equip: 'Transformer & stays', cond: '', conductors: 'Conductors on this pole', design: 'Construction',
- attach: 'Attachment points', load: 'Loading & tipload', photo: '✨ AI photo analysis', checks: 'Checks' };
-  var lastReq = null;
-  function groupOf(key) { for (var i = 0; i < GROUPS.length; i++) if (GROUPS[i][2].indexOf(key) >= 0) return GROUPS[i][0]; return 'config'; }
-  function accOpenNow(key, g) { var o = U.accOpen = U.accOpen || {}; return o[key] === undefined ? g[2][0] === key : !!o[key]; }
-  function openSection(key) { U.accOpen = U.accOpen || {}; U.accOpen[key] = true; U.insGroup = groupOf(key); U.insTab = key; lastReq = key; }
-  function accHtml(panes, badges) {
+  // Pole inspector sections: one flat list (no tabs). Constructions and a selected conductor open by default; the rest open on request.
+  var GROUPS = [['config', 'Pole', []]], SEC_DEFAULT = { design: true, cond: true, photo: true };
+  var lastReq = null, secScroll = null;
+  function secKey(k) { return k === 'conductors' || k === 'attach' || k === 'load' ? 'design' : k; }
+  function accOpenNow(key) { var o = U.accOpen = U.accOpen || {}; return o[key] === undefined ? !!SEC_DEFAULT[key] : !!o[key]; }
+  function openSection(key) { key = secKey(key); U.accOpen = U.accOpen || {}; U.accOpen[key] = true; U.insTab = key; lastReq = key; secScroll = key; }
+  function secHtml(secs, panes) {
     if (U.insTab && U.insTab !== lastReq && U.insTab !== 'pole') openSection(U.insTab); else lastReq = U.insTab;
-    var gid = U.insGroup || 'config', g = GROUPS.filter(function (x) { return x[0] === gid; })[0] || GROUPS[0];
-    var keys = g[2].filter(function (k) { return k !== 'cond' || S.selSection; });
-    var h = '<div class="ptabs" role="tablist" aria-label="Pole details">' + GROUPS.map(function (x) { return '<button role="tab" data-insgroup="' + x[0] + '" aria-selected="' + (x[0] === g[0]) + '" class="' + (x[0] === g[0] ? 'on' : '') + '">' + x[1] + (x[0] === 'load' && badges.checks ? badges.checks : '') + '</button>'; }).join('') + '</div><div class="acc">';
-    h += keys.map(function (k) {
-      var on = accOpenNow(k, g), title = k === 'cond' ? 'Conductor · ' + esc(S.selSection) : SEC_TITLE[k];
-      return '<div class="accs' + (on ? ' open' : '') + (k === 'cond' ? ' cond' : '') + '"><button class="acch" role="button" data-instab="' + k + '" aria-expanded="' + on + '">' + title + (badges[k] || '') + '</button>' + (on ? '<div class="inspane" role="tabpanel">' + panes(k) + '</div>' : '') + '</div>';
+    return '<div class="acc">' + secs.map(function (s) {
+      var k = s[0], on = accOpenNow(k), badge = s[2] ? ' <span class="pill ' + (k === 'checks' ? 'warn' : 'mute') + '">' + s[2] + '</span>' : '', sub = s[3] ? '<small class="pd-sub">' + s[3] + '</small>' : '';
+      return '<div class="accs' + (on ? ' open' : '') + (k === 'cond' ? ' cond' : '') + '" data-pdsec="' + k + '"><button class="acch" data-instab="' + k + '" aria-expanded="' + on + '">' + s[1] + badge + sub + '</button>' + (on ? '<div class="inspane">' + panes(k) + '</div>' : '') + '</div>';
     }).join('') + '</div>';
-    return h;
-  }
-  function qaList(id) {
-    return '<div class="qlist"><h4>Quick Actions</h4><button class="primary" data-ctx="profile">📈 Open Profile</button><button data-ctx="street">📷 Street View</button><button data-wb="edit">✎ Edit Pole</button><button data-ctx="photo">✨ AI Analysis<span class="new">New</span></button></div>';
   }
   $('selected').addEventListener('click', function (e) { var g = e.target.closest('[data-insgroup]'); if (g) { U.insGroup = g.dataset.insgroup; saveUi(); renderSelected(); } });
   $('insNewProf').onclick = function () { $('newProfile').click(); };
@@ -3636,14 +4462,6 @@
     });
     if (eq && any) { var first = $('selected').querySelector('.xrow:not([hidden])'); first.insertAdjacentHTML('beforebegin', '<p class="meta"><b>' + (eq.kind === 'stay' ? 'Stay' : 'Transformer') + ' selected</b> · only its properties are shown. <button class="btn small" data-wb="eqall">Show all equipment</button></p>'); }
     else if (eq && !any) S.selEquip = null;
-    var it = $('selected').querySelector('.ins-title');
-    if (it && S.selected && !(S.multi && S.multi.length)) {
-      var ids = lineIds(), i = ids.indexOf(S.selected), A = i > 0 && poleXY(ids[i - 1]), B = poleXY(S.selected), len = A && B ? Math.hypot(A.e - B.e, A.n - B.n) : null;
-      // The header pill also counts the warning marks shown on this pole's constructions.
-      var okp = it.querySelector('.pill.ok'), nb = $('selected').querySelectorAll('.wbub').length;
-      if (okp && nb) { okp.className = 'pill warn'; okp.textContent = nb + ' note' + (nb > 1 ? 's' : '') + ' to check'; okp.title = 'See the ! marks below'; }
-      it.insertAdjacentHTML('afterend', '<small class="meta" style="display:block;margin:-2px 0 6px">' + (i > 0 && len != null ? 'Span ' + i + ' &nbsp;|&nbsp; ' + len.toFixed(2) + ' m (' + esc(ids[i - 1]) + ' → ' + esc(S.selected) + ')' : i === 0 ? 'First pole of the line' : 'Not on the line yet') + '</small>');
-    }
     renderStatusBar();
   }
   function renderStatusBar() {
@@ -3660,23 +4478,32 @@
   }
   $('statusBar').addEventListener('click', function (e) { var b = e.target.closest('[data-sb]'); if (!b) return; if (b.dataset.sb === 'issues') $('tbIssues').click(); else $('tbSave').click(); });
   function syncHeader() {
-    var sel = $('projTitle'); setTimeout(function () { var o = sel.options[sel.selectedIndex]; sel.title = o ? o.textContent : ''; }, 0); sel.innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + (linked && i === S.active ? ' · ' + esc(linked.name.replace(/\.pnwx$/i, '')) : '') + '</option>'; }).join('');
+    var sel = $('projTitle'); setTimeout(function () { var o = sel.options[sel.selectedIndex]; sel.title = o ? o.textContent : ''; }, 0); sel.innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + '</option>'; }).join('');
     var opts = Object.keys(merged.poles).map(function (k) { return '<option value="' + esc(k) + '">'; });
     var ids = lineIds(); for (var i = 1; i < ids.length; i++) opts.push('<option value="' + esc(ids[i - 1] + ' → ' + ids[i]) + '">');
     allCommands().forEach(function (c) { opts.push('<option value="' + esc(c.name) + '">Command</option>'); });
-    $('gsList').innerHTML = opts.join('');
   }
-  $('projTitle').onchange = function () { S.active = +this.value; S.generated = false; recompute(); };
-  $('gsearch').addEventListener('change', function () {
-    var v = this.value.trim(), lo = v.toLowerCase(), pid = Object.keys(merged.poles).filter(function (k) { return k.toLowerCase() === lo; })[0];
-    if (pid) { select(pid); showPole(pid); this.value = ''; return; }
-    var near = lo ? Object.keys(merged.poles).filter(function (k) { return k.toLowerCase().indexOf(lo) >= 0; }).sort() : [];
-    if (near.length) { select(near[0]); showPole(near[0]); this.value = ''; if (near.length > 1) setStatus(near.length + ' poles match “' + v + '”: ' + near.slice(0, 6).join(', ') + (near.length > 6 ? '…' : '') + '. Showing ' + near[0] + '.'); return; }
-    var cmd = lo ? allCommands().filter(function (c) { return c.name.toLowerCase() === lo; })[0] || allCommands().filter(function (c) { return c.name.toLowerCase().indexOf(lo) >= 0; })[0] : null;
-    if (cmd) { this.value = ''; if (cmd.type === 'fn') { if (FN[cmd.id]) FN[cmd.id](); } else if (cmd.type === 'tool') setTool(cmd.id); else { var ce = $(cmd.id.replace(/^pan:/, '')); if (ce) ce.click(); } return; }
-    var m = v.split(/\s*(?:→|->|>|\|)\s*/); if (m.length === 2 && poleXY(m[0]) && poleXY(m[1])) { selectSpan(m[0], m[1]); this.value = ''; return; }
-    if (v) setStatus('“' + v + '” is not a pole or span in this project.', 'bad');
-  });
+  $('projTitle').onchange = function () { switchProfile(this.value); };
+  function gsGo(v) {
+    var self = $('gsearch'); v = String(v || '').trim(); var lo = v.toLowerCase(), pid = Object.keys(merged.poles).filter(function (k) { return k.toLowerCase() === lo; })[0];
+    if (pid) { select(pid); showPole(pid); self.value = ''; return; }
+    var near = lo ? smartRank(v, Object.keys(merged.poles).sort(), function (k) { var p = merged.poles[k]; return k + ' ' + (p.survey ? p.survey.equipNo : '') + ' ' + (p.gis ? p.gis.equipNo : ''); }) : [];
+    if (near.length) { select(near[0]); showPole(near[0]); self.value = ''; if (near.length > 1) setStatus(near.length + ' poles match “' + v + '”: ' + near.slice(0, 6).join(', ') + (near.length > 6 ? '…' : '') + '. Showing ' + near[0] + '.'); return; }
+    var cmd = lo ? allCommands().filter(function (c) { return c.name.toLowerCase() === lo; })[0] || smartRank(v, allCommands(), function (c) { return c.name + ' ' + c.id; })[0] : null;
+    if (cmd) { self.value = ''; if (cmd.type === 'fn') { if (FN[cmd.id]) FN[cmd.id](); } else if (cmd.type === 'tool') setTool(cmd.id); else { var ce = $(cmd.id.replace(/^pan:/, '')); if (ce) ce.click(); } return; }
+    var m = v.split(/\s*(?:→|->|>|\|)\s*/); if (m.length === 2 && poleXY(m[0]) && poleXY(m[1])) { selectSpan(m[0], m[1]); self.value = ''; return; }
+    if (v) setStatus('“' + v + '” is not a pole, span or command in this project.', 'bad');
+  }
+  combos.gs = { value: '', free: true, blurClear: true, placeholder: 'Type a pole, span or command…', groups: gsGroups, onPick: function (v, it) { combos.gs.value = ''; $('gsearch').value = ''; if (it && it.go) it.go(); else gsGo(v); } };
+  function gsGroups() {
+    var ids = lineIds(), sp = [];
+    for (var i = 1; i < ids.length; i++) sp.push({ value: ids[i - 1] + ' → ' + ids[i], label: 'Span', keys: ids[i - 1] + ' ' + ids[i] });
+    return [
+      { label: 'Poles', items: Object.keys(merged.poles).sort().map(function (k) { var p = merged.poles[k]; return { value: k, label: p.gis ? p.gis.description || '' : '', keys: (p.survey ? p.survey.equipNo : '') + ' ' + (p.gis ? p.gis.equipNo : '') }; }) },
+      { label: 'Spans', items: sp },
+      { label: 'Commands', items: allCommands().map(function (c) { return { value: c.name, label: 'Command', keys: c.id, go: function () { gsGo(c.name); } }; }) }
+    ];
+  }
   var wsReady = false;
   // Each table cell carries its column name, so phones can show rows as cards.
   new MutationObserver(function () {
@@ -3720,9 +4547,12 @@
       else if (act === 'mstay') { var did = 0; ids.forEach(function (k) { var cons = ((dm && dm.byPole[k]) || []).filter(function (c) { return c.kingbolt != null; }); if (cons.length && project.poles.some(function (r) { return r.ID === k; })) { addExtra(k, 'stay'); did++; } }); setStatus(did + ' stay' + (did === 1 ? '' : 's') + ' added with library defaults; check each pole’s Transformer & stays section.', did ? 'good' : 'bad'); }
       else if (act === 'mver') { var vv = S.design.verified = S.design.verified || {}, now = new Date().toISOString(); ids.forEach(function (k) { vv[k] = { at: now, by: S.settings.createdBy || 'designer' }; }); save(); renderSelected(); renderStatusBar(); setStatus('Marked ' + ids.length + ' poles as verified in the field.', 'good'); }
       else if (act === 'mtip') openTip(id);
+      else if (act === 'mdel') delPoles(ids.slice());
+      else if (act === 'mprof') profPickDlg(ids.slice());
       return;
     }
     var c = e.target.closest('[data-csec]'); if (c && !e.target.closest('input,select,button')) { select(c.dataset.cpole || S.selected, { segment: c.dataset.csec }); return; }
+    var sd = e.target.closest('[data-spdel]'); if (sd) { var kk = sd.dataset.spdel.split('|'); delSpan(kk[0], kk[1]); return; }
     var sp = e.target.closest('#tableWrap [data-span], #anBody [data-span], #selected [data-span]'); if (sp && !e.target.closest('input,select,button')) { var k = sp.dataset.span.split('|'); selectSpan(k[0], k[1]); return; }
     var an = e.target.closest('#anBody tr[data-id]'); if (an) { select(an.dataset.id, addInfo(e)); showPole(an.dataset.id); return; }
     var q = e.target.closest('.xrow[data-eq] > b'); if (q) { var r = q.parentNode, kk = r.dataset.eq.split('|'); S.selEquip = { pole: S.selected, kind: kk[0] === 'stays' ? 'stay' : 'transformer', i: +kk[1] }; renderSelected(); }
@@ -3739,8 +4569,8 @@
 
   /* ---------- CAD shell: ribbon, explorer, title bar, status readouts, extra tools and tables ---------- */
   var multiMode = false, snapOn = true, ribTab = U.rtab || 'Home';
-  var TOOL_HINT = { select: 'Select: click a pole or span (Shift or Ctrl adds)', pan: 'Pan: drag the plan', measure: 'Measure: click points or poles', draw: 'Draw: click the plan to place a new pole', move: 'Move: select a hand-made pole, then click its new position' };
-  function updToolStatus() { $('sbTool').innerHTML = 'Tool: <b>' + ({ select: 'Select', pan: 'Pan', measure: 'Measure', draw: 'Draw pole', move: 'Move pole' }[planTool] || planTool) + (multiMode ? ' · multi' : '') + '</b>'; $('sbTool').title = TOOL_HINT[planTool] || ''; syncRibbon(); }
+  var TOOL_HINT = { select: 'Select: click a pole or span (Shift or Ctrl adds)', pan: 'Pan: drag the plan', measure: 'Measure: click points or poles', draw: 'Draw: click the plan to place a new pole', move: 'Move: select a hand-made pole, then click its new position', rect: 'Box select: drag a rectangle (Shift adds)', poly: 'Polygon select: click corners, double-click or Enter to finish, Esc cancels', lasso: 'Lasso select: drag a freehand loop (Shift adds)' };
+  function updToolStatus() { $('sbTool').innerHTML = 'Tool: <b>' + ({ select: 'Select', pan: 'Pan', measure: 'Measure', draw: 'Draw pole', move: 'Move pole', rect: 'Box select', poly: 'Polygon select', lasso: 'Lasso select' }[planTool] || planTool) + '</b>'; $('sbTool').title = TOOL_HINT[planTool] || ''; syncRibbon(); }
   function runWb(act) { var b = document.createElement('button'); b.dataset.wb = act; b.hidden = true; document.body.appendChild(b); b.click(); b.remove(); }
   function poleLL(id) { var q = merged.poles[id]; return q && (poleLatLng(q) || (q.gis && q.gis.lat != null ? L.latLng(q.gis.lat, q.gis.lng) : null)); }
   function snapLL(ll) {
@@ -3754,11 +4584,19 @@
   /* ribbon */
   // One home per command: Home holds the everyday tools, the other tabs the rest. Icons are Lucide (ISC licence).
   var ICONS = {"mouse-pointer-2": "<path d=\"M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z\"/>", "square-dashed-mouse-pointer": "<path d=\"M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z\"/><path d=\"M5 3a2 2 0 0 0-2 2\"/><path d=\"M19 3a2 2 0 0 1 2 2\"/><path d=\"M5 21a2 2 0 0 1-2-2\"/><path d=\"M9 3h1\"/><path d=\"M9 21h2\"/><path d=\"M14 3h1\"/><path d=\"M3 9v1\"/><path d=\"M21 9v2\"/><path d=\"M3 14v1\"/>", "hand": "<path d=\"M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2\"/><path d=\"M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2\"/><path d=\"M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8\"/><path d=\"M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15\"/>", "ruler": "<path d=\"M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z\"/><path d=\"m14.5 12.5 2-2\"/><path d=\"m11.5 9.5 2-2\"/><path d=\"m8.5 6.5 2-2\"/><path d=\"m17.5 15.5 2-2\"/>", "scan": "<path d=\"M3 7V5a2 2 0 0 1 2-2h2\"/><path d=\"M17 3h2a2 2 0 0 1 2 2v2\"/><path d=\"M21 17v2a2 2 0 0 1-2 2h-2\"/><path d=\"M7 21H5a2 2 0 0 1-2-2v-2\"/>", "circle-dot": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/>", "move-horizontal": "<path d=\"m18 8 4 4-4 4\"/><path d=\"M2 12h20\"/><path d=\"m6 8-4 4 4 4\"/>", "spline": "<circle cx=\"19\" cy=\"5\" r=\"2\"/><circle cx=\"5\" cy=\"19\" r=\"2\"/><path d=\"M5 17A12 12 0 0 1 17 5\"/>", "wand-sparkles": "<path d=\"m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72\"/><path d=\"m14 7 3 3\"/><path d=\"M5 6v4\"/><path d=\"M19 14v4\"/><path d=\"M10 2v2\"/><path d=\"M7 8H3\"/><path d=\"M21 16h-4\"/><path d=\"M11 3H9\"/>", "sparkles": "<path d=\"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z\"/><path d=\"M20 3v4\"/><path d=\"M22 5h-4\"/><path d=\"M4 17v2\"/><path d=\"M5 18H3\"/>", "gauge": "<path d=\"m12 14 4-4\"/><path d=\"M3.34 19a10 10 0 1 1 17.32 0\"/>", "circle-check": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m9 12 2 2 4-4\"/>", "triangle-alert": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>", "undo-2": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "redo-2": "<path d=\"m15 14 5-5-5-5\"/><path d=\"M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13\"/>", "move": "<path d=\"M12 2v20\"/><path d=\"m15 19-3 3-3-3\"/><path d=\"m19 9 3 3-3 3\"/><path d=\"M2 12h20\"/><path d=\"m5 9-3 3 3 3\"/><path d=\"m9 5 3-3 3 3\"/>", "trash-2": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/><line x1=\"10\" x2=\"10\" y1=\"11\" y2=\"17\"/><line x1=\"14\" x2=\"14\" y1=\"11\" y2=\"17\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "split": "<path d=\"M16 3h5v5\"/><path d=\"M8 3H3v5\"/><path d=\"M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3\"/><path d=\"m15 9 6-6\"/>", "layout-grid": "<rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\"/>", "cable": "<path d=\"M17 21v-2a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1\"/><path d=\"M19 15V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V9\"/><path d=\"M21 21v-2h-4\"/><path d=\"M3 5h4V3\"/><path d=\"M7 5a1 1 0 0 1 1 1v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1V3\"/>", "box": "<path d=\"M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z\"/><path d=\"m3.3 7 8.7 5 8.7-5\"/><path d=\"M12 22V12\"/>", "anchor": "<path d=\"M12 22V8\"/><path d=\"M5 12H2a10 10 0 0 0 20 0h-3\"/><circle cx=\"12\" cy=\"5\" r=\"3\"/>", "camera": "<path d=\"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z\"/><circle cx=\"12\" cy=\"13\" r=\"3\"/>", "chart-spline": "<path d=\"M3 3v16a2 2 0 0 0 2 2h16\"/><path d=\"M7 16c.5-2 1.5-7 4-7 2 0 2 3 4 3 2.5 0 4.5-5 5-7\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "files": "<path d=\"M20 7h-3a2 2 0 0 1-2-2V2\"/><path d=\"M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z\"/><path d=\"M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8\"/>", "images": "<path d=\"M18 22H4a2 2 0 0 1-2-2V6\"/><path d=\"m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18\"/><circle cx=\"12\" cy=\"8\" r=\"2\"/><rect width=\"16\" height=\"16\" x=\"6\" y=\"2\" rx=\"2\"/>", "folder-open": "<path d=\"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "file-plus": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M9 15h6\"/><path d=\"M12 18v-6\"/>", "file-spreadsheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "sheet": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/><line x1=\"3\" x2=\"21\" y1=\"9\" y2=\"9\"/><line x1=\"3\" x2=\"21\" y1=\"15\" y2=\"15\"/><line x1=\"9\" x2=\"9\" y1=\"9\" y2=\"21\"/><line x1=\"15\" x2=\"15\" y1=\"9\" y2=\"21\"/>", "scroll-text": "<path d=\"M15 12h-5\"/><path d=\"M15 8h-5\"/><path d=\"M19 17V5a2 2 0 0 0-2-2H4\"/><path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\"/>", "map": "<path d=\"M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z\"/><path d=\"M15 5.764v15\"/><path d=\"M9 3.236v15\"/>", "chart-line": "<path d=\"M3 3v16a2 2 0 0 0 2 2h16\"/><path d=\"m19 9-5 5-4-4-3 3\"/>", "columns-2": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>", "zoom-in": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><line x1=\"21\" x2=\"16.65\" y1=\"21\" y2=\"16.65\"/><line x1=\"11\" x2=\"11\" y1=\"8\" y2=\"14\"/><line x1=\"8\" x2=\"14\" y1=\"11\" y2=\"11\"/>", "zoom-out": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><line x1=\"21\" x2=\"16.65\" y1=\"21\" y2=\"16.65\"/><line x1=\"8\" x2=\"14\" y1=\"11\" y2=\"11\"/>", "panel-left": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/>", "panel-right": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/>", "panel-bottom": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M3 15h18\"/>", "chart-area": "<path d=\"M3 3v16a2 2 0 0 0 2 2h16\"/><path d=\"M7 11.207a.5.5 0 0 1 .146-.353l2-2a.5.5 0 0 1 .708 0l3.292 3.292a.5.5 0 0 0 .708 0l4.292-4.292a.5.5 0 0 1 .854.353V16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1z\"/>", "settings": "<path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "sliders-horizontal": "<line x1=\"21\" x2=\"14\" y1=\"4\" y2=\"4\"/><line x1=\"10\" x2=\"3\" y1=\"4\" y2=\"4\"/><line x1=\"21\" x2=\"12\" y1=\"12\" y2=\"12\"/><line x1=\"8\" x2=\"3\" y1=\"12\" y2=\"12\"/><line x1=\"21\" x2=\"16\" y1=\"20\" y2=\"20\"/><line x1=\"12\" x2=\"3\" y1=\"20\" y2=\"20\"/><line x1=\"14\" x2=\"14\" y1=\"2\" y2=\"6\"/><line x1=\"8\" x2=\"8\" y1=\"10\" y2=\"14\"/><line x1=\"16\" x2=\"16\" y1=\"18\" y2=\"22\"/>", "tag": "<path d=\"M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z\"/><circle cx=\"7.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>"};
+  // One delete control for the whole app: a bin icon button. attrs = the data-* that the existing handler reads.
+  function binBtn(attrs, label, disabledWhy) { return '<button type="button" class="ibin" ' + attrs + (disabledWhy ? ' disabled title="' + esc(disabledWhy) + '"' : ' title="' + esc(label) + '"') + ' aria-label="' + esc(label) + '">' + ico('trash-2') + '</button>'; }
+  ICONS['shield-check'] = '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>';
+  ICONS['square-dashed'] = '<path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/>';
+  ICONS['polygon'] = '<path d="M12 3 21 9.5 17.5 20h-11L3 9.5Z" stroke-dasharray="3 2"/><circle cx="12" cy="3" r="1.6"/><circle cx="21" cy="9.5" r="1.6"/><circle cx="17.5" cy="20" r="1.6"/><circle cx="6.5" cy="20" r="1.6"/><circle cx="3" cy="9.5" r="1.6"/>';
+  ICONS['lasso'] = '<path d="M7 22a5 5 0 0 1-2-4"/><path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1"/><circle cx="5" cy="16" r="2"/>';
+  ICONS['route'] = '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>';
   function ico(n) { return ICONS[n] ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[n] + '</svg>' : n; }
   var RIB = [
     ['Home', [
-      ['Modify', [['select', 'Select', 'mouse-pointer-2', 'tool', 'Select poles and spans (V)'], ['multi', 'Multi-select', 'square-dashed-mouse-pointer', 'multi', 'Add to the selection with every click (or hold Shift/Ctrl)'], ['pan', 'Pan', 'hand', 'tool', 'Pan the plan (H)'], ['measure', 'Measure', 'ruler', 'tool', 'Measure distances on the plan (M)']]],
+      ['Modify', [['select', 'Select', 'mouse-pointer-2', 'tool', 'Select poles and spans (V)'], ['rect', 'Box select', 'square-dashed', 'tool', 'Drag a rectangle on the plan to select every pole inside (B)'], ['poly', 'Polygon select', 'polygon', 'tool', 'Click the corners of a polygon on the plan to select every pole inside (P). Shift adds.'], ['lasso', 'Lasso select', 'lasso', 'tool', 'Drag a freehand loop on the plan to select every pole inside (L). Shift adds.'], ['pan', 'Pan', 'hand', 'tool', 'Pan the plan (H)'], ['measure', 'Measure', 'ruler', 'tool', 'Measure distances on the plan (M)']]],
       ['Draw', [['aPole', 'Add pole', 'circle-dot', 'run', 'Create a pole: coordinates, from another pole, or click the plan'], ['aSpan', 'Add span', 'move-horizontal', 'run', 'Join two poles'], ['tbCond', 'Draw conductor', 'spline', 'run', 'Draw a strain section pole to pole: snaps to poles on the plan and to attachment points in 3D and profile (Esc to stop)']]],
+      ['Profile', [['mkProf', 'Create profile', 'route', 'fn', 'Make a profile from the selected poles, or pick them from a list. Profiles that share a pole (tee-offs) load that pole together.']]],
       ['Automate', [['tbAuto', 'Auto design', 'wand-sparkles', 'run', 'Full draft design from QLINK, GIS exports and pole photos (Street View where there is no photo), for review'], ['tbAi', 'AI photo', 'sparkles', 'run', 'Analyse a pole photo with AI']]],
       ['Check', [['tbTip', 'Tipload', 'gauge', 'run', 'Tipload of every pole'], ['validate', 'Validate', 'circle-check', 'fn', 'Recalculate everything and list the errors and warnings'], ['tbIssues', 'Issues', 'triangle-alert', 'run', 'All errors and warnings']]],
       ['History', [['tbUndo', 'Undo', 'undo-2', 'run', 'Undo (Ctrl+Z)'], ['tbRedo', 'Redo', 'redo-2', 'run', 'Redo (Ctrl+Y)']]]]],
@@ -3781,25 +4619,235 @@
       ['Project', [['settings', 'Project & PNW', 'settings', 'fn', 'Zone, PNW user, option set and clearances']]],
       ['Display', [['sagset', 'Sag display', 'sliders-horizontal', 'fn', 'How sag and temperature are drawn'], ['tbLabels', 'Pole labels', 'tag', 'run', 'Show or hide pole labels']]]]]
   ];
+  // Delete poles: a hand-made pole goes from the project and every profile; an imported pole keeps its source data and leaves the active profile.
+  function isManual(id) { return S.files.some(function (f) { return f.manual && f.items.some(function (x) { return x.id === id; }); }); }
+  function delPoles(ids) {
+    var man = ids.filter(isManual), imp = ids.filter(function (k) { return man.indexOf(k) < 0 && !(project && project.poles.some(function (r) { return r.ID === k; })); }), one = ids.length === 1;
+    var txt = (man.length ? '<p><b>' + man.length + '</b> hand-made pole' + (man.length === 1 ? '' : 's') + ' (' + esc(man.slice(0, 8).join(', ')) + (man.length > 8 ? '…' : '') + ') will be removed from the project and from every profile.</p>' : '') +
+      (imp.length ? '<p><b>' + imp.length + '</b> imported pole' + (imp.length === 1 ? '' : 's') + ' (' + esc(imp.slice(0, 8).join(', ')) + (imp.length > 8 ? '…' : '') + ') keep their source data and are removed from the active profile only.</p>' : '');
+    var dsg0 = ids.filter(function (k) { return project && project.poles.some(function (r) { return r.ID === k; }); });
+    if (dsg0.length) txt = '<p><b>' + dsg0.length + '</b> pole' + (dsg0.length === 1 ? '' : 's') + ' in the design (' + esc(dsg0.slice(0, 8).join(', ')) + (dsg0.length > 8 ? '…' : '') + ') will be removed from the PNW project with their constructions, stays and plant. Conductors through them are cut at those poles.</p>' + txt;
+    openGen(one ? 'Delete pole ' + ids[0] : 'Delete ' + ids.length + ' poles', txt + '<div class="btnrow"><button class="btn danger" id="dpOk">Delete</button><button class="btn" id="dpNo">Cancel</button></div>', { narrow: true });
+    $('dpNo').onclick = closeGen;
+    $('dpOk').onclick = function () {
+      closeGen();
+      var dsg = ids.filter(inDesign); if (dsg.length && !delFromDesign(dsg)) return;
+      if (man.length) { var mf = S.files.filter(function (x) { return x.manual; })[0]; mf.items = mf.items.filter(function (x) { return man.indexOf(x.id) < 0; }); mf.summary = mf.items.length + ' poles'; if (!mf.items.length) S.files = S.files.filter(function (x) { return x !== mf; }); S.profiles.forEach(function (p) { p.poleIds = p.poleIds.filter(function (x) { return man.indexOf(x) < 0; }); man.forEach(function (k) { delete p.lengths[k]; }); }); }
+      if (imp.length || dsg.length) prof().poleIds = prof().poleIds.filter(function (x) { return imp.indexOf(x) < 0 && dsg.indexOf(x) < 0; });
+      S.selected = null; S.multi = []; S.generated = false; recompute(); select(null);
+      setStatus([dsg.length ? dsg.length + ' deleted from the design' + (dsg.length < 4 ? ' (' + dsg.join(', ') + ')' : '') : '', man.length ? man.length + ' hand-made deleted' : '', imp.length ? imp.length + ' removed from the profile' : ''].filter(Boolean).join(', ') + '.', 'good');
+    };
+  }
+  /* Create profile: each profile is its own PNW line (.pnwx). A pole shared by two lines (a tee-off) is drawn once with the
+     constructions of both, and its tipload takes the conductors of every line through it (see syncIntersecting / tipInput). */
+  function makeProfile(ids, name) {
+    ids = ids.filter(function (k) { return merged.poles[k] && poleXY(k); });
+    if (ids.length < 2) return 'Pick at least two poles that have coordinates.';
+    ids = PNW.autoOrder(merged.poles, ids);
+    name = (name || '').trim() || 'Profile ' + (S.profiles.length + 1);
+    var fname = 'Ground Profile - ' + name.replace(/[\\/:*?"<>|]+/g, '-') + '.pnwx';
+    if (S.files.some(function (f) { return f.name === fname; }) || S.profiles.some(function (p) { return p.name === name && p.poleIds.length; })) return 'A profile called “' + name + '” already exists. Give it another name.';
+    var lengths = {};
+    ids.forEach(function (k) {
+      var L = null; S.profiles.forEach(function (p) { if (L == null && p.lengths[k] != null) L = p.lengths[k]; });
+      if (L == null && dm) { var q = dm.allPoles.filter(function (x) { return x.id === k; })[0]; if (q && q.length > 0) L = q.length; }
+      var ex = PNW.existingLength(merged.poles[k]).value; if (L != null && L !== ex) lengths[k] = L;
+    });
+    var pr = { name: name, poleIds: ids, lengths: lengths, comments: {}, segments: [], file: fname }, bt = PNW.buildProfile(merged.poles, pr);
+    if (!bt.ok) return bt.issues.filter(function (i) { return i.level === 'error'; }).map(function (i) { return i.message; }).join(' ');
+    var text = PNW.profilePnwx(bt, { title: 'Ground Profile - ' + name, createdBy: S.settings.createdBy, option: S.settings.optionSet, clearance1: PNW.num(S.settings.clr1), clearance2: PNW.num(S.settings.clr2) });
+    var r = importText(fname, text); r.size = text.length; r.status = 'ok'; r.made = true; upsertFile(r);
+    var empty = S.profiles.findIndex(function (p) { return p.name === name; });
+    if (empty >= 0) S.profiles[empty] = pr; else S.profiles.push(pr);
+    var shared = [];
+    S.profiles.forEach(function (p) { if (p !== pr) p.poleIds.forEach(function (k) { if (ids.indexOf(k) >= 0 && shared.indexOf(k) < 0) shared.push(k); }); });
+    S.design.log = liveLog().concat([logEntry(ids[0], 'Profile', 'Created', '', name + ': ' + ids.join(', '), 'manual', fname)]);
+    linkDesign(fname); S.multi = []; select(null);
+    setStatus('Created “' + name + '” with ' + ids.length + ' poles (' + ids[0] + ' → ' + ids[ids.length - 1] + '). It is now the line being designed.' + (shared.length ? ' Shared with other profiles: ' + shared.join(', ') + '. Those poles carry the constructions of every line, and their tipload includes all of them.' : ''), 'good');
+    return null;
+  }
+  function profNameDlg(ids) {
+    var o = PNW.autoOrder(merged.poles, ids.slice());
+    openGen('Create profile', '<div class="field"><label for="mpName">Profile name</label><input id="mpName" value="Profile ' + (S.profiles.length + 1) + '"></div><p class="meta">' + o.length + ' poles, in order along the line: ' + esc(o.join(' → ')) + '</p><p class="err" id="mpErr" hidden></p><div class="btnrow"><button class="btn primary" id="mpOk">Create profile</button><button class="btn" id="mpNo">Cancel</button></div>', { narrow: true });
+    $('mpNo').onclick = closeGen;
+    var go = function () { var e = makeProfile(ids, $('mpName').value); if (e) { $('mpErr').textContent = e; $('mpErr').hidden = false; } else closeGen(); };
+    $('mpOk').onclick = go; $('mpName').onkeydown = function (e) { if (e.key === 'Enter') go(); };
+    setTimeout(function () { $('mpName').select(); }, 0);
+  }
+  function uniqueProfName() { var n = S.profiles.length + 1; while (S.profiles.some(function (p) { return p.name === 'Profile ' + n; }) || S.files.some(function (f) { return f.name === 'Ground Profile - Profile ' + n + '.pnwx'; })) n++; return 'Profile ' + n; }
+  // Create profile: tick poles in the list or click them on the plan / 3D while the window is open. The order along the line,
+  // shared poles (tee-offs) and a line that only repeats part of another profile are shown before anything is made.
+  var mpPick = null;
+  function profPickDlg(pre) {
+    var order = Object.keys(merged.poles).filter(function (k) { return poleXY(k); }).sort();
+    var inProf = function (k) { return S.profiles.filter(function (p) { return p.poleIds.indexOf(k) >= 0 && p.poleIds.length; }).map(function (p) { return p.name; }); };
+    var picked = {}; (pre || []).forEach(function (k) { if (order.indexOf(k) >= 0) picked[k] = 1; });
+    openGen('Create profile', '<div class="mp-top"><div class="field"><label for="mpName">Profile name</label><input id="mpName" value="' + esc(uniqueProfName()) + '"></div><div class="field"><label for="mpFind">Find pole</label><input id="mpFind" placeholder="Pole ID"></div></div>' +
+      '<p class="hint" style="display:block">Tick poles here or click them on the plan or in 3D (this window stays open). For a tee-off, include the pole it branches from.</p>' +
+      '<div class="mp-list">' + order.map(function (k) { var ip = inProf(k); return '<label data-mp="' + esc(k) + '"><input type="checkbox" value="' + esc(k) + '"' + (picked[k] ? ' checked' : '') + '> <b>' + esc(k) + '</b>' + (ip.length ? ' <small>' + esc(ip.join(', ')) + '</small>' : '') + '</label>'; }).join('') + '</div>' +
+      '<div class="mp-sum" id="mpSum"></div><p class="err" id="mpErr" hidden></p><div class="btnrow"><button class="btn primary" id="mpOk">Create profile</button><button class="btn" id="mpClear">Clear ticks</button><button class="btn" id="mpNo">Cancel</button></div>', { noFocus: true, side: true });
+    var box = $('genBody'), list = function () { return Array.prototype.map.call(box.querySelectorAll('.mp-list input:checked'), function (c) { return c.value; }); };
+    function upd() {
+      var ids = list(), o = ids.length > 1 ? PNW.autoOrder(merged.poles, ids.slice()) : ids, sum = $('mpSum'); if (!sum) return;
+      var shared = o.filter(function (k) { return inProf(k).length; }), dup = S.profiles.filter(function (p) { return o.length > 1 && o.every(function (k) { return p.poleIds.indexOf(k) >= 0; }); }).map(function (p) { return p.name; });
+      sum.innerHTML = '<b>' + o.length + ' pole' + (o.length === 1 ? '' : 's') + '</b>' + (o.length ? ': ' + esc(o.join(' → ')) : ' ticked') +
+        (shared.length && !dup.length ? '<br><span class="ok">Shared with other profiles: ' + esc(shared.join(', ')) + ' (tee-off: these carry both lines and their tipload includes both).</span>' : '') +
+        (dup.length ? '<br><span class="warn">Every ticked pole is already on ' + esc(dup.join(', ')) + '. This makes a second line over the same poles; for a tee-off, tick the branch poles plus the one pole it leaves from.</span>' : '') +
+        (o.length < 2 ? '<br><span class="muted">Tick at least two poles.</span>' : '');
+      $('mpOk').disabled = o.length < 2; $('mpErr').hidden = true;
+    }
+    mpPick = function (id) { var c = box.querySelector('[data-mp="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"] input'); if (!c) return false; c.checked = !c.checked; c.closest('label').scrollIntoView({ block: 'nearest' }); upd(); return true; };
+    box.querySelector('.mp-list').onchange = upd;
+    $('mpFind').oninput = function () { var q = this.value.trim().toUpperCase(); Array.prototype.forEach.call(box.querySelectorAll('[data-mp]'), function (l) { l.hidden = q && !smartScore(q, l.dataset.mp + ' ' + l.textContent); }); };
+    $('mpClear').onclick = function () { Array.prototype.forEach.call(box.querySelectorAll('.mp-list input:checked'), function (c) { c.checked = false; }); upd(); };
+    $('mpNo').onclick = closeGen;
+    var go = function () {
+      var nm = $('mpName').value.trim(); if (!nm) { $('mpErr').textContent = 'Give the profile a name.'; $('mpErr').hidden = false; $('mpName').focus(); return; }
+      var e; restoringWrap(function () { e = makeProfile(list(), nm); }); if (e) { $('mpErr').textContent = e; $('mpErr').hidden = false; } else closeGen();
+    };
+    $('mpOk').onclick = go; $('mpName').onkeydown = function (ev) { if (ev.key === 'Enter') go(); };
+    upd(); setTimeout(function () { var n = $('mpName'); if (n) n.select(); }, 0);
+  }
+  // Run a multi-step change as one undo step.
+  function restoringWrap(fn) { var before = lastSnap; restoring = true; try { fn(); } finally { restoring = false; } var now = snapState(); if (before != null && now !== before) { undoStack.push(before); redoStack = []; } lastSnap = now; renderHistory(); }
+  // Delete a profile: its pole order and lengths go; a PNW line made here goes too, an imported .pnwx file stays in Files.
+  function delProfileDlg(i) {
+    var p = S.profiles[i]; if (!p) return; var nm = p.name || 'Profile ' + (i + 1), mf = p.file && S.files.filter(function (f) { return f.name === p.file && f.made; })[0];
+    openGen('Delete profile ' + nm, '<p>Delete <b>' + esc(nm) + '</b> (' + p.poleIds.length + ' pole' + (p.poleIds.length === 1 ? '' : 's') + ')?' + (mf ? ' Its PNW line <b>' + esc(mf.name) + '</b>, made here, is deleted with it.' : p.file ? ' The imported file ' + esc(p.file) + ' stays in Files.' : '') + ' The survey stays. Ctrl+Z undoes this.</p><div class="btnrow"><button class="btn danger" id="dprOk">Delete profile</button><button class="btn" id="dprNo">Cancel</button></div>', { narrow: true });
+    $('dprNo').onclick = closeGen;
+    $('dprOk').onclick = function () {
+      closeGen();
+      restoringWrap(function () {
+        var to = S.profiles.length > 1 ? (i === 0 ? 1 : 0) : -1;
+        if (to >= 0 && S.active === i) switchProfileInner(to);
+        if (S.profiles.length < 2) { S.profiles[0] = newProfile('Profile 1'); S.design = Object.assign(blankDesign(), { register: S.design.register, log: S.design.log }); S.active = 0; }
+        else { var keep = S.profiles[S.active === i ? to : S.active]; S.profiles.splice(i, 1); S.active = S.profiles.indexOf(keep); }
+        if (mf) S.files = S.files.filter(function (f) { return f !== mf; });
+        xCache = {}; textCache = {}; regCache = null; S.generated = false; recompute(); select(null);
+      });
+      if (typeof renderExtras === 'function') renderExtras(); undoStatus('Deleted profile ' + nm + '.');
+    };
+  }
+  function renameProfileDlg(i) {
+    var p = S.profiles[i]; if (!p) return;
+    openGen('Rename profile', '<div class="field"><label for="rnName">Profile name</label><input id="rnName" value="' + esc(p.name || '') + '"></div><p class="err" id="rnErr" hidden></p><div class="btnrow"><button class="btn primary" id="rnOk">Rename</button><button class="btn" id="rnNo">Cancel</button></div>', { narrow: true });
+    $('rnNo').onclick = closeGen;
+    var go = function () { var v = $('rnName').value.trim(); if (!v) return; if (S.profiles.some(function (q, k) { return k !== i && q.name === v; })) { $('rnErr').textContent = 'Another profile is called “' + v + '”.'; $('rnErr').hidden = false; return; } p.name = v; closeGen(); recompute(); setStatus('Renamed to “' + v + '”.', 'good'); };
+    $('rnOk').onclick = go; $('rnName').onkeydown = function (e) { if (e.key === 'Enter') go(); }; setTimeout(function () { $('rnName').select(); }, 0);
+  }
+  /* ---------- Existing pole strength: the PNW Pole Strength module, limit state method (PNW 7 manual §11, AS7000:2016 appendix F).
+     φM = φ·k1·kd·k20·k21·k22·fb·Z at the ground line, capacity at the tip = φM / height above ground; Loading 1 uses k1 for wind
+     (short term), Loading 2 the long-term k1. A decayed section is the total area less the decay area, ignoring where the decay
+     is (manual §11.5). fb comes from the PNW Species database and kd from AS7000 table F5: the user enters both. ---------- */
+  // PNW Species table, Western Power set (Ishan's PNW database export pnwdata-wp-may19.xml): code: [name, fb MPa, density kg/m³, mid-length taper mm/m, softwood].
+  var SPECIES = {"BB":["Blackbutt",80.0,1100.0,10.0,false],"BU":["Broadleaf Red Iron Bark",100.0,1100.0,10.0,false],"GB":["Grey Box",80.0,1100.0,10.0,false],"GG":["Grey Gum",100.0,1100.0,10.0,false],"GI":["Grey Iron Bark",100.0,1100.0,10.0,false],"GM":["Gympie Messmate",80.0,1100.0,10.0,false],"J":["Jarrah",42.0,1100.0,10.0,false],"K":["Karri",55.0,1100.0,10.0,false],"RI":["Red Iron Bark",80.0,1100.0,10.0,false],"RM":["Red Mahogany",80.0,1100.0,10.0,false],"RW":["Blood Wood Red",65.0,1100.0,10.0,false],"SG":["Spotted Gum",80.0,1100.0,10.0,false],"TW":["Tallow",80.0,1100.0,10.0,false],"WM":["Mahogany White",80.0,1100.0,10.0,false],"YS":["Yellow Stringybark",65.0,1100.0,10.0,false],"PR":["Radiata Pine",35.0,800.0,10.0,true],"CG":["Cadaga",80.0,1100.0,10.0,false],"CB":["Costal Box",80.0,1100.0,10.0,false],"CI":["Cooktown Iron Bark",100.0,1100.0,10.0,false],"CR":["Crow's Ash",80.0,1100.0,10.0,false],"GRM":["Grey Mahogany",80.0,1100.0,10.0,false],"HA":["Hickory Ash",100.0,1100.0,10.0,false],"IB":["Iron Bark",80.0,1100.0,10.0,false],"MR":["Marri",55.0,1100.0,10.0,false],"PM":["Maritime Pine",35.0,800.0,10.0,true],"PP":["Pinasta Pine",35.0,800.0,10.0,true],"RO":["Rosegum",65.0,1100.0,10.0,false],"SS":["Silvertop Stringybark",80.0,1100.0,10.0,false],"PS":["Pinus Silvestris/Baltic/Scotts",31.0,1100.0,10.0,true],"T":["Tingle Wood",80.0,1100.0,10.0,false],"UHW":["Unknown hardwood",42.0,1100.0,10.0,false],"USW":["Unknown softwood",35.0,800.0,10.0,true],"BA":["WA Blackbutt",42.0,1100.0,10.0,false],"WG":["Wandoo",80.0,1100.0,10.0,false],"S1":["Strength group S1",100.0,1100.0,10.0,false],"S2":["Strength group S2",80.0,1100.0,10.0,false],"S3":["Strength group S3",65.0,1100.0,10.0,false],"S4":["Strength group S4",50.0,1100.0,10.0,false],"S5":["Strength group S5",40.0,1100.0,10.0,true],"S6":["Strength group S6",35.0,1100.0,10.0,true],"S7":["Strength group S7",25.0,1100.0,10.0,true]};
+  function spCode(name) { if (!name) return ''; if (SPECIES[name]) return name; var n = String(name).trim().toLowerCase(); for (var k in SPECIES) if (SPECIES[k][0].toLowerCase() === n) return k; return ''; }
+  // kd by pole age, read by Ishan from PNW "File > Show factors" with new pole life 50 years (same for every species); straight lines between.
+  var KD_AGE = [[5, 1], [10, 0.99], [15, 0.84], [20, 0.62], [25, 0.47], [30, 0.39], [35, 0.35], [40, 0.32], [45, 0.31], [50, 0.29], [60, 0.28]];
+  function kdAge(a) { if (!(a >= 0)) return null; if (a <= KD_AGE[0][0]) return 1; for (var i = 1; i < KD_AGE.length; i++) if (a <= KD_AGE[i][0]) { var p = KD_AGE[i - 1], q = KD_AGE[i]; return Math.round((p[1] + (q[1] - p[1]) * (a - p[0]) / (q[0] - p[0])) * 10000) / 10000; } return KD_AGE[KD_AGE.length - 1][1]; }
+  var STR_NUM = /^(phi|k1w|k1l|k20|k21|k22|kd)$/;
+  function strSet() { var s = S.design.pstr = S.design.pstr || {}; var d = { phi: 0.7, k1w: 1, k1l: 0.57, k20: 1, k21: 1, k22: 1, kd: '' }; for (var k in d) if (s[k] === undefined) s[k] = d[k]; s.fb = s.fb || {}; s.poles = s.poles || {}; return s; }
+  var GW1 = ['Good Wood Reading 1m AGL (mm)', 'Good Wood Reading 1M AGL', 'Good Wood Reading 1m AGL'], GLD = ['Pole Diameter GL (mm)', 'Pole Diameter Ground Line (mm)'], GWG = ['Good Wood Reading 100 AGL (mm)'];
+  function firstNum(rec, names) { for (var i = 0; i < names.length; i++) { var v = rec && rec[names[i]], n = v == null ? null : parseFloat(v); if (n > 0) return n; } return null; }
+  // Inputs from the inspection files: the newest inspection with a ground-line diameter (preferring one that also read good wood).
+  function strAuto(id) {
+    var p = merged.poles[id]; if (!p) return null; var ins = p.insp || { byDate: {}, attrs: {}, none: true }; // no inspection: the designer types the inputs
+    var bd = ins.byDate || {}, ds = Object.keys(bd).sort().reverse(), withD = ds.filter(function (k) { return firstNum(bd[k], GLD); }), dk = withD.filter(function (k) { return firstNum(bd[k], GW1); })[0] || withD[0];
+    var rec = dk ? bd[dk] : {}, yr = parseFloat((ins.attrs['Estimated Install Year'] || {}).value), mo = parseFloat((ins.attrs['Estimated Install Month'] || {}).value) || 1;
+    var prw = project && project.poles.filter(function (x) { return x.ID === id; })[0], L = prw && PNW.num(prw.Length) > 0 ? PNW.num(prw.Length) : (prof().lengths[id]) || PNW.existingLength(p).value, sunk = prw && PNW.num(prw.Sunk) > 0 ? PNW.num(prw.Sunk) : L > 0 ? PNW.settingDepth(L) : null, sp = spCode(p.gis && p.gis.species);
+    return { date: dk || '', D: firstNum(rec, GLD), gw1: firstNum(rec, GW1), gwGL: firstNum(rec, GWG), year: yr > 1900 ? yr : null, age: yr > 1900 ? Math.round(((Date.now() - Date.UTC(yr, mo - 1, 1)) / 31557600000) * 10) / 10 : null,
+      L: L || null, sunk: sunk, hag: L > 0 ? Math.round((L - sunk) * 100) / 100 : null, species: sp, wood: SPECIES[sp] && SPECIES[sp][4] ? 'SOFT' : 'HARD', manual: !!ins.none, concrete: /PCON|concrete/i.test((ins.group || '') + ' ' + ((p.gis && p.gis.stock) || '')) };
+  }
+  function strRow(id) { var a = strAuto(id); if (!a) return null; var o = strSet().poles[id] || {}; var r = Object.assign({}, a); ['species', 'D', 'gwGL', 'hag', 'L', 'sunk', 'kd', 'wood', 'at', 'age'].forEach(function (k) { if (o[k] !== undefined && o[k] !== '') r[k] = o[k]; }); r.use = !!o.use; if ((o.kd == null || o.kd === '') && r.age != null) r.kd = kdAge(+r.age); return r; }
+  function strCalc(r) {
+    var s = strSet(), fb = parseFloat(s.fb[r.species] != null ? s.fb[r.species] : SPECIES[r.species] ? SPECIES[r.species][1] : NaN), kd = parseFloat(r.kd != null && r.kd !== '' ? r.kd : s.kd), D = parseFloat(r.D), t = parseFloat(r.gwGL), h = parseFloat(r.hag);
+    var miss = [!(D > 0) && 'ground diameter', !r.species && 'species', r.species && !(fb > 0) && 'fb for ' + r.species, !(kd > 0) && 'kd', !(h > 0) && 'height'].filter(Boolean);
+    if (miss.length) return { miss: miss };
+    var at = r.at != null && r.at !== '' ? +r.at : 1, D0 = D; D = D0 - ((SPECIES[r.species] || [])[3] || 10) * at; var dec = t > 0 && t < D / 2 ? D - 2 * t : 0, De = Math.sqrt(D * D - dec * dec), Z = Math.PI * De * De * De / 32;
+    var base = +s.phi * kd * +s.k20 * +s.k21 * +s.k22 * fb * Z / 1e6, m1 = base * +s.k1w, m2 = base * +s.k1l;
+    return { m1: m1, m2: m2, t1: m1 / h, t2: m2 / h, De: De, Dsec: D, at: at };
+  }
+  // Saved like PNW does it: the result becomes a pole type coded with the pole number, selected as this pole's type.
+  // Tip/butt diameters and weight use the module's defaults shown in the PNW screen: taper 10 mm/m, timber density 1100 kg/m³.
+  function strPane(id) {
+    var r = strRow(id); if (!r) return '<p class="pd-none">No inspection data for ' + esc(id) + '. Import the pole inspections file.</p>';
+    if (r.concrete) return '<p class="pd-none">' + esc(id) + ' is a concrete pole: the strength module is for wood poles.</p>';
+    var s = strSet(), c = strCalc(r), o = s.poles[id] || {}, saved = (S.design.poleLib || {})[id];
+    var fld = function (k, label, v, w, ttl) { return '<label class="ps-f"' + (ttl ? ' title="' + esc(ttl) + '"' : '') + '><small>' + label + '</small><input data-pps="' + k + '" value="' + esc(v == null ? '' : String(v)) + '" style="width:' + (w || 60) + 'px"></label>'; };
+    var spSel = '<label class="ps-f"><small>Species</small><select data-pps="species"><option value="">Choose…</option>' + Object.keys(SPECIES).map(function (k) { return '<option value="' + k + '"' + (k === r.species ? ' selected' : '') + '>' + k + ' · ' + esc(SPECIES[k][0]) + '</option>'; }).join('') + '</select></label>';
+    var h = (r.manual ? '<p class="hint">No inspection data for ' + esc(id) + ': enter the inputs by hand.</p>' : '') + '<div class="ps-grid">' + spSel + fld('fb', 'fb MPa', r.species ? (s.fb[r.species] != null ? s.fb[r.species] : SPECIES[r.species] ? SPECIES[r.species][1] : '') : '', 56, 'Bending strength, PNW Species table (Western Power set)') + fld('age', 'Age y', r.age, 44, 'Pole age from the install year; kd follows it') + fld('kd', 'kd', r.kd != null && r.kd !== '' ? r.kd : s.kd, 54, 'Degradation factor from the pole age (PNW, new pole life 50 years). Type a value to override') +
+      fld('D', 'GL Ø mm', r.D, 54, 'Ground-line diameter' + (r.date ? ', inspection ' + r.date : '')) + fld('at', 'Section m AGL', r.at != null && r.at !== '' ? r.at : 1, 44, 'Height of the critical section above ground (PNW: Diameter @ 1.0). Its diameter = GL diameter − mid taper × height') + fld('gwGL', 'Good wood', r.gwGL, 54, 'Good wood at the section. Blank = solid; a value = central decay') + '</div>';
+    h += '<p class="meta">L ' + f2(r.L, 1) + ' m · sunk ' + f2(r.sunk, 2) + ' m · height ' + f2(r.hag, 2) + ' m' + (r.gw1 ? ' · good wood 1 m ' + r.gw1 + ' mm' : '') + (r.year ? ' · installed ' + r.year + ' (' + r.age + ' y)' : '') + (r.date ? ' · inspected ' + r.date : '') + '</p>';
+    h += c.miss ? '<p class="ps-need">Enter the ' + esc(c.miss.join(', ')) + ' above to calculate the strength. Save as pole type unlocks when they are filled.</p>' : '<p class="meta">Section at ' + c.at + ' m: Ø ' + f2(c.Dsec, 0) + ' mm</p><div class="ps-res"><span>Loading 1 <b>' + f2(c.t1, 2) + ' kN</b> <small>' + f2(c.m1, 1) + ' kN·m</small></span><span>Loading 2 <b>' + f2(c.t2, 2) + ' kN</b> <small>' + f2(c.m2, 1) + ' kN·m</small></span></div>';
+    h += '<div class="btnrow"><button class="btn small primary" data-pstrgo="' + esc(id) + '"' + (c.miss ? ' disabled' : '') + '>' + (saved ? 'Recalculate pole type ' : 'Save as pole type ') + esc(id) + '</button>' + (saved ? '<span class="meta">Pole type ' + esc(saved.code) + ': ' + f2(saved.ultimate, 2) + ' kN</span>' : '') + '</div>';
+    return h;
+  }
+  function strCode(id) { return 'Existing-' + id; }
+  // Strength button: calculate and save straight away; if inputs are missing, ask for them in a floating box beside the button.
+  function strStart(id, btn) {
+    var old = $('strPop'); if (old) old.remove();
+    var r = strRow(id), c = r && strCalc(r);
+    if (r && !r.concrete && c && !c.miss) { strApply(id); return; }
+    var pop = document.createElement('div'); pop.id = 'strPop'; pop.className = 'pop'; pop.setAttribute('role', 'dialog');
+    var h = '<b>Pole strength ' + esc(id) + '</b>';
+    if (!r) h += '<p class="hint bad">No inspection data for ' + esc(id) + '. Import the pole inspections file first.</p>';
+    else if (r.concrete) h += '<p class="hint">' + esc(id) + ' is a concrete pole: the strength module is for wood poles.</p>';
+    else {
+      var m = c.miss.join(' '), f = function (k, label, v) { return '<label>' + label + ' <input data-sp="' + k + '" value="' + esc(v == null ? '' : String(v)) + '" inputmode="decimal" style="width:80px"></label>'; };
+      if (r.manual) h += '<p class="hint" style="margin:4px 0">No inspection data for ' + esc(id) + ': enter the values from the field.</p>';
+      h += '<p class="meta" style="margin:4px 0">Missing: ' + esc(c.miss.join(', ')) + '</p>';
+      h += '<label>Species <select data-sp="species"><option value="">Choose…</option>' + Object.keys(SPECIES).map(function (k) { return '<option value="' + k + '"' + (k === r.species ? ' selected' : '') + '>' + k + ' · ' + esc(SPECIES[k][0]) + '</option>'; }).join('') + '</select></label>';
+      if (/fb for/.test(m)) h += f('fb', 'fb MPa', '');
+      h += f('D', 'GL diameter mm', r.D) + f('gwGL', 'Good wood mm (blank = solid)', r.gwGL) + f('age', 'Pole age (years)', r.age) + f('L', 'Pole length m', r.L);
+      h += '<div class="btnrow"><button class="btn small primary" data-spgo>Calculate and save</button><button class="btn small" data-spx>Cancel</button></div>';
+    }
+    if (!r || r.concrete) h += '<div class="btnrow"><button class="btn small" data-spx>Close</button></div>';
+    pop.innerHTML = h; document.body.appendChild(pop);
+    var b = btn.getBoundingClientRect(); pop.style.position = 'fixed'; pop.style.top = Math.max(8, Math.min(b.bottom + 6, innerHeight - pop.offsetHeight - 8)) + 'px'; pop.style.left = Math.max(8, Math.min(b.left, innerWidth - pop.offsetWidth - 8)) + 'px';
+    var first = pop.querySelector('select,input'); if (first) first.focus();
+    pop.addEventListener('keydown', function (e) { if (e.key === 'Escape') pop.remove(); if (e.key === 'Enter' && pop.querySelector('[data-spgo]')) pop.querySelector('[data-spgo]').click(); });
+    pop.addEventListener('click', function (e) {
+      if (e.target.closest('[data-spx]')) { pop.remove(); return; }
+      if (!e.target.closest('[data-spgo]')) return;
+      var ss = strSet(), po = ss.poles[id] = ss.poles[id] || {};
+      Array.prototype.forEach.call(pop.querySelectorAll('[data-sp]'), function (el) {
+        var k = el.dataset.sp, v = el.value.trim(); if (v === '') return;
+        if (k === 'species') po.species = v;
+        else if (k === 'fb') { var sp = po.species || r.species; if (sp) ss.fb[sp] = parseFloat(v); }
+        else if (k === 'L') { if (parseFloat(v) === +r.L) return; po.L = parseFloat(v); po.sunk = PNW.settingDepth(po.L); po.hag = Math.round((po.L - po.sunk) * 100) / 100; }
+        else po[k] = parseFloat(v);
+      });
+      save();
+      var c2 = strCalc(strRow(id));
+      pop.remove();
+      if (c2.miss) { strStart(id, btn.isConnected ? btn : document.querySelector('[data-pstropen="' + id + '"]') || btn); setStatus('Still missing for ' + id + ': ' + c2.miss.join(', ') + '.', 'bad'); return; }
+      strApply(id);
+    });
+    setTimeout(function () { document.addEventListener('mousedown', function off(e) { if (!pop.isConnected) return document.removeEventListener('mousedown', off); if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('mousedown', off); } }); }, 0);
+  }
+  function strApply(id) {
+    var r = strRow(id), c = r && strCalc(r); if (!c || c.miss) { openSection('pstr'); saveUi(); renderSelected(); setStatus('Pole strength for ' + id + ' needs ' + ((c && c.miss) || ['inspection data']).join(', ') + '.', 'bad'); return; }
+    var spd = SPECIES[r.species] || [], D = +r.D, L = +r.L, sk = +r.sunk, hg = +r.hag, tp = spd[3] || 10, dens = spd[2] || 1100, dT = D - tp * hg, dB = D + tp * sk, fr = function (a, b, len) { return Math.PI / 12 * len * (a * a + a * b + b * b) / 1e6; };
+    var ent = { code: strCode(id), description: 'Existing ' + (SPECIES[r.species] ? SPECIES[r.species][0] : r.species || 'wood') + ' ' + L + 'm/' + c.t1.toFixed(2) + 'kN (pole strength ' + new Date().toISOString().slice(0, 10) + ')', length: L, sinking: sk, height: hg, material: 'Wood',
+      diamTip: Math.round(dT), diamGL: D, diamButt: Math.round(dB), diamAvg: Math.round(D - tp * hg / 2), weight: Math.round(dens * (fr(D, dT, hg) + fr(dB, D, sk))), ultimate: Math.round(c.t1 * 100) / 100, vertical: null, kN: Math.round(c.t1 * 100) / 100,
+      selfSupporting: false, strength: { m1: c.m1, m2: c.m2, t1: c.t1, t2: c.t2, inputs: r } };
+    (S.design.poleLib = S.design.poleLib || {})[id] = ent;
+    var types = S.design.poleTypes = S.design.poleTypes || {}, before = types[id] || '', inProj = project && project.poles.some(function (x) { return x.ID === id; });
+    var msg = 'Pole type ' + ent.code + ' saved (' + ent.ultimate + ' kN wind, ' + c.t2.toFixed(2) + ' kN long term) and selected for ' + id + '.';
+    openSection('pstr'); saveUi(); // show the calculation, so the click visibly does something even when the type was already set
+    if (inProj) { syncDesign(); commit(function (p) { M.updatePole(p, id, { length: L, sunk: sk }); types[id] = ent.code; return [logEntry(id, '', 'Pole type', before, ent.code + ' (' + ent.description + ')', 'calculated', 'PNW Pole Strength, limit state method')]; }); }
+    else { types[id] = ent.code; S.design.log = liveLog().concat([logEntry(id, '', 'Pole type', before, ent.code, 'calculated', 'PNW Pole Strength, limit state method')]); recompute(); }
+    setStatus(msg, 'good');
+  }
   var FN = {
-    delPole: function () {
-      var id = S.selected; if (!id) { setStatus('Select a pole first.', 'bad'); return; }
-      var man = S.files.some(function (f) { return f.manual && f.items.some(function (x) { return x.id === id; }); });
-      openGen('Delete pole ' + id, '<p>' + (man ? 'Pole <b>' + esc(id) + '</b> was created by hand. It will be removed from the project and from every profile.' : 'Pole <b>' + esc(id) + '</b> comes from an imported file, so the source data stays. It will only be removed from the active profile.') + '</p><div class="btnrow"><button class="btn danger" id="dpOk">Delete</button><button class="btn" id="dpNo">Cancel</button></div>', { narrow: true });
-      $('dpNo').onclick = closeGen;
-      $('dpOk').onclick = function () {
-        closeGen();
-        if (man) { var mf = S.files.filter(function (x) { return x.manual; })[0]; mf.items = mf.items.filter(function (x) { return x.id !== id; }); mf.summary = mf.items.length + ' poles'; if (!mf.items.length) S.files = S.files.filter(function (x) { return x !== mf; }); S.profiles.forEach(function (p) { p.poleIds = p.poleIds.filter(function (x) { return x !== id; }); delete p.lengths[id]; }); }
-        else prof().poleIds = prof().poleIds.filter(function (x) { return x !== id; });
-        S.selected = null; S.multi = []; S.generated = false; recompute(); select(null); setStatus('Pole ' + id + (man ? ' deleted.' : ' removed from the profile.'), 'good');
-      };
-    },
+    delPole: function () { var ids = S.multi && S.multi.length > 1 ? S.multi.slice() : (S.selected ? [S.selected] : []); if (!ids.length) { setStatus('Select a pole first.', 'bad'); return; } delPoles(ids); },
+    mkProf: function () { profPickDlg(S.multi && S.multi.length > 1 ? S.multi.slice() : S.selected ? [S.selected] : []); },
     editSpan: function () { if (!S.selSpan) { setStatus('Select a span first: click a span on the plan, the profile or the Span table.', 'bad'); return; } runWb('spanedit'); },
     construction: function () { var id = S.selected; if (!id) { setStatus('Select a pole first.', 'bad'); return; } if (!project) { setStatus('Start a design first to add constructions.', 'bad'); return; } U.right = true; applyLayout(); openSection('design'); saveUi(); select(id); },
     sagten: function () { navGo('sag'); },
     validate: function () { recompute(); openTab('issues'); var e = allIssues.filter(function (i) { return i.level === 'error'; }).length, w = allIssues.filter(function (i) { return i.level === 'warning'; }).length; setStatus('Validated and recalculated: ' + e + ' error' + (e === 1 ? '' : 's') + ', ' + w + ' warning' + (w === 1 ? '' : 's') + '.', e ? 'bad' : 'good'); },
     settings: function () { U.left = true; applyLayout(); $('secProject').open = true; $('secProject').scrollIntoView({ block: 'nearest' }); },
-    sagset: function () { $('dispBtn').click(); },
+    sagset: function () { if (!$('dispBtn').offsetParent) { setView('profile'); setStatus('Sag display options are in the Profile and 3D views.'); } setTimeout(function () { if ($('dispPop').hidden) $('dispBtn').click(); }, 60); },
     'pan:an': function () { U.anOpen = !U.anOpen; saveUi(); renderAnalysis(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); }, 30); }
   };
   function ribBtn(d) {
@@ -3814,13 +4862,18 @@
     var tab = RIB.filter(function (t) { return t[0] === ribTab; })[0] || RIB[0];
     $('rbody').innerHTML = tab[1].map(function (g) {
       var inner = g[1].map(function (d) {
-        if (d[0] === 'chk') return '<div class="rcol">' + d[1].map(function (c) { return '<label class="rchk"><input type="checkbox" data-rchk="' + c[0] + '"> ' + c[1] + '</label>'; }).join('') + '</div>';
+        if (d[0] === 'chk') { var pv = /^pv:/.test(d[1][0][0]); return '<details class="rdd"><summary class="rbt" title="' + (pv ? 'Profile and 3D layers' : 'Plan layers') + '"><span class="ic">' + ico('layout-grid') + '</span><span>' + (pv ? 'Profile layers' : 'Plan layers') + ' ▾</span></summary><div class="rddm">' + d[1].map(function (c) { return '<label class="rchk"><input type="checkbox" data-rchk="' + c[0] + '"> ' + c[1] + '</label>'; }).join('') + '</div></details>'; }
         return ribBtn(d);
       }).join('');
       return '<div class="rgrp" role="group" aria-label="' + g[0] + '" title="' + g[0] + '"><div class="rbtns">' + inner + '</div><div class="rlab">' + g[0] + '</div></div>';
     }).join('');
     syncRibbon(); rove();
+    // Layer dropdowns: one per menu open at a time, placed under their button (the ribbon scrolls sideways, so the menu is fixed).
+    Array.prototype.forEach.call(document.querySelectorAll('#rbody .rdd'), function (dd) {
+      dd.addEventListener('toggle', function () { if (!dd.open) return; Array.prototype.forEach.call(document.querySelectorAll('#rbody .rdd[open]'), function (o) { if (o !== dd) o.open = false; }); var r = dd.querySelector('summary').getBoundingClientRect(), m = dd.querySelector('.rddm'); m.style.left = Math.min(r.left, innerWidth - 200) + 'px'; m.style.top = r.bottom + 2 + 'px'; });
+    });
   }
+  document.addEventListener('click', function (e) { if (!e.target.closest('.rdd')) Array.prototype.forEach.call(document.querySelectorAll('#rbody .rdd[open]'), function (o) { o.open = false; }); });
   // Arrow keys move within the ribbon tabs and within the ribbon buttons; each is one Tab stop.
   function rove() {
     [['#rtabs', '[data-rtab]'], ['#rbody', '.rbt, [data-rchk]']].forEach(function (g) {
@@ -3858,7 +4911,7 @@
   document.addEventListener('keydown', function (e) {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); $('gsearch').focus(); $('gsearch').select(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || !$('genDlg').hidden) return;
-    var t = { v: 'select', h: 'pan', m: 'measure' }[e.key.toLowerCase()]; if (!t) return;
+    var t = { v: 'select', h: 'pan', m: 'measure', b: 'rect', p: 'poly', l: 'lasso' }[e.key.toLowerCase()]; if (!t) return;
     setTool(t); if (S.view !== 'plan' && S.view !== 'split') setView('plan'); syncRibbon();
   });
   $('rbody').addEventListener('click', function (e) {
@@ -3917,7 +4970,7 @@
         exNode('conds', 'Conductors', secs.length, secs.map(function (r) { return exItem('data-xc="' + esc(r.name) + '" data-xcp="' + esc(r.first || '') + '"', '〰', esc(r.name) + ' · ' + esc(r.conductor), esc(r.tension), S.selSection === r.name); }).join('')) +
         exNode('equip', 'Equipment', tx.length + st.length, tx.map(function (t) { return exItem('data-xe="' + esc(t.p) + '|plant|' + t.i + '"', '▣', 'Transformer · ' + esc(t.p), esc(t.x.code || '')); }).join('') + st.map(function (t) { return exItem('data-xe="' + esc(t.p) + '|stay|' + t.i + '"', '⟋', 'Stay · ' + esc(t.p), esc(t.x.wire || '')); }).join('')) +
         exNode('cons', 'Construction', Object.keys(cons).length, Object.keys(cons).sort().map(function (c) { return exItem('data-xact="reg"', '⊞', esc(c), '×' + cons[c]); }).join('')) +
-        exNode('profiles', 'Profiles', S.profiles.length, S.profiles.map(function (p, i) { return exItem('data-xprof="' + i + '"', '📈', esc(p.name || 'Profile ' + (i + 1)) + (i === S.active ? '<span class="act">Active</span>' : ''), p.poleIds.length + ' poles', false); }).join('') + exItem('data-xact="newprof"', '＋', 'New profile…'))) +
+        exNode('profiles', 'Profiles', S.profiles.length, S.profiles.map(function (p, i) { return exItem('data-xprof="' + i + '"', '📈', esc(p.name || 'Profile ' + (i + 1)) + (i === S.active ? '<span class="act">Active</span>' : '') + '<button class="xauto" data-xauto="' + i + '" title="Auto design this profile: constructions and conductors from photos / Street View">🪄</button>', p.poleIds.length + ' poles', false); }).join('') + exItem('data-xact="newprof"', '＋', 'New profile…'))) +
       exNode('files', '🗂 Files', S.files.length, exItem('data-xact="import"', '⇪', 'Import files…') + exItem('data-xact="imported"', '🗂', 'Review imported files…', S.files.length ? String(S.files.length) : '') + exItem('data-xact="photos"', '📷', 'Pole photos…'));
     if (ex.dataset.h !== h) { var sc = ex.parentNode.scrollTop; ex.innerHTML = h; ex.dataset.h = h; ex.parentNode.scrollTop = sc; }
   }
@@ -3929,7 +4982,7 @@
     else if (d.xs) { var k = d.xs.split('|'); selectSpan(k[0], k[1]); }
     else if (d.xc) select(d.xcp || S.selected, { segment: d.xc });
     else if (d.xe) { var q = d.xe.split('|'); S.selEquip = { pole: q[0], kind: q[1] === 'stay' ? 'stay' : 'transformer', i: +q[2] }; openSection('equip'); select(q[0]); }
-    else if (d.xprof != null) { S.active = +d.xprof; S.generated = false; recompute(); }
+    else if (d.xprof != null) { switchProfile(d.xprof); }
     else if (d.xact === 'settings') FN.settings();
     else if (d.xact === 'reg') openTab('register');
     else if (d.xact === 'newprof') $('newProfile').click();
@@ -3947,14 +5000,14 @@
   /* plan: select a profile directly, bulk new profile */
   (function () {
     $('planTools').insertAdjacentHTML('beforeend', '<select id="planProf" title="Active profile: switch or start a new one from the plan" aria-label="Profile"></select>');
-    $('planProf').onchange = function () { if (this.value === 'new') { this.value = String(S.active); $('newProfile').click(); } else { S.active = +this.value; S.generated = false; recompute(); } };
+    $('planProf').onchange = function () { if (this.value === 'new') { this.value = String(S.active); $('newProfile').click(); } else { switchProfile(this.value); } };
   })();
   function syncPlanProf() { var s = $('planProf'); s.innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + '</option>'; }).join('') + '<option value="new">＋ New profile…</option>'; }
 
   /* docked profile controls in the analysis header */
   (function () {
     $('anMin').parentNode.insertAdjacentHTML('afterbegin', '<span id="anCtl" class="rchk-row" style="display:flex;gap:8px;align-items:center;margin-right:8px"><select id="anProf" aria-label="Profile"></select><span style="color:#8fa2bb;font-size:11px">Show:</span><label class="rchk"><input type="checkbox" data-anshow="ground"> Ground</label><label class="rchk"><input type="checkbox" data-anshow="hv"> HV</label><label class="rchk"><input type="checkbox" data-anshow="lv"> LV</label><button class="btn small" id="anExpand" title="Open the profile in the main workspace">⤢</button></span>');
-    $('anProf').onchange = function () { S.active = +this.value; S.generated = false; recompute(); };
+    $('anProf').onchange = function () { switchProfile(this.value); };
     $('anCtl').addEventListener('change', function (e) { var c = e.target.closest('[data-anshow]'); if (!c) return; var s = U.pvShow = U.pvShow || {}; s[c.dataset.anshow] = c.checked; saveUi(); syncPvTools(); renderProfileView(); });
     $('anExpand').onclick = function () { setView('profile'); };
   })();
@@ -3997,7 +5050,7 @@
     var q = r.dataset.eqrow.split('|'); S.selEquip = { pole: q[0], kind: q[1] === 'stay' ? 'stay' : 'transformer', i: +q[2] }; openSection('equip'); U.right = true; applyLayout(); select(q[0]); showPole(q[0]);
   });
   function syncTitleBar() {
-    var n = allIssues.filter(function (i) { return i.level === 'error' || i.level === 'warning'; }).length;
+    var n = allIssues.filter(function (i) { return (i.level === 'error' || i.level === 'warning') && !isGap(i); }).length;
     $('bellN').hidden = !n; $('bellN').textContent = n; var u = (S.settings.createdBy || '').trim(); $('userName').textContent = u || 'Designer'; $('userIn').textContent = (u ? u.split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2) : 'D').toUpperCase();
   }
 
@@ -4009,6 +5062,251 @@
     it.easting = Math.round(xy.e * 1000) / 1000; it.northing = Math.round(xy.n * 1000) / 1000;
     S.generated = false; recompute(); select(id); setStatus('Pole ' + id + ' moved to E ' + it.easting.toFixed(1) + ' N ' + it.northing.toFixed(1) + '.', 'good');
   }
+  /* ---------- delete in the design (poles, spans, conductors), right-click menus, floating panels, header menus ---------- */
+  function inDesign(id) { return !!(project && project.poles.some(function (r) { return r.ID === id; })); }
+  function secsAt(a, b) { // strain sections strung across the span a–b (both poles in the section, next to each other)
+    if (!project) return [];
+    return project.segments.map(function (s) { return s.StrainSect; }).filter(function (n) {
+      var m = project.segPoles.filter(function (r) { return r.strsection === n; }).sort(function (x, y) { return PNW.num(x.chain) - PNW.num(y.chain); }).map(function (r) { return r.id; });
+      for (var i = 1; i < m.length; i++) if ((m[i - 1] === a && m[i] === b) || (m[i - 1] === b && m[i] === a)) return true; return false;
+    });
+  }
+  function secsOn(id) { return project ? project.segPoles.filter(function (r) { return r.id === id; }).map(function (r) { return r.strsection; }).filter(function (v, i, a) { return a.indexOf(v) === i; }) : []; }
+  // Removes design poles from the linked PNW project: conductors through them are cut there (the rest of each section stays).
+  function delFromDesign(ids) {
+    var d = ids.filter(inDesign); if (!d.length) return true;
+    var ok = commit(function (p) {
+      var cut = M.cutSections(p, { poles: d }), log = cut.map(function (c) { return logEntry('', c.split(' ')[0], 'Strain section', '', c, 'manual', 'Poles deleted: ' + d.join(', ')); });
+      d.forEach(function (id) { M.removePole(p, id); log.push(logEntry(id, '', 'Pole', id, 'removed', 'manual')); if (S.design.extras) delete S.design.extras[id]; });
+      return log;
+    });
+    return ok;
+  }
+  // Takes the span a–b out of the active profile: the poles before it stay, the poles after it become a new profile
+  // (a part with one pole is dropped). Only for a profile without a linked design (a design's line is its .pnwx).
+  // With a linked design only an end span can go (its end pole leaves the design); a middle span keeps the line whole.
+  function spanCut(a, b) {
+    var ids = project ? lineIds() : prof().poleIds, i = ids.indexOf(a), j = ids.indexOf(b);
+    if (i < 0 || j < 0 || Math.abs(i - j) !== 1) return null;
+    var k = Math.max(i, j), c = { A: ids.slice(0, k), B: ids.slice(k) };
+    if (project) { if (c.A.length === 1) c.end = c.A[0]; else if (c.B.length === 1) c.end = c.B[0]; else return null; }
+    return c;
+  }
+  function cutProfileSpan(a, b) {
+    var c = spanCut(a, b); if (!c) return;
+    var p = prof(), msg = [];
+    if (c.end) { if (S.selSpan) S.selSpan = null; p.poleIds = p.poleIds.filter(function (x) { return x !== c.end; }); if (delFromDesign([c.end])) setStatus('Span ' + a + ' → ' + b + ' deleted: ' + c.end + ' left the design.', 'good'); else recompute(); return; }
+    p.poleIds = c.A.length > 1 ? c.A : c.B.length > 1 ? c.B : [];
+    if (c.A.length > 1 && c.B.length > 1) { var q = newProfile(uniqueProfName()); q.poleIds = c.B; q.lengths = Object.assign({}, p.lengths); S.profiles.push(q); msg.push(c.B[0] + ' → ' + c.B[c.B.length - 1] + ' is now ' + q.name); }
+    if (S.selSpan) S.selSpan = null;
+    S.generated = false; recompute();
+    setStatus('Span ' + a + ' → ' + b + ' removed from ' + (p.name || 'the profile') + '.' + (msg.length ? ' ' + msg.join('') + '.' : ''), 'good');
+  }
+  function delSpan(a, b) {
+    var ss = secsAt(a, b), cut = spanCut(a, b);
+    if (!ss.length && !cut) { setStatus(project ? 'Span ' + a + ' → ' + b + ' is in the middle of the design line and has no conductors. Delete a pole to shorten the line, or make a new profile for each part.' : 'Span ' + a + ' → ' + b + ' is not in the active profile.', 'bad'); return; }
+    var body = '';
+    if (cut && cut.end) body += '<p>This is the end span of the design line: ' + esc(cut.end) + ' leaves the design (its constructions and conductors go with it).</p>';
+    else if (cut) body += '<p>Remove the span from <b>' + esc(prof().name || 'the profile') + '</b>: ' + (cut.A.length > 1 && cut.B.length > 1 ? 'the line is split here and ' + esc(cut.B[0]) + ' → ' + esc(cut.B[cut.B.length - 1]) + ' (' + cut.B.length + ' poles) becomes a new profile.' : 'the end pole ' + esc(cut.A.length > 1 ? cut.B[0] : cut.A[0]) + ' leaves the profile.') + '</p>';
+    if (ss.length) body += '<p>The conductors on this span (' + esc(ss.join(', ')) + ') are cut here. Each section keeps its part on either side as its own strain section; a part with one pole is removed.</p>';
+    openGen('Delete span ' + a + ' → ' + b, body + '<div class="btnrow">' + (cut ? '<button class="btn danger" id="dsCut">Delete span</button>' : '') + (ss.length ? '<button class="btn danger" id="dsOk">Delete span conductors</button>' : '') + '<button class="btn" id="dsNo">Cancel</button></div>', { narrow: true });
+    $('dsNo').onclick = closeGen;
+    if ($('dsCut')) $('dsCut').onclick = function () { closeGen(); cutProfileSpan(a, b); };
+    if (!$('dsOk')) return;
+    $('dsOk').onclick = function () { closeGen(); var out; if (commit(function (p) { out = M.cutSections(p, { spans: [[a, b]] }); return out.map(function (c) { return logEntry('', c.split(' ')[0], 'Strain section', '', c, 'manual', 'Span ' + a + ' → ' + b + ' deleted'); }); })) setStatus('Span ' + a + ' → ' + b + ': ' + out.join('; ') + '.', 'good'); };
+  }
+  function delSection(name) {
+    openGen('Delete conductor ' + name, '<p>Removes strain section <b>' + esc(name) + '</b> (its conductors on every span) from the design.</p><div class="btnrow"><button class="btn danger" id="dsOk">Delete</button><button class="btn" id="dsNo">Cancel</button></div>', { narrow: true });
+    $('dsNo').onclick = closeGen;
+    $('dsOk').onclick = function () { closeGen(); if (S.selSection === name) S.selSection = null; if (commit(function (p) { M.removeSection(p, name); return [logEntry('', name, 'Strain section', name, 'removed', 'manual')]; })) setStatus('Conductor ' + name + ' deleted.', 'good'); };
+  }
+  // Delete key: the multi-selection, the pole, the span or the conductor that is selected.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Delete' || e.ctrlKey || e.metaKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || !$('genDlg').hidden) return;
+    var ids = S.multi && S.multi.length > 1 ? S.multi.slice() : S.selected ? [S.selected] : [];
+    if (ids.length) { e.preventDefault(); delPoles(ids); } else if (S.selSpan) { e.preventDefault(); delSpan(S.selSpan.a, S.selSpan.b); } else if (S.selSection) { e.preventDefault(); delSection(S.selSection); }
+  });
+
+  // Right-click menu
+  var cm = document.createElement('div'); cm.className = 'cmenu'; cm.hidden = true; cm.setAttribute('role', 'menu'); document.body.appendChild(cm);
+  function cmClose() { cm.hidden = true; cm.innerHTML = ''; }
+  function cmOpen(x, y, title, items) {
+    cm.innerHTML = (title ? '<div class="cmh">' + esc(title) + '</div>' : '') + items.map(function (it, i) { return it === '-' ? '<hr>' : '<button role="menuitem" data-cm="' + i + '"' + (it.danger ? ' class="danger"' : '') + (it.off ? ' disabled title="' + esc(it.off) + '"' : '') + '><span class="ic">' + (it.ic || '') + '</span>' + esc(it.t) + (it.k ? '<kbd>' + esc(it.k) + '</kbd>' : '') + '</button>'; }).join('');
+    cm.hidden = false; cm.style.left = '0px'; cm.style.top = '0px';
+    var r = cm.getBoundingClientRect(); cm.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + 'px'; cm.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + 'px';
+    cm.onclick = function (e) { var b = e.target.closest('[data-cm]'); if (!b || b.disabled) return; var it = items[+b.dataset.cm]; cmClose(); it.fn(); };
+  }
+  document.addEventListener('pointerdown', function (e) { if (!cm.hidden && !e.target.closest('.cmenu')) cmClose(); }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !cm.hidden) cmClose(); });
+  window.addEventListener('blur', cmClose); window.addEventListener('resize', cmClose);
+  function fireCtx(act) { var b = document.createElement('button'); b.dataset.ctx = act; b.hidden = true; document.body.appendChild(b); b.click(); b.remove(); }
+  function showDetails(id) { if (!U.right) { U.right = true; applyLayout(); saveUi(); } if (S.selected !== id) select(id); }
+  function poleMenu(id, x, y) {
+    if (!(S.multi && S.multi.length > 1 && S.multi.indexOf(id) >= 0) && S.selected !== id) select(id);
+    var multi = S.multi && S.multi.length > 1 ? S.multi.slice() : null, k = prof().poleIds.indexOf(id), dsg = inDesign(id), tip = tipPoles().indexOf(id) >= 0;
+    if (multi) return cmOpen(x, y, multi.length + ' poles selected', [
+      { t: 'Create profile from these', ic: '⤳', fn: function () { FN.mkProf && FN.mkProf(); } },
+      { t: 'Add a stay on each', ic: '⟋', fn: function () { runWb('mstay'); }, off: project ? '' : 'Needs a linked design' },
+      '-', { t: 'Delete ' + multi.length + ' poles', ic: '🗑', k: 'Del', danger: true, fn: function () { delPoles(multi); } }]);
+    var ss = secsOn(id);
+    cmOpen(x, y, 'Pole ' + id, [
+      { t: 'Pole details', ic: '☰', fn: function () { showDetails(id); } },
+      { t: 'Street View', ic: '🛣', fn: function () { openStreetView(id); } },
+      { t: 'Zoom to', ic: '⌖', k: 'Z', fn: function () { showPole(id); } },
+      { t: 'Open in profile', ic: '📈', fn: function () { openProfileFor(id); } },
+      k < 0 ? { t: 'Add to profile', ic: '＋', fn: function () { addToProfile(id); } } : { t: 'Remove from profile', ic: '－', fn: function () { removeFromProfile(id); }, off: dsg ? 'It is in the design: delete it instead' : '' },
+      '-',
+      { t: 'Add construction', ic: '▦', fn: function () { FN.construction(); }, off: project ? '' : 'Start or link a design first' },
+      { t: 'Add stay', ic: '⟋', fn: function () { showDetails(id); addExtra(id, 'stay'); }, off: dsg && ((dm && dm.byPole[id]) || []).some(function (c) { return c.kingbolt != null; }) ? '' : 'Needs a construction on a design pole' },
+      { t: 'Add transformer', ic: '▣', fn: function () { showDetails(id); addExtra(id, 'plant'); }, off: dsg ? '' : 'Only on poles in the design' },
+      { t: 'Draw conductor from here', ic: '〰', fn: function () { $('tbCond').click(); setTimeout(function () { select(id); }, 0); }, off: project ? '' : 'Start or link a design first' },
+      { t: 'AI photo', ic: '✨', fn: function () { fireCtx('photo'); } },
+      { t: 'Pole strength', ic: '⚖', fn: function () { U.insTab = 'pstr'; showDetails(id); renderSelected(); }, off: dsg ? '' : 'Only on poles in the design' },
+      tip ? { t: 'Tipload', ic: '⇲', fn: function () { openTip(id); } } : null,
+      ss.length ? '-' : null,
+    ].concat(ss.map(function (n) { return { t: 'Delete conductor ' + n, ic: '✂', danger: true, fn: function () { delSection(n); } }; })).concat(['-', { t: 'Delete pole', ic: '🗑', k: 'Del', danger: true, fn: function () { delPoles([id]); } }]).filter(Boolean));
+  }
+  function spanMenu(a, b, x, y, seg) {
+    selectSpan(a, b); var ss = secsAt(a, b);
+    if (seg && ss.indexOf(seg) < 0) ss.unshift(seg);
+    cmOpen(x, y, 'Span ' + a + ' → ' + b, [
+      { t: 'Span details', ic: '☰', fn: function () { U.right = true; applyLayout(); saveUi(); selectSpan(a, b); } },
+      { t: 'Edit span', ic: '✎', fn: function () { runWb('spanedit'); } },
+      { t: 'Show in profile', ic: '📈', fn: function () { fireCtx('spanprofile'); } },
+      { t: 'Add conductor on this span', ic: '〰', fn: function () { runWb('spancond'); }, off: project ? '' : 'Start or link a design first' },
+      { t: 'Street View at mid-span', ic: '🛣', fn: function () { var la = poleLL(a), lb = poleLL(b); if (la && lb) openStreetView('Span ' + a + '–' + b, L.latLng((la.lat + lb.lat) / 2, (la.lng + lb.lng) / 2)); } },
+      '-'
+    ].concat(ss.map(function (n) { return { t: 'Delete conductor ' + n + ' (whole section)', ic: '✂', danger: true, fn: function () { delSection(n); } }; }))
+      .concat([{ t: ss.length ? 'Delete span (cut conductors here)' : 'Delete span', ic: '🗑', k: 'Del', danger: true, fn: function () { delSpan(a, b); }, off: ss.length || spanCut(a, b) ? '' : (project ? 'No conductors on this span' : 'Not a span of the active profile') }]));
+  }
+  function groundMenu(ll, x, y) {
+    var xy = ll && fromLatLng(ll);
+    cmOpen(x, y, xy ? 'E ' + xy.e.toFixed(1) + '  N ' + xy.n.toFixed(1) : 'Map', [
+      { t: 'Street View here', ic: '🛣', fn: function () { openStreetView('Map point', ll); }, off: ll ? '' : 'No position here' },
+      { t: 'Add pole here', ic: '●', fn: function () { openPoleDlg(null, { mode: 'coord', e: Math.round(xy.e * 1000) / 1000, n: Math.round(xy.n * 1000) / 1000 }); }, off: xy ? '' : 'No position here' },
+      { t: 'Measure from here', ic: '📏', fn: function () { setTool('measure'); if (S.view === 'plan' && typeof measureAdd === 'function') measureAdd(ll); } },
+      { t: 'Box select', ic: '⬚', k: 'B', fn: function () { setTool('rect'); } },
+      { t: 'Fit all', ic: '⤢', fn: function () { $('tbFit').click(); } },
+      '-',
+      { t: 'Clear selection', ic: '⊘', k: 'Esc', fn: function () { select(null); } }
+    ]);
+  }
+  // Plan: pole markers, spans and the empty map. (Leaflet fires contextmenu on the marker first; stop it reaching the map.)
+  map.on('contextmenu', function (e) { var oe = e.originalEvent; if (oe && oe._pnwDone) return; groundMenu(e.latlng, oe.clientX, oe.clientY); });
+  var _renderMap = renderMap;
+  renderMap = function () {
+    _renderMap.apply(this, arguments);
+    Object.keys(markers).forEach(function (id) { markers[id].on('contextmenu', function (e) { L.DomEvent.stop(e); e.originalEvent._pnwDone = true; poleMenu(id, e.originalEvent.clientX, e.originalEvent.clientY); }); });
+    lyAlign.eachLayer(function (l) { var t = l.getTooltip && l.getTooltip(), m = t && /^Span (.+?) → (.+?):/.exec(t.getContent ? String(t.getContent()) : ''); if (!m) return; var a = m[1].replace(/&amp;/g, '&'), b = m[2].replace(/&amp;/g, '&'); l.on('contextmenu', function (e) { L.DomEvent.stop(e); e.originalEvent._pnwDone = true; spanMenu(a, b, e.originalEvent.clientX, e.originalEvent.clientY); }); });
+  };
+  // 3D: pole, conductor span (from its two poles) or the ground point.
+  function ctx3d(info) {
+    if (info.pole && info.segment) { if (info.to && info.to !== info.pole) spanMenu(info.pole, info.to, info.x, info.y, info.segment); else poleMenu(info.pole, info.x, info.y); }
+    else if (info.pole) poleMenu(info.pole, info.x, info.y);
+    else groundMenu(info.e != null ? toLatLng(info.e, info.n) : null, info.x, info.y);
+  }
+  (function hook3d() { if (window.PNW3D && window.PNW3D.context) window.PNW3D.context(ctx3d); else setTimeout(hook3d, 300); })();
+
+  // Floating windows: drag any dialog, Street View or DCSH pop-up by its title bar; the card keeps its place until closed.
+  function dragBy(card, handle, key) {
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0 || e.target.closest('button,a,input,select,label,textarea,.combo')) return;
+      var r = card.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+      card.classList.add('floated'); card.style.position = 'fixed'; card.style.margin = '0'; card.style.left = r.left + 'px'; card.style.top = r.top + 'px'; card.style.right = 'auto'; card.style.bottom = 'auto'; card.style.width = r.width + 'px';
+      handle.setPointerCapture(e.pointerId); e.preventDefault();
+      function mv(ev) { card.style.left = Math.max(-r.width + 80, Math.min(innerWidth - 80, ev.clientX - dx)) + 'px'; card.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + 'px'; }
+      function up() { handle.removeEventListener('pointermove', mv); handle.removeEventListener('pointerup', up); if (key) { U[key] = { x: parseFloat(card.style.left), y: parseFloat(card.style.top) }; saveUi(); } }
+      handle.addEventListener('pointermove', mv); handle.addEventListener('pointerup', up);
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.dlg'), function (d) { var c = d.querySelector('.dlg-card'), h = d.querySelector('.dlg-head'); if (c && h) dragBy(c, h); });
+  // A dialog that was moved opens centred again next time.
+  new MutationObserver(function (ms) { ms.forEach(function (m) { var d = m.target; if (d.hidden) { var c = d.querySelector('.dlg-card'); if (c) { c.classList.remove('floated'); ['position', 'left', 'top', 'width', 'margin', 'right', 'bottom'].forEach(function (k) { c.style[k] = ''; }); } } }); })
+    .observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  new MutationObserver(function () { var h = $('svPanel').querySelector('.svh'); if (h && !h._drag) { h._drag = 1; dragBy($('svPanel'), h); } }).observe($('svPanel'), { childList: true });
+  new MutationObserver(function () { var p = $('dcshPop'), h = p.firstElementChild; if (h && !h._drag) { h._drag = 1; dragBy(p, h); } }).observe($('dcshPop'), { childList: true });
+
+  // Pole Details as a floating, resizable window (⧉ docks it back into the side column).
+  if (U.insFloat == null) U.insFloat = true;
+  var ins = $('inspector'), insHead = ins.querySelector('.phead');
+  insHead.insertAdjacentHTML('beforeend', '<button class="ibtn" id="insFloat" title="Float or dock the Pole Details window" aria-label="Float or dock the Pole Details window">⧉</button>');
+  function insPlace() {
+    document.body.classList.toggle('ins-float', !!U.insFloat);
+    // Out of the workspace when floating, so no panel or map stacks above it; back after its gutter when docked.
+    if (U.insFloat && ins.parentNode !== document.body) document.body.appendChild(ins);
+    if (!U.insFloat && ins.parentNode === document.body) { var gr = document.querySelector('.gutter.gr'); gr.parentNode.insertBefore(ins, gr.nextSibling); }
+    if (!U.insFloat) { ['left', 'top', 'width', 'height'].forEach(function (k) { ins.style[k] = ''; }); return; }
+    var w = Math.min(U.iw || 420, innerWidth - 16), h = Math.min(U.ih || Math.round(innerHeight * 0.72), innerHeight - 70);
+    var x = U.ix != null ? U.ix : innerWidth - w - 16, y = U.iy != null ? U.iy : 110;
+    ins.style.left = Math.max(0, Math.min(innerWidth - 120, x)) + 'px'; ins.style.top = Math.max(0, Math.min(innerHeight - 60, y)) + 'px'; ins.style.width = w + 'px'; ins.style.height = h + 'px';
+  }
+  $('insFloat').onclick = function () { U.insFloat = !U.insFloat; saveUi(); insPlace(); applyLayout(); setTimeout(function () { if (map && map.invalidateSize) map.invalidateSize(); if (S.view !== 'plan') renderViews(); }, 30); };
+  insHead.addEventListener('pointerdown', function (e) {
+    if (!U.insFloat || e.button !== 0 || e.target.closest('button,a,input,select')) return;
+    var r = ins.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top; insHead.setPointerCapture(e.pointerId); e.preventDefault();
+    function mv(ev) { ins.style.left = Math.max(-r.width + 80, Math.min(innerWidth - 80, ev.clientX - dx)) + 'px'; ins.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + 'px'; }
+    function up() { insHead.removeEventListener('pointermove', mv); insHead.removeEventListener('pointerup', up); U.ix = parseFloat(ins.style.left); U.iy = parseFloat(ins.style.top); saveUi(); }
+    insHead.addEventListener('pointermove', mv); insHead.addEventListener('pointerup', up);
+  });
+  if (window.ResizeObserver) new ResizeObserver(function () { if (!U.insFloat || ins.offsetWidth < 50) return; U.iw = ins.offsetWidth; U.ih = ins.offsetHeight; clearTimeout(insPlace.t); insPlace.t = setTimeout(saveUi, 300); }).observe(ins);
+  var _applyLayout = applyLayout;
+  // Floating: shown while a pole, span or multi-selection is picked (✕ hides it until the next pick).
+  function insShow() { var any = !!(S.selected || S.selSpan || (S.multi && S.multi.length > 1)); if (U.insFloat) { $('workspace').classList.add('no-right'); ins.hidden = !(U.right && any); document.body.classList.remove('sum-fold'); } else ins.hidden = false; }
+  applyLayout = function () { _applyLayout.apply(this, arguments); insShow(); };
+  var _renderSelected = renderSelected;
+  renderSelected = function () { if (U.insFloat && (S.selected || S.selSpan) && !U.right) { U.right = true; } _renderSelected.apply(this, arguments); insShow(); };
+  insHead.querySelector('[data-close="right"]').addEventListener('click', function (e) { if (!U.insFloat) return; e.stopImmediatePropagation(); e.preventDefault(); select(null); }, true);
+  insPlace();
+
+  // Header menus: Files, Home, Design, View, Settings as drop-downs beside the project name. The toolbar row keeps the Home tools.
+  RIB.sort(function (a, b) { var o = ['Files', 'Home', 'Design', 'View', 'Settings']; return o.indexOf(a[0]) - o.indexOf(b[0]); });
+  var tbm = document.createElement('nav'); tbm.className = 'tb-menus'; tbm.id = 'tbMenus'; tbm.setAttribute('aria-label', 'Menus');
+  document.querySelector('.titlebar .tb-file').insertAdjacentElement('afterend', tbm);
+  function renderMenus() {
+    tbm.innerHTML = RIB.map(function (t) {
+      return '<details class="tbm"><summary>' + t[0] + ' <span class="car">▾</span></summary><div class="tbmm" role="menu">' + t[1].map(function (g) {
+        return '<div class="tbmg"><div class="tbml">' + g[0] + '</div>' + g[1].map(function (d) {
+          if (d[0] === 'chk') return d[1].map(function (c) { return '<label class="rchk"><input type="checkbox" data-rchk="' + c[0] + '"> ' + esc(c[1]) + '</label>'; }).join('');
+          return ribBtn(d);
+        }).join('') + '</div>';
+      }).join('') + '</div></details>';
+    }).join('');
+    Array.prototype.forEach.call(tbm.querySelectorAll('details'), function (dd) { dd.addEventListener('toggle', function () { if (dd.open) Array.prototype.forEach.call(tbm.querySelectorAll('details[open]'), function (o) { if (o !== dd) o.open = false; }); }); });
+    syncRibbon();
+  }
+  tbm.addEventListener('mouseover', function (e) { var s = e.target.closest('summary'); if (s && tbm.querySelector('details[open]') && !s.parentNode.open) { s.parentNode.open = true; } });
+  document.addEventListener('click', function (e) { if (!e.target.closest('#tbMenus')) Array.prototype.forEach.call(tbm.querySelectorAll('details[open]'), function (o) { o.open = false; }); });
+  tbm.addEventListener('click', function (e) {
+    var b = e.target.closest('.rbt'); if (!b) return;
+    Array.prototype.forEach.call(tbm.querySelectorAll('details[open]'), function (o) { o.open = false; });
+    var t = $('rbody').querySelector('.rbt[data-rid="' + b.dataset.rid + '"]');
+    if (t) { t.click(); return; }
+    // not on the toolbar row: run it through the same handler
+    var tmp = document.createElement('div'); tmp.hidden = true; tmp.innerHTML = b.outerHTML; $('rbody').appendChild(tmp); tmp.firstChild.click(); tmp.remove();
+  });
+  tbm.addEventListener('change', function (e) { var c = e.target.closest('[data-rchk]'); if (!c) return; var k = c.dataset.rchk; if (/^pv:/.test(k)) { var s = U.pvShow = U.pvShow || {}; s[k.slice(3)] = c.checked; saveUi(); syncPvTools(); if (S.view === 'profile' || S.view === 'split' || U.anOpen) renderProfileView(); } else if ($(k) && $(k).checked !== c.checked) $(k).click(); });
+  var _syncRibbon = syncRibbon;
+  syncRibbon = function () {
+    _syncRibbon.apply(this, arguments);
+    Array.prototype.forEach.call(document.querySelectorAll('#tbMenus .rbt'), function (b) { var t = $('rbody').querySelector('.rbt[data-rid="' + b.dataset.rid + '"]'); if (t) { b.classList.toggle('on', t.classList.contains('on')); b.disabled = t.disabled; b.title = t.title; } });
+    Array.prototype.forEach.call(document.querySelectorAll('#tbMenus [data-rchk]'), function (c) { var k = c.dataset.rchk; c.checked = /^pv:/.test(k) ? pvShow()[k.slice(3)] : !!($(k) && $(k).checked); });
+  };
+  ribTab = 'Home'; U.rtab = 'Home'; U.ribMin = false;
+  renderMenus();
+
+  // Profiles: 🪄 on a profile (explorer) or right-click it to switch to it and run Auto design on that line only.
+  function autoProfile(i) { switchProfile(i); if (+i !== S.active) return; autoDesign(); }
+  document.addEventListener('click', function (e) { var b = e.target.closest('[data-xauto]'); if (!b) return; e.stopPropagation(); e.preventDefault(); autoProfile(b.dataset.xauto); }, true);
+  document.addEventListener('contextmenu', function (e) {
+    var t = e.target.closest('[data-xprof]'); if (!t) return; e.preventDefault(); var i = +t.dataset.xprof, p = S.profiles[i];
+    cmOpen(e.clientX, e.clientY, p.name || 'Profile ' + (i + 1), [
+      { t: 'Switch to this profile', ic: '📈', fn: function () { switchProfile(i); }, off: i === S.active ? 'Already active' : '' },
+      { t: 'Auto design this profile', ic: '🪄', fn: function () { autoProfile(i); }, off: p.poleIds.length > 1 || i !== S.active ? '' : 'Add poles to it first' },
+      { t: 'Show in profile view', ic: '📉', fn: function () { switchProfile(i); setView('profile'); } },
+      { t: 'Rename…', ic: '✎', fn: function () { renameProfileDlg(i); } },
+      '-', { t: 'Delete profile…', ic: '🗑', danger: true, fn: function () { delProfileDlg(i); } }]);
+  });
+  document.addEventListener('change', function (e) { if (e.target.id !== 'lcSet' || !e.target.value) return; var st = tipSet(), k = e.target.value; st.cases = JSON.parse(JSON.stringify(OPT_SETS[k])); st.source = k; save(); if (typeof renderTip === 'function') renderTip(); setStatus('Tipload load combinations: ' + k + '.', 'good'); });
   // one-off layout reset for the CAD workspace
   // Taller profile dock by default, so the chart and its axes fit (review 2026-11-01).
   if (U.cadv && !U.cadv2) { U.ah = Math.max(U.ah || 0, Math.round(Math.min(260, window.innerHeight * 0.26))); U.cadv2 = 1; saveUi(); }

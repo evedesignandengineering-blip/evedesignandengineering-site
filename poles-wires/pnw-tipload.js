@@ -126,7 +126,7 @@
     var pole = input.pole, flex = num(pole.flex, 0), lever = pole.height - o.loadBelowTip - flex;
     var wind = lc.windPole > 0 || lc.windCond > 0 || lc.windPlant > 0;
     var dirs = []; if (wind) for (var a = 0; a < 360 - 1e-9; a += o.step) dirs.push(Math.round(a * 1000) / 1000); else dirs.push(null);
-    var worst = null, curve = [];
+    var worst = null, curve = [], stayMax = [];
     dirs.forEach(function (from) {
       var r = atDirection(input, lc, from, o), sv = solveStays(r.M, input.stays || [], flex);
       var load = len(sv.residual) / lever, unstayed = len(r.M) / lever;
@@ -134,12 +134,13 @@
       var V = r.V + sv.H.reduce(function (t, h, i) { return t + h * Math.tan(num(sv.stays[i].angle, 45) * RAD); }, 0);
       var res = { from: from, stays: sv.stays || [], load: load, dir: bearingOf(sv.residual), moment: len(sv.residual), unstayed: unstayed, vertical: V, stayLoads: stayLoads, raw: r };
       curve.push({ from: from, load: load, unstayed: unstayed });
+      stayLoads.forEach(function (v, i) { if (!(stayMax[i] >= v)) stayMax[i] = v; });
       if (!worst || load > worst.load + 1e-9) worst = res;
     });
     var cap = lc.strengthClass === 'none' ? null : num(pole.strength, NaN), capV = num(pole.strengthVert, NaN), phi = num(lc.phi, 1);
     var out = {
       name: lc.name, wind: wind, load: worst.load, dir: worst.dir, windFrom: worst.from, moment: worst.moment, lever: lever,
-      vertical: worst.vertical, unstayed: Math.max.apply(null, curve.map(function (c) { return c.unstayed; })), stayLoads: worst.stayLoads,
+      vertical: worst.vertical, unstayed: Math.max.apply(null, curve.map(function (c) { return c.unstayed; })), stayLoads: stayMax.length ? stayMax : worst.stayLoads, stayAtWorst: worst.stayLoads,
       capacity: isFinite(cap) ? cap * phi : null, capacityVert: isFinite(capV) ? capV * phi : null, curve: curve,
       kingbolt: Object.keys(worst.raw.kb).map(function (h) { var v = worst.raw.kb[h]; return { attHt: Number(h), load: len(v), dir: len(v) > 1e-9 ? bearingOf(v) : 0 }; }).sort(function (a, b) { return b.attHt - a.attHt; }),
       tensions: worst.raw.cct, parts: worst.raw.parts
@@ -148,7 +149,7 @@
     out.pctVert = out.capacityVert ? out.vertical / out.capacityVert * 100 : null;
     out.bc = out.capacity && out.capacityVert ? out.load / out.capacity + out.vertical / out.capacityVert : null;
     out.pass = out.bc != null ? out.bc <= 1 : out.pctHor != null ? out.pctHor <= 100 : null;
-    out.stays = (worst.stays || []).map(function (s, i) { return { dir: s.dir, attHt: s.attHt, wire: s.wire, load: worst.stayLoads[i], pct: s.strength > 0 ? worst.stayLoads[i] / s.strength * 100 : null }; });
+    out.stays = (worst.stays || []).map(function (s, i) { return { dir: s.dir, attHt: s.attHt, wire: s.wire, load: out.stayLoads[i], pct: s.strength > 0 ? out.stayLoads[i] / s.strength * 100 : null }; });
     return out;
   }
 
@@ -215,7 +216,8 @@
       return { include: c.Include !== 'False', code: c.Conductor, cond: cond, n: num(c.Num_Conductors, 1), dir: num(c.Angle, 0), attHt: num(c.Attach_Ht, 0), span: num(c.Span_Length, 0),
         mes: num(c.MES, num(c.Span_Length, 0)), vdiff: num(c.vertical, 0), tension: kN, srf: 1, segment: c.strsect || '', tensionText: c.tensvalue + ' ' + c.tenstype };
     });
-    var stays = [1, 2].filter(function (n) { return a['stay' + n + '_wire'] && num(a['stay' + n + '_att_ht'], 0) > 0; }).map(function (n) {
+    // A stay counts when it has an attachment height: PNW keeps a ticked stay with no wire code (S802232) in the tipload.
+    var stays = [1, 2].filter(function (n) { return num(a['stay' + n + '_att_ht'], 0) > 0 && (a['stay' + n + '_wire'] || a['stay' + n + '_checked'] === 'True'); }).map(function (n) {
       return { wire: a['stay' + n + '_wire'], attHt: num(a['stay' + n + '_att_ht'], 0), dir: num(a['stay' + n + '_dir'], 0), angle: num(a['stay' + n + '_angle'], 45), include: a['stay' + n + '_checked'] === 'True', strength: stayStrength ? stayStrength(a['stay' + n + '_wire']) : null };
     });
     var pl = [['plant1', 'plant_attht', 'plant_dir', 'plant_checked'], ['plant2', 'plant_attht2', 'plant_dir2', 'plant_checked2']].filter(function (k) { return a[k[0]] && a[k[0]].trim(); }).map(function (k, i) {

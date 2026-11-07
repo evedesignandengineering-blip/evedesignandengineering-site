@@ -198,6 +198,11 @@
   /* ---------- adding and removing PNW rows: poles, strain sections, conductors ----------
      New rows carry every field PNW 7 writes, in PNW's order (taken from Ishan's saved projects). Fields the tool does not
      set keep PNW's empty defaults; PNW fills its own calculated fields (tiploads, segment lengths) when the file is opened. */
+  // Pole type rows: the project's <poletypes> table and the <poletype> row inside each pole's tipload (fields from Ishan's saved projects).
+  var PT_FIELDS = [['code', ''], ['description', ''], ['defLength', '0'], ['soilType', '0'], ['defSunk1', '0'], ['defSunk2', '0'], ['defSunk3', '0'], ['defSunk4', '0'], ['defHeight', '0'], ['material', 'Wood'], ['otherDesc', ''],
+      ['weightTotal', '0'], ['widthLong', '0'], ['widthTrans', '0'], ['diamTipLong', '0'], ['diamTipTrans', '0'], ['diamAvLong', '0'], ['diamAvTrans', '0'], ['diamGLLong', '0'], ['diamGLTrans', '0'], ['diamButtLong', '0'], ['diamButtTrans', '0'],
+      ['limitLong', ''], ['limitTrans', ''], ['limitDownload', ''], ['limitTorsional', '0,0,0'], ['limitUplift', '0,0,0'], ['limitnowind', '0'], ['limitwind1', '0'], ['limitwind2', '0'], ['limitultimate', '0'], ['limitdownult', '0'], ['limitultimatetrans', '0'],
+      ['remarks', ''], ['Favourite', 'False'], ['setName', 'Western Power'], ['maxDevAngle', '0'], ['geometry', 'True'], ['strgroup', '6'], ['wallthickness', '0']];
   var ROW_FIELDS = {
     Table1: [['Distance', '0'], ['Slope', '0'], ['Chainage', ''], ['Level', ''], ['Clearance1', '0'], ['Clearance2', '0'], ['Easting', ''], ['Northing', ''], ['Comment', '']],
     Table2: [['ID', ''], ['Distance', ''], ['HeightAG', ''], ['Length', ''], ['Sunk', ''], ['Easting', ''], ['Northing', ''], ['structure', ''], ['strOrient', '0'], ['foundationCode', ''], ['soilCode', ''],
@@ -211,19 +216,21 @@
       ['CSA_mm2', '0'], ['ExpCoeff__C', '0'], ['CBL_kN', '0'], ['Favourite', 'False'], ['Resistance', '0'], ['TempCoef', '0'], ['setName', '0'], ['stayWire', 'False']],
     Table6: [['strsection', ''], ['include', 'True'], ['id', ''], ['chain', ''], ['attht', ''], ['constr', ''], ['useconstr', 'True'], ['deviation', '']],
     Table7: [['strsection', ''], ['include', 'True'], ['label', ''], ['temp', '0'], ['colour', '0'], ['wt', '0'], ['diam', '0']],
+    poletypes: PT_FIELDS,
     Table8: [['unique', ''], ['code', ''], ['attht', ''], ['pole', ''], ['segment', ''], ['label', ''], ['voltage', '0'], ['descr', ''], ['attachHt', ''], ['attachOutreach', ''], ['attachOrder', ''], ['New', 'False']]
   };
   // Load conditions for a new strain section when the project has none to copy (the set in Ishan's saved projects).
   var DEFAULT_CONDITIONS = [['True', 'Hot', '75', '-65536'], ['False', 'standard', '15', '-16776961'], ['True', 'Uplift', '0', '-16711936'], ['False', 'Warm', '40', '-32704']];
-  var TABLE_KEY = { Table1: 'ground', Table2: 'poles', Table3: 'segments', Table4: 'conductors', Table6: 'segPoles', Table7: 'conditions', Table8: 'constructions', SegLengths: 'segLengths' };
+  var TABLE_KEY = { Table1: 'ground', Table2: 'poles', Table3: 'segments', Table4: 'conductors', Table6: 'segPoles', Table7: 'conditions', Table8: 'constructions', SegLengths: 'segLengths', poletypes: 'poletypes' };
   function newline(p) { var s = p._root.children.filter(function (c) { return typeof c === 'string'; })[0] || '\n'; return s.indexOf('\r\n') >= 0 ? '\r\n' : '\n'; }
   function refresh(p) { Object.keys(TABLE_KEY).forEach(function (t) { p[TABLE_KEY[t]] = rows(p._root, t); }); }
   function wrapFor(p, table) {
     var NL = newline(p), w = el(p._root, table);
     if (!w) {
-      var kids = p._root.children, last = kids.lastIndexOf(els(p._root).slice(-1)[0]);
+      var kids = p._root.children, last = kids.lastIndexOf(els(p._root).slice(-1)[0]), tl = els(p._root).filter(function (c) { return /^pole_/.test(c.tag); })[0];
       w = { tag: table, open: '<' + table + ' />', children: [], close: null, self: true };
-      kids.splice(last + 1, 0, NL + '  ', w);
+      if (tl) kids.splice(kids.indexOf(tl), 0, w, NL + '  '); // PNW keeps <poletypes> before the pole tiploads
+      else kids.splice(last + 1, 0, NL + '  ', w);
     }
     if (w.self) { w.self = false; w.open = '<' + table + '>'; w.close = '</' + table + '>'; w.children = [NL + '  ']; }
     return w;
@@ -307,6 +314,34 @@
     }
     return { heightAG: hag, shift: shift };
   }
+  // Writes a pole type (a library pole or a calculated Existing-<ID> type) into the project: the pole's own row (structure code,
+  // ground-line and average diameter) and, when PNW has saved a tipload for the pole, that tipload's pole type and strength.
+  // Only fields that already exist in the file are set; nothing is added to rows PNW wrote. Returns true when something changed.
+  function setPoleType(p, id, t) {
+    var r = p.poles.filter(function (x) { return x.ID === id; })[0];
+    if (!r || !t || !t.code) return false;
+    var changed = false;
+    function put(rec, f, v) { if (v == null || v === '' || !el(rec._el, f)) return; var s = typeof v === 'number' ? fmtNum(v) : String(v); if (rec[f] !== s) { setField(rec, f, s); changed = true; } }
+    put(r, 'structure', t.code);
+    put(r, 'glDiameter', t.diamGL);
+    put(r, 'diam', t.diamAvg);
+    // The project's own <poletypes> table defines the code, so PNW knows a calculated Existing-<ID> type (it is not in PNW's database).
+    function n(v) { return v == null || v === '' || !isFinite(Number(v)) ? '0' : fmtNum(Number(v)); }
+    var def = { code: t.code, description: t.description || t.code, defLength: n(t.length), defSunk1: n(t.sinking), defHeight: n(t.height != null ? t.height : t.length - t.sinking), material: t.material || 'Wood',
+      weightTotal: n(t.weight), diamTipLong: n(t.diamTip), diamTipTrans: n(t.diamTip), diamAvLong: n(t.diamAvg), diamAvTrans: n(t.diamAvg), diamGLLong: n(t.diamGL), diamGLTrans: n(t.diamGL),
+      diamButtLong: n(t.diamButt), diamButtTrans: n(t.diamButt), limitultimate: n(t.ultimate), limitdownult: n(t.vertical), limitultimatetrans: n(t.ultimate) };
+    var prow = (p.poletypes || []).filter(function (x) { return x.code === t.code; })[0];
+    if (!prow) { insertRow(p, 'poletypes', def); changed = true; }
+    else Object.keys(def).forEach(function (k) { put(prow, k, def[k]); });
+    var tl = (p.tiploads || {})[id];
+    if (tl && tl._root && !tl.error) {
+      if (tl.attrs.poletype !== t.code) { setAttr(tl._root, 'poletype', t.code); tl.attrs.poletype = t.code; changed = true; }
+      [['diam', t.diamAvg], ['gnddiam', t.diamGL]].forEach(function (a) { if (a[1] != null && a[1] !== '' && tl.attrs[a[0]] !== undefined && Number(tl.attrs[a[0]]) !== Number(a[1])) { setAttr(tl._root, a[0], fmtNum(a[1])); tl.attrs[a[0]] = fmtNum(a[1]); changed = true; } });
+      var pt = tl.poletype;
+      if (pt && pt._el) { put(pt, 'code', t.code); put(pt, 'description', t.description); put(pt, 'diamAvLong', t.diamAvg); put(pt, 'diamTipLong', t.diamTip); put(pt, 'diamGLLong', t.diamGL); put(pt, 'weightTotal', t.weight); put(pt, 'limitultimate', t.ultimate); put(pt, 'limitdownult', t.vertical); }
+    }
+    return changed;
+  }
   function removePole(p, id) {
     var r = p.poles.filter(function (x) { return x.ID === id; })[0];
     if (!r) return;
@@ -377,6 +412,47 @@
     p.conditions.filter(function (r) { return r.strsection === name; }).forEach(function (r) { removeRow(p, 'Table7', r); });
     p.constructions.forEach(function (c) { if (c.segment === name) setField(c, 'segment', ''); });
     removeRow(p, 'Table3', s);
+  }
+
+  // Cut strain sections: drop the given poles from every section and break sections at the given spans ([a, b] pairs).
+  // Each remaining run of two or more poles stays a section (the first keeps the name, the others get new names with the same
+  // conductor, tension and conditions); shorter runs are removed. Returns a text list of what changed.
+  function cutSections(p, f) {
+    var drop = {}, cut = {}, out = [];
+    (f.poles || []).forEach(function (id) { drop[id] = 1; });
+    (f.spans || []).forEach(function (s) { cut[s[0] + '|' + s[1]] = cut[s[1] + '|' + s[0]] = 1; });
+    p.segments.map(function (s) { return s.StrainSect; }).forEach(function (name) {
+      var mem = p.segPoles.filter(function (r) { return r.strsection === name; }).sort(function (a, b) { return numOr(a.chain, 0) - numOr(b.chain, 0); });
+      var runs = [[]], hit = false, gone = [];
+      mem.forEach(function (m, i) {
+        if (drop[m.id]) { hit = true; runs.push([]); gone.push(m); return; }
+        if (i && cut[mem[i - 1].id + '|' + m.id]) { hit = true; runs.push([]); }
+        runs[runs.length - 1].push(m);
+      });
+      if (!hit) return;
+      var keep = runs.filter(function (r) { return r.length >= 2; }), seg = p.segments.filter(function (s) { return s.StrainSect === name; })[0];
+      if (!keep.length) { removeSection(p, name); out.push(name + ' removed'); return; }
+      gone.forEach(function (m) { var rec = p.segPoles.filter(function (x) { return x._el === m._el; })[0]; if (rec) removeRow(p, 'Table6', rec); p.constructions.forEach(function (c) { if (c.pole === m.id && c.segment === name) setField(c, 'segment', ''); }); });
+      var segVals = { MES: seg.MES, Conductor: seg.Conductor, numconds: seg.numconds, Tension: seg.Tension, TensionUnits: seg.TensionUnits };
+      var conds = p.conditions.filter(function (c) { return c.strsection === name; }).map(function (c) { return { include: c.include, label: c.label, temp: c.temp, colour: c.colour, wt: c.wt, diam: c.diam }; });
+      var names = [name];
+      runs.forEach(function (r) { if (r.length < 2) r.forEach(function (m) { var rec = p.segPoles.filter(function (x) { return x._el === m._el; })[0]; if (rec) removeRow(p, 'Table6', rec); }); });
+      keep.forEach(function (r, k) {
+        var nm = name;
+        if (k) {
+          var n = 1; while (p.segments.some(function (s) { return s.StrainSect === 'SS' + n; })) n++; nm = 'SS' + n; names.push(nm);
+          var id = p.segments.reduce(function (m, s) { return Math.max(m, numOr(s.ID, -1)); }, -1) + 1, v = { ID: String(id), StrainSect: nm }; Object.keys(segVals).forEach(function (key) { v[key] = segVals[key]; });
+          insertRow(p, 'Table3', v);
+          conds.forEach(function (c) { var cv = { strsection: nm }; Object.keys(c).forEach(function (key) { cv[key] = c[key]; }); insertRow(p, 'Table7', cv); });
+          r.forEach(function (m) { var rec = p.segPoles.filter(function (x) { return x._el === m._el; })[0]; if (rec) setField(rec, 'strsection', nm); p.constructions.forEach(function (c) { if (c.pole === m.id && c.descr === m.constr && c.segment === name) setField(c, 'segment', nm); }); });
+        }
+        var sg = p.segments.filter(function (s) { return s.StrainSect === nm; })[0];
+        if (sg) setField(sg, 'MES', fmtNum(Math.round(rulingSpanOf(p, r) * 100) / 100));
+      });
+      p.constructions.forEach(function (c) { if (c.segment === name && runs.some(function (r) { return r.length < 2 && r.some(function (m) { return m.id === c.pole; }); })) setField(c, 'segment', ''); });
+      out.push(name + ' → ' + names.join(' + '));
+    });
+    return out;
   }
 
   /* ---------- geometry ----------
@@ -622,13 +698,16 @@
   // for the chosen condition/temperature, scaled by (span / ruling span)^2.
   function tableSag(table, condition, temp, span, rs) {
     if (!table || !(span > 0) || !(rs > 0)) return { value: null, reason: 'no table, span or ruling span' };
-    var col = (table.temps[condition] || []).indexOf(temp);
+    var ts = table.temps[condition] || [], col = ts.indexOf(temp), ext = null;
+    // Above the hottest column (DCSH Part 10 stops at 45 °C): extend the last two columns in a straight line.
+    if (col < 0 && ts.length > 1 && temp > ts[ts.length - 1]) { col = ts.length - 1; ext = (temp - ts[col]) / (ts[col] - ts[col - 1]); }
     if (col < 0) return { value: null, reason: temp + ' °C is not a column of the ' + condition + ' row' };
     var rows = table.spans, lo = null, hi = null;
     rows.forEach(function (r) { if (r.rs <= rs && (!lo || r.rs > lo.rs)) lo = r; if (r.rs >= rs && (!hi || r.rs < hi.rs)) hi = r; });
     if (!lo || !hi) return { value: null, reason: 'ruling span ' + rs.toFixed(1) + ' m is outside the table (' + rows[0].rs + '–' + rows[rows.length - 1].rs + ' m)' };
-    var sRs = lo === hi ? lo.sag[col] : lo.sag[col] + (hi.sag[col] - lo.sag[col]) * (rs - lo.rs) / (hi.rs - lo.rs);
-    return { value: sRs * (span / rs) * (span / rs), atRulingSpan: sRs, reason: '' };
+    var at = function (c) { return lo === hi ? lo.sag[c] : lo.sag[c] + (hi.sag[c] - lo.sag[c]) * (rs - lo.rs) / (hi.rs - lo.rs); };
+    var sRs = at(col); if (ext != null) sRs += (at(col) - at(col - 1)) * ext;
+    return { value: sRs * (span / rs) * (span / rs), atRulingSpan: sRs, reason: '', extrapolated: ext != null };
   }
 
   // ---------- DCSH standards register (JSON kept with the project files, never in this repo) ----------
@@ -672,8 +751,8 @@
   return {
     parseXml: parseXml, serialize: serialize, readPnwx: readPnwx, writePnwx: writePnwx, setField: setField, setAttr: setAttr,
     updateConstruction: updateConstruction, addConstruction: addConstruction, removeConstruction: removeConstruction,
-    constructionFrom: constructionFrom, buildRegister: buildRegister, addPole: addPole, updatePole: updatePole, removePole: removePole, pointAt: pointAt,
-    ensureConductor: ensureConductor, addSection: addSection, updateSection: updateSection, removeSection: removeSection, crossarmAxes: crossarmAxes, attachmentPoints: attachmentPoints,
+    constructionFrom: constructionFrom, buildRegister: buildRegister, addPole: addPole, updatePole: updatePole, setPoleType: setPoleType, removePole: removePole, pointAt: pointAt,
+    ensureConductor: ensureConductor, addSection: addSection, updateSection: updateSection, removeSection: removeSection, cutSections: cutSections, crossarmAxes: crossarmAxes, attachmentPoints: attachmentPoints,
     wires: wires, illustrativeSag: illustrativeSag,
     parseLibrary: parseLibrary, libraryConstruction: libraryConstruction, defaultKingbolt: defaultKingbolt, matchPoleType: matchPoleType,
     groundAt: groundAt, designModel: designModel,
