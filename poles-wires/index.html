@@ -14,15 +14,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="pnw-core.js?v=20261125"></script>
-<script src="pnw-model.js?v=20261125"></script>
-<script src="builtin-data.js?v=20261125"></script>
-<script src="pnw-tipload.js?v=20261125"></script>
-<script src="hvlv-rules.js?v=20261125"></script>
-<script src="ai-guide.js?v=20261125"></script><script src="ai-refs.js?v=20261125"></script>
-<script src="cad-read.js?v=20261125"></script>
+<script src="pnw-core.js?v=20261126"></script>
+<script src="pnw-model.js?v=20261126"></script>
+<script src="builtin-data.js?v=20261126"></script>
+<script src="pnw-tipload.js?v=20261126"></script>
+<script src="hvlv-rules.js?v=20261126"></script>
+<script src="ai-guide.js?v=20261126"></script><script src="ai-refs.js?v=20261126"></script>
+<script src="cad-read.js?v=20261126"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<script type="module" src="view3d.js?v=20261125"></script>
+<script type="module" src="view3d.js?v=20261126"></script>
 <style>
 /* Same palette and type as GIS & SOW Designer: navy, steel blue, teal, DM Sans and Manrope. */
 :root{--navy:#a1c5ef;--ink:#b6c8de;--muted:#79879b;--line:#243342;--bg:#162533;--blue:#2f6ea4;--teal:#0f766e;--white:#171c24;--bad:#df5b51;--warn:#ee884e;--ok:#80d8a5;--ground:#2f6ea4;--pole:#c2410c;--sel:#f59e0b;--focus:#2563eb;color-scheme:dark}
@@ -154,7 +154,7 @@ button,input,select{font:inherit}button{cursor:pointer}
 .v3help{position:absolute;left:10px;top:30px;z-index:5;font-size:11px;color:#8fa1b7;background:#171c24e6;border:1px solid #233444;border-radius:8px;padding:5px 8px;max-width:260px;transition:opacity .4s}.v3help.fade{opacity:0;pointer-events:none}
 .v-3d #view3d{display:block}.v-profile #profileView{display:block}
 .v-split #view3d{display:block;bottom:40%}.v-split #profileView{display:block;top:60%;border-top:1px solid var(--line)}
-.v-3d #map,.v-profile #map,.v-split #map{visibility:hidden}
+.v-3d #map,.v-profile #map,.v-split #map{visibility:hidden}.v-3d #map *,.v-profile #map *,.v-split #map *{visibility:hidden!important}
 .v-3d .map-over,.v-profile .map-over,.v-split .map-over,.v-3d .legend:not(.v3legend),.v-profile .legend,.v-split .legend:not(.v3legend),.v-3d .empty-map,.v-profile .empty-map,.v-split .empty-map{display:none}
 .v3legend{bottom:10px;display:block;max-width:min(560px,calc(100% - 290px));min-width:150px;padding:4px 9px}.v3legend summary{cursor:pointer;font-weight:700;color:#8fa1b7;list-style:none}.v3legend summary::-webkit-details-marker{display:none}.v3legend summary:before{content:"\25B8  "}.v3legend[open] summary:before{content:"\25BE  "}.v3legend .lg{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:3px}.legend .sw{display:inline-block;width:16px;height:3px;border-radius:2px}
 .v-split .v3legend{display:none}
@@ -996,16 +996,14 @@ tr.fx-bad td{background:rgba(220,38,38,.10)}
     <div class="pbody">
     <div id="explorer" aria-label="Project explorer"></div>
     <details id="secProfile"><summary>Ground profile alignment <span class="count" id="alignCount"></span></summary><div class="sbody">
-      <div class="row2">
-        <div class="field"><label for="profileSel">Profile</label><select id="profileSel"></select></div>
-        <div class="field"><label for="profileName">Name (file name)</label><input id="profileName" placeholder="e.g. MP219050"></div>
-      </div>
+      <div class="field"><label for="profileSel">Profile</label><select id="profileSel" title="Right-click to rename the profile"></select></div>
+      <div class="field" hidden><label for="profileName">Name</label><input id="profileName"></div>
       <div class="btnrow">
         <button class="btn small" id="newProfile" title="Start another profile from the same data">New profile</button>
         <button class="btn small" id="delProfile" title="Delete this profile">Delete</button>
         <button class="btn small" id="allPoles" title="Use every surveyed pole">Use all surveyed poles</button>
         <button class="btn small" id="autoOrder" title="Order poles along the line">Auto-order</button>
-        <button class="btn small" id="reverse" title="Reverse the pole order">Reverse</button>
+        <button class="btn small" id="reverse" title="Flip the profile end for end; exports follow the new direction">⇄ Flip profile</button>
         <button class="btn small" id="useProj" hidden title="Take pole order and lengths from the linked PNW project">Use PNW project order and lengths</button>
         <button class="btn small" id="useRef" hidden title="Take pole order and lengths from the reference ground profile">Use reference order and lengths</button>
       </div>
@@ -1055,7 +1053,7 @@ tr.fx-bad td{background:rgba(220,38,38,.10)}
     <div class="stage" id="stage">
       <div id="map"></div>
       <div id="view3d"><div id="v3host" aria-label="3D view. Drag to orbit, right-drag, middle-drag or shift-drag to pan, wheel to zoom towards the cursor."></div><p class="v3msg" id="v3empty" hidden>No poles with coordinates and ground levels yet.</p>
-        <div class="v3base"><select id="v3base" aria-label="3D map layer" title="Map under the 3D model"><option value="none">Standard (grid)</option><option value="satellite">Satellite</option><option value="street">Street map</option></select><label title="Drape the map on the ground interpolated from the surveyed pole levels (no terrain model is loaded)"><input type="checkbox" id="v3terrain"> Terrain</label><button class="btn small" id="v3sv" type="button" title="Street View from one step ahead or behind a pole, with the design's poles and conductors drawn over it">🛣 Street View</button></div>
+        <div class="v3base"><select id="v3base" aria-label="3D map layer" title="Map under the 3D model"><option value="plan">Same as plan map</option><option value="none">Standard (grid)</option><option value="satellite">Satellite</option><option value="street">Street map</option><option value="light">Light</option></select><label title="Drape the map on the ground interpolated from the surveyed pole levels (no terrain model is loaded)"><input type="checkbox" id="v3terrain"> Terrain</label><button class="btn small" id="v3sv" type="button" title="Street View from one step ahead or behind a pole, with the design's poles and conductors drawn over it">🛣 Street View</button></div>
         <div id="v3svp" class="v3svp" tabindex="0" hidden><div class="sv3bar"><button class="btn small" data-sv3="prev" title="Previous pole">◀</button><b id="sv3t"></b><button class="btn small" data-sv3="next" title="Next pole">▶</button><button class="btn small" id="sv3side" data-sv3="side" title="View from the other side of the pole">⇄ Other side</button><span class="sv3nav"><button class="btn small" data-sv3="walk" title="Walk forward to the next panorama (↑ or double-click where to go)">⬆ Walk</button><button class="btn small" data-sv3="back" title="Step back (↓)">⬇ Back</button><button class="btn small" data-sv3="face" title="Turn to face the pole">◎ Face pole</button></span><label title="Draw the design poles and conductors over the photo"><input type="checkbox" id="sv3ov" checked> Design</label><button class="btn small" data-sv3="close" title="Back to the 3D model">✕</button></div><div class="sv3wrap"><img id="sv3img" alt="Street View toward the pole"><svg id="sv3svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg><span class="sv3hint">Drag to look around · wheel to zoom · double-click or ↑ to walk</span></div><p class="sv3msg" id="sv3msg" hidden></p></div>
         <details class="legend v3legend" id="v3legend" open><summary>Legend</summary><div class="lg"><span><b class="sw" style="background:#c2410c"></b>HV conductor</span><span><b class="sw" style="background:#2f6ea4"></b>LV conductor</span><span><b class="sw" style="background:#64748b"></b>Running earth</span><span><b class="sw" style="background:#0f766e"></b>Voltage not set</span><span><b class="sw" style="background:#f59e0b"></b>Selected section</span><span><b class="sw" style="background:#5b4636;opacity:.5"></b>Embedment (below ground)</span><span class="muted" title="PNW attachment x offsets are drawn to the right of the line, looking along increasing chainage">Crossarm +x to the right along chainage</span></div></details>
         <div class="v3help explain" id="v3help">Drag to orbit · right- or wheel-drag to pan · wheel zooms about 10% per notch toward the cursor (scale bar bottom right) · click a pole or wire to select it · double-click to focus</div>
@@ -1134,12 +1132,12 @@ tr.fx-bad td{background:rgba(220,38,38,.10)}
 </div>
 <div id="dcshPop" hidden role="dialog" aria-label="DCSH drawing"></div>
 <script>if (!window.L || !window.proj4 || !window.XLSX) document.body.insertAdjacentHTML('afterbegin', '<div class="cdn-fail" role="alert">The map and spreadsheet libraries did not load (no internet, or a blocked CDN). Check your connection and reload the page.</div>');</script>
-<script src="app.js?v=20261125"></script>
+<script src="app.js?v=20261126"></script>
 <script>
 // DCSH drawing thumbnails: fetched only after the page has fully loaded, then the images are warmed in idle time.
 window.addEventListener('load', function () {
   setTimeout(function () {
-    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261125';
+    var sc = document.createElement('script'); sc.src = 'dcsh-images.js?v=20261126';
     sc.onload = function () {
       var keys = Object.keys(window.PNW_DCSH_IMG || {}), idle = window.requestIdleCallback || function (f) { return setTimeout(f, 200); };
       (function next() { var k = keys.shift(); if (!k) return; var im = new Image(); im.onload = im.onerror = function () { idle(next); }; im.src = window.PNW_DCSH_IMG[k].src; })();

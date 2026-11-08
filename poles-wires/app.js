@@ -144,7 +144,7 @@
   }
   if (!IN_CLAUDE) $('basemap').insertAdjacentHTML('afterbegin', '<option value="g:roadmap">Google road map (addresses)</option><option value="g:hybrid">Google satellite + streets</option><option value="g:satellite">Google satellite</option>');
   try { var bmPref = localStorage.getItem('eve-pnw-basemap'); if (!IN_CLAUDE && bmPref && $('basemap').querySelector('option[value="' + bmPref + '"]')) setTimeout(function () { $('basemap').value = bmPref; $('basemap').onchange(); }, 0); } catch (e) { /* storage blocked */ }
-  $('basemap').onchange = function () { try { localStorage.setItem('eve-pnw-basemap', this.value); } catch (e) { /* ignore */ } if (IN_CLAUDE) { gBase.type = this.value === 'esri' ? 'satellite' : this.value === 'hybrid' ? 'hybrid' : 'roadmap'; gBase.on = this.value !== 'none'; if (!gBase.on && gBase.ov) { map.removeLayer(gBase.ov); gBase.ov = null; } gBase.err = false; gBaseRefresh(); return; } var v = this.value, sel = this; if (activeBase) map.removeLayer(activeBase); activeBase = null;
+  $('basemap').onchange = function () { try { localStorage.setItem('eve-pnw-basemap', this.value); } catch (e) { /* ignore */ } if (mounted3d && (!U.base3d || U.base3d === 'plan')) setTimeout(base3d, 0); if (IN_CLAUDE) { gBase.type = this.value === 'esri' ? 'satellite' : this.value === 'hybrid' ? 'hybrid' : 'roadmap'; gBase.on = this.value !== 'none'; if (!gBase.on && gBase.ov) { map.removeLayer(gBase.ov); gBase.ov = null; } gBase.err = false; gBaseRefresh(); return; } var v = this.value, sel = this; if (activeBase) map.removeLayer(activeBase); activeBase = null;
     if (/^g:/.test(v)) { setStatus('Loading the Google map…'); googleBase(v.slice(2)).then(function (lay) { if (sel.value !== v) return; activeBase = lay.addTo(map); setStatus('Google ' + (v === 'g:roadmap' ? 'road map' : v === 'g:hybrid' ? 'satellite with streets' : 'satellite') + ' basemap.', 'good'); }, function (e) { setStatus(e.message, 'bad'); sel.value = 'street'; activeBase = bases.street.addTo(map); }); return; }
     activeBase = bases[v] ? bases[v].addTo(map) : null; };
   /* PNW Maps connector (MCP proxy on Supabase that holds the Google key): inside Claude it gives the basemap
@@ -562,13 +562,26 @@
     S.generated = false; recompute();
   });
   $('profileSel').onchange = function () { switchProfile(this.value); };
+  // Right-click the profile name (profile lists) to rename it.
+  document.addEventListener('contextmenu', function (e) { if (!e.target.closest || !e.target.closest('#profileSel,#planProf')) return; e.preventDefault(); renameProfileDlg(S.active); });
   $('profileName').onchange = function () { var v = this.value.trim(); if (!v || S.profiles.some(function (q, k) { return k !== S.active && q.name === v; })) { setStatus(v ? 'Another profile is called “' + v + '”.' : 'A profile needs a name.', 'bad'); this.value = prof().name || ''; return; } prof().name = v; recompute(); };
   // One way to start a profile: the Create profile dialog (poles picked in the list or on the map), which also makes its PNW line.
   $('newProfile').onclick = function () { FN.mkProf(true); };
   $('delProfile').onclick = function () { delProfileDlg(S.active); };
   $('allPoles').onclick = function () { seedProfile(); S.generated = false; recompute(); };
   $('autoOrder').onclick = function () { prof().poleIds = PNW.autoOrder(merged.poles, prof().poleIds); S.generated = false; recompute(); };
-  $('reverse').onclick = function () { prof().poleIds.reverse(); S.generated = false; recompute(); };
+  // Flip the profile end for end: the pole order, and for a PNW line its chainages, ground, sections and crossarm sides,
+  // so the profile view, .pnwx and spreadsheet exports all run the other way.
+  function flipProfile() {
+    var p = prof(); if (!p || (p.poleIds.length < 2 && !project)) { setStatus('Add at least two poles to the profile first.', 'bad'); return; }
+    var a = lineIds(), first = a[0], last = a[a.length - 1];
+    restoringWrap(function () {
+      p.poleIds.reverse(); S.generated = false;
+      if (!(linked && project && commit(function (q) { M.flipProfile(q); return [logEntry(last, 'Profile', 'Direction', first + ' → ' + last, last + ' → ' + first, 'manual', 'Flipped')]; }))) recompute();
+    });
+    setStatus('Flipped “' + (p.name || 'profile') + '”: it now runs ' + last + ' → ' + first + '. Exports follow the new direction. Flip again to undo, or Ctrl+Z.', 'good');
+  }
+  $('reverse').onclick = flipProfile;
   $('useRef').onclick = function () {
     var ref = S.files.filter(function (f) { return f.role === 'groundProfile'; })[0]; if (!ref) return;
     var p = prof(); p.poleIds = []; p.lengths = {}; p.comments = {};
@@ -1260,9 +1273,48 @@
     });
     return '  <pole_' + id + '><![CDATA[<tipload_project ' + A.map(function (a) { return a[0] + '="' + xe(a[1]) + '"'; }).join(' ') + '>\n  <poletype>\n    <poletype>\n' + row(PT, '      ') + '\n    </poletype>\n  </poletype>\n  <ccts>\n' + ccts.join('\n') + '\n  </ccts>\n</tipload_project>]]></pole_' + id + '>\n';
   }
-  function pnwxText() { return withPoleTypes(pnwxTextRaw()); }
+  function pnwxText() { return withExtras(withPoleTypes(pnwxTextRaw())); }
+  // PNW keeps a pole's transformer and stay in two places: the pole row (Table2 poleMountPlant / plantAttachHt / plantOrient /
+  // plantisNew, stayed / staydir / stayht / stayangle / staycode, as in your S1242155 project) and the pole's saved tipload
+  // (plant1 / plant_attht / plant_dir, stay1_*). Transformers and stays added here are written to both on export.
+  function pnwPlant(c) { c = String(c || ''); return !c || /^\s/.test(c) ? c : '    ' + c; }
+  function withExtras(xml) {
+    var ex = S.design.extras || {}, ids = Object.keys(ex).filter(function (id) { return (ex[id].plant || []).length || (ex[id].stays || []).length; });
+    if (!xml || !ids.length) return xml;
+    try {
+      var p = M.readPnwx(xml); if (p.kind !== 'profile') return xml;
+      var n = function (v) { return v == null || v === '' || !isFinite(Number(v)) ? '0' : String(Math.round(Number(v) * 1000) / 1000); };
+      var sf = function (r, k, v) { try { M.setField(r, k, v); } catch (e) { /* field not in this file */ } };
+      var tips = {};
+      ids.forEach(function (id) {
+        var r = p.poles.filter(function (x) { return x.ID === id; })[0], inp = tipInput(id); if (!r || !inp) return;
+        var pl = inp.plant.filter(function (q) { return q.code; }), st = inp.stays, p1 = pl[0], s1 = st[0];
+        if (p1) { sf(r, 'poleMountPlant', pnwPlant(p1.code)); sf(r, 'plantAttachHt', n(p1.attHt)); sf(r, 'plantOrient', n(p1.dir)); sf(r, 'plantisNew', 'True'); }
+        if (s1) { sf(r, 'stayed', 'True'); sf(r, 'staydir', n(s1.dir)); sf(r, 'stayht', n(s1.attHt)); sf(r, 'stayangle', n(s1.angle)); sf(r, 'staycode', s1.wire || ''); }
+        var A = {}, p2 = pl[1], s2 = st[1];
+        A.plant_checked = p1 && p1.include !== false ? 'True' : 'False'; A.plant1 = p1 ? pnwPlant(p1.code) : ''; A.plant_attht = n(p1 && p1.attHt); A.plant_dir = n(p1 && p1.dir);
+        A.plant_checked2 = p2 && p2.include !== false ? 'True' : 'False'; A.plant2 = p2 ? pnwPlant(p2.code) : ''; A.plant_attht2 = n(p2 && p2.attHt); A.plant_dir2 = n(p2 && p2.dir);
+        [s1, s2].forEach(function (q, k) { var b = 'stay' + (k + 1) + '_'; A[b + 'checked'] = q && q.include ? 'True' : 'False'; A[b + 'wire'] = q ? q.wire || '' : ''; A[b + 'dir'] = n(q && q.dir); A[b + 'angle'] = n(q ? q.angle : 0); A[b + 'att_ht'] = n(q && q.attHt); });
+        tips[id] = A;
+      });
+      var out = M.writePnwx(p), add = '';
+      Object.keys(tips).forEach(function (id) {
+        var tag = '<pole_' + id + '><![CDATA[<tipload_project', i = out.indexOf(tag);
+        if (i < 0) { // no saved tipload for this pole yet: write one with its pole type, so PNW's tipload sees the transformer and stay
+          var row = p.poles.filter(function (x) { return x.ID === id; })[0], t = poleTypeFor(id, row && PNW.num(row.Length)), x = t ? tipProjectXml(id, t, p.attrs || {}) : '';
+          if (x) add += Object.keys(tips[id]).reduce(function (acc, k) { return acc.replace(new RegExp('(\\s' + k + '=")[^"]*(")'), function (m0, a, b) { return a + tips[id][k].replace(/&/g, '&amp;').replace(/"/g, '&quot;') + b; }); }, x);
+          return;
+        }
+        var j = out.indexOf('>', i + tag.length), head = out.slice(i, j);
+        Object.keys(tips[id]).forEach(function (k) { var v = tips[id][k].replace(/&/g, '&amp;').replace(/"/g, '&quot;'), re = new RegExp('(\\s' + k + '=")[^"]*(")'); head = re.test(head) ? head.replace(re, function (m0, a, b) { return a + v + b; }) : head + ' ' + k + '="' + v + '"'; });
+        out = out.slice(0, i) + head + out.slice(j);
+      });
+      if (add) { var NL = /\r\n/.test(out) ? '\r\n' : '\n'; out = out.replace(/<\/profile_project>\s*$/, add.replace(/\n/g, NL) + '</profile_project>' + NL); }
+      return out;
+    } catch (e) { return xml; }
+  }
   function pnwxTextRaw() { if (project && project.constructions && project.constructions.length && projectXml()) return projectXml(); return PNW.profilePnwx(built, { title: 'Ground Profile - ' + baseName(), createdBy: S.settings.createdBy, option: S.settings.optionSet, clearance1: PNW.num(S.settings.clr1), clearance2: PNW.num(S.settings.clr2) }); }
-  function exportDesign() { download(new Blob([withPoleTypes(projectXml())], { type: 'application/xml' }), linked.name.replace(/\.pnwx$/i, '') + (liveLog().length ? ' (edited)' : '') + '.pnwx'); setStatus('Downloaded the updated PNW project.', 'good'); }
+  function exportDesign() { download(new Blob([withExtras(withPoleTypes(projectXml()))], { type: 'application/xml' }), linked.name.replace(/\.pnwx$/i, '') + (liveLog().length ? ' (edited)' : '') + '.pnwx'); setStatus('Downloaded the updated PNW project.', 'good'); }
   function exportLog() {
     var rows = [['Time', 'Pole', 'Construction', 'Field', 'Original', 'Proposed', 'Approved value', 'Source', 'Reference', 'Approved by']].concat(liveLog().map(function (l) { return [l.t, l.pole, l.construction, l.field, l.from, l.proposed, l.to, l.source, l.reference, l.by]; }));
     download(new Blob([rows.map(function (r) { return r.map(function (v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n')], { type: 'text/csv' }), 'Change log - ' + (linked ? linked.name.replace(/\.pnwx$/i, '') : baseName()) + '.csv');
@@ -2823,8 +2875,15 @@
   function base3d() {
     if (!window.PNW3D || !mounted3d) return;
     var def = '+proj=utm +zone=' + S.zone + ' +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
-    $('v3base').value = U.base3d || (IN_CLAUDE ? 'satellite' : 'none'); $('v3terrain').checked = !!U.terrain3d;
-    window.PNW3D.basemap({ kind: $('v3base').value, terrain: !!U.terrain3d, fetch: IN_CLAUDE ? function (kind, z, x, y) { var n2 = Math.pow(2, z), lon = (x + 0.5) / n2 * 360 - 180, yy = Math.PI - 2 * Math.PI * (y + 0.5) / n2, lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(yy) - Math.exp(-yy))); return mapsCall('static_map', { lat: +lat.toFixed(7), lng: +lon.toFixed(7), zoom: z, width: 256, height: 256, scale: 2, maptype: kind === 'street' ? 'roadmap' : 'satellite' }).then(function (r) { var im = mapsImg(r); return im ? im.url : null; }, function (e) { if (!base3d.err) { base3d.err = true; setStatus('3D map: ' + mapsErr(e), 'bad'); } return null; }); } : null, attr: 'Map data © Google', toLL: function (e, n) { var l = toLatLng(e, n); return l ? [l.lat, l.lng] : null; }, toEN: function (lat, lng) { try { return proj4('EPSG:4326', def, [lng, lat]); } catch (x) { return null; } } });
+    if (U.b3v !== 2) { U.b3v = 2; U.base3d = 'plan'; saveUi(); } // once: the 3D ground shows the plan map again
+    $('v3base').value = U.base3d && $('v3base').querySelector('option[value="' + U.base3d + '"]') ? U.base3d : 'plan'; $('v3terrain').checked = !!U.terrain3d;
+    // "Same as plan map": the ground plane shows the basemap chosen on the plan (Google maps too on the website).
+    var bv = $('basemap').value, kind = $('v3base').value === 'plan' ? ({ street: 'street', esri: 'satellite', light: 'light', hybrid: 'hybrid', none: 'none' }[bv] || (/^g:/.test(bv) ? bv : 'street')) : $('v3base').value;
+    var gm = !IN_CLAUDE && /^g:/.test(kind), gtype = function (k) { return k === 'street' || k === 'light' || k === 'g:roadmap' ? 'roadmap' : k === 'hybrid' || k === 'g:hybrid' ? 'hybrid' : 'satellite'; };
+    var sm = function (z, x, y) { var n2 = Math.pow(2, z), lon = (x + 0.5) / n2 * 360 - 180, yy = Math.PI - 2 * Math.PI * (y + 0.5) / n2; return { lat: +(180 / Math.PI * Math.atan(0.5 * (Math.exp(yy) - Math.exp(-yy)))).toFixed(7), lng: +lon.toFixed(7) }; };
+    window.PNW3D.basemap({ kind: kind, fallback: gm ? (kind === 'g:roadmap' ? 'street' : 'satellite') : null, terrain: !!U.terrain3d, fetch: gm ? function (k, z, x, y) {
+      return webKey().then(function (key) { if (!key) return null; var c = sm(z, x, y); return 'https://maps.googleapis.com/maps/api/staticmap?center=' + c.lat + ',' + c.lng + '&zoom=' + z + '&size=256x256&scale=2&maptype=' + gtype(k) + '&key=' + encodeURIComponent(key); }, function () { return null; });
+    } : IN_CLAUDE ? function (kind, z, x, y) { var n2 = Math.pow(2, z), lon = (x + 0.5) / n2 * 360 - 180, yy = Math.PI - 2 * Math.PI * (y + 0.5) / n2, lat = 180 / Math.PI * Math.atan(0.5 * (Math.exp(yy) - Math.exp(-yy))); return mapsCall('static_map', { lat: +lat.toFixed(7), lng: +lon.toFixed(7), zoom: z, width: 256, height: 256, scale: 2, maptype: gtype(kind) }).then(function (r) { var im = mapsImg(r); return im ? im.url : null; }, function (e) { if (!base3d.err) { base3d.err = true; setStatus('3D map: ' + mapsErr(e), 'bad'); } return null; }); } : null, attr: 'Map data © Google', toLL: function (e, n) { var l = toLatLng(e, n); return l ? [l.lat, l.lng] : null; }, toEN: function (lat, lng) { try { return proj4('EPSG:4326', def, [lng, lat]); } catch (x) { return null; } } });
   }
   $('v3base').onchange = function () { U.base3d = this.value; saveUi(); base3d(); };
   $('v3terrain').onchange = function () { U.terrain3d = this.checked; saveUi(); base3d(); };
@@ -4995,7 +5054,7 @@
     ['Home', [
       ['Modify', [['select', 'Select', 'mouse-pointer-2', 'tool', 'Select poles and spans (V)'], ['rect', 'Box select', 'square-dashed', 'tool', 'Drag a rectangle on the plan to select every pole inside (B)'], ['poly', 'Polygon select', 'polygon', 'tool', 'Click the corners of a polygon on the plan to select every pole inside (P). Shift adds.'], ['lasso', 'Lasso select', 'lasso', 'tool', 'Drag a freehand loop on the plan to select every pole inside (L). Shift adds.'], ['pan', 'Pan', 'hand', 'tool', 'Pan the plan (H)'], ['measure', 'Measure', 'ruler', 'tool', 'Measure distances on the plan (M)']]],
       ['Draw', [['aPole', 'Add pole', 'circle-dot', 'run', 'Create a pole: coordinates, from another pole, or click the plan'], ['aSpan', 'Add span', 'move-horizontal', 'run', 'Join two poles'], ['tbCond', 'Draw conductor', 'spline', 'run', 'Draw a strain section pole to pole: snaps to poles on the plan and to attachment points in 3D and profile (Esc to stop)']]],
-      ['Profile', [['mkProf', 'Create profile', 'route', 'fn', 'Make a profile from the selected poles, or pick them from a list. Profiles that share a pole (tee-offs) load that pole together.']]],
+      ['Profile', [['mkProf', 'Create profile', 'route', 'fn', 'Make a profile from the selected poles, or pick them from a list. Profiles that share a pole (tee-offs) load that pole together.'], ['flipProf', 'Flip profile', 'move-horizontal', 'fn', 'Reverse the profile direction (first pole becomes last). The profile view and every export follow the new direction.']]],
       ['Automate', [['tbAuto', 'Auto design', 'wand-sparkles', 'run', 'Full draft design from QLINK, GIS exports and pole photos (Street View where there is no photo), for review'], ['tbAi', 'AI photo', 'sparkles', 'run', 'Analyse a pole photo with AI']]],
       ['Check', [['tbTip', 'Tipload', 'gauge', 'run', 'Tipload of every pole'], ['validate', 'Validate', 'circle-check', 'fn', 'Recalculate everything and list the errors and warnings'], ['tbIssues', 'Issues', 'triangle-alert', 'run', 'All errors and warnings']]],
       ['History', [['tbUndo', 'Undo', 'undo-2', 'run', 'Undo (Ctrl+Z)'], ['tbRedo', 'Redo', 'redo-2', 'run', 'Redo (Ctrl+Y)']]]]],
@@ -5299,6 +5358,7 @@
   }
   var FN = {
     delPole: function () { var ids = S.multi && S.multi.length > 1 ? S.multi.slice() : (S.selected ? [S.selected] : []); if (!ids.length) { setStatus('Select a pole first.', 'bad'); return; } delPoles(ids); },
+    flipProf: function () { flipProfile(); },
     mkProf: function () { profPickDlg(S.multi && S.multi.length > 1 ? S.multi.slice() : S.selSpan ? [S.selSpan.a, S.selSpan.b] : S.selSection ? condPoles('s:' + S.selSection) : S.selected ? [S.selected] : []); },
     editSpan: function () { if (!S.selSpan) { setStatus('Select a span first: click a span on the plan, the profile or the Span table.', 'bad'); return; } runWb('spanedit'); },
     construction: function () { var id = S.selected; if (!id) { setStatus('Select a pole first.', 'bad'); return; } if (!project) { setStatus('Start a design first to add constructions.', 'bad'); return; } U.right = true; applyLayout(); openSection('design'); saveUi(); select(id); },
@@ -5511,7 +5571,7 @@
 
   /* plan: select a profile directly, bulk new profile */
   (function () {
-    $('planTools').insertAdjacentHTML('beforeend', '<select id="planProf" title="Active profile: switch or start a new one from the plan" aria-label="Profile"></select>');
+    $('planTools').insertAdjacentHTML('beforeend', '<select id="planProf" title="Active profile: switch or start a new one. Right-click to rename it." aria-label="Profile"></select>');
     $('planProf').onchange = function () { if (this.value === 'new') { this.value = String(S.active); $('newProfile').click(); } else { switchProfile(this.value); } };
   })();
   function syncPlanProf() { var s = $('planProf'); s.innerHTML = S.profiles.map(function (p, i) { return '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(p.name || 'Profile ' + (i + 1)) + '</option>'; }).join('') + '<option value="new">＋ New profile…</option>'; }
@@ -6832,6 +6892,7 @@
       { t: 'Auto design this profile', ic: '🪄', fn: function () { autoProfile(i); }, off: p.poleIds.length > 1 || i !== S.active ? '' : 'Add poles to it first' },
       { t: 'Show in profile view', ic: '📉', fn: function () { switchProfile(i); setView('profile'); } },
       { t: 'Rename…', ic: '✎', fn: function () { renameProfileDlg(i); } },
+      { t: 'Flip profile (reverse direction)', ic: '⇄', fn: function () { switchProfile(i); if (+i === S.active) flipProfile(); } },
       '-', { t: 'Delete profile…', ic: '🗑', danger: true, fn: function () { delProfileDlg(i); } }]);
   });
   document.addEventListener('change', function (e) { if (e.target.id !== 'lcSet' || !e.target.value) return; var st = tipSet(), k = e.target.value; st.cases = JSON.parse(JSON.stringify(OPT_SETS[k])); st.source = k; save(); if (typeof renderTip === 'function') renderTip(); setStatus('Tipload load combinations: ' + k + '.', 'good'); });
