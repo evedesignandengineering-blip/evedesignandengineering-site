@@ -2351,13 +2351,18 @@
   var sampleP = IN_CLAUDE && window.claude && window.claude.use ? window.claude.use('sample') : null;
   // Reference photos: approved AI matches are kept (2 per code, small JPEG) and sent with later requests as confirmed examples.
   var AIREF_KEY = 'pnwAiRefs';
-  function aiRefs() { try { return JSON.parse(localStorage.getItem(AIREF_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function aiRefsUser() { try { return JSON.parse(localStorage.getItem(AIREF_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function aiRefs() { // the designer's approved photos first, then the built-in confirmed examples (ai-refs.js), 2 per code
+    var o = aiRefsUser(), b = window.PNW_AI_REFS || {}, out = {};
+    Object.keys(o).concat(Object.keys(b)).forEach(function (k) { if (!out[k]) out[k] = (o[k] || []).concat(b[k] || []).slice(0, 2); });
+    return out;
+  }
   function aiRefCount() { var o = aiRefs(); return Object.keys(o).reduce(function (n, k) { return n + (o[k] || []).length; }, 0); }
   function aiRefSave(code, view, pole) {
     if (!view) return; var im = new Image();
     im.onload = function () {
       var k = Math.min(1, 512 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-      var o = aiRefs(), l = (o[code] || []).filter(function (x) { return x.pole !== pole; }); l.unshift({ pole: pole, img: c.toDataURL('image/jpeg', 0.7).split(',')[1] }); o[code] = l.slice(0, 2);
+      var o = aiRefsUser(), l = (o[code] || []).filter(function (x) { return x.pole !== pole; }); l.unshift({ pole: pole, img: c.toDataURL('image/jpeg', 0.7).split(',')[1] }); o[code] = l.slice(0, 2);
       try { localStorage.setItem(AIREF_KEY, JSON.stringify(o)); } catch (e) { setStatus('Reference photo not kept: browser storage is full.', 'bad'); }
       if (S.selected === pole) renderSelected();
     };
