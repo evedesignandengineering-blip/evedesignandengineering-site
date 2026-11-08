@@ -103,6 +103,11 @@ function mount(el, cb) {
     const hit = ray.intersectObjects(Object.values(poleMeshes).flat(), false)[0], id = hit ? hit.object.userData.pole : null;
     if (id !== hoverId) { hoverId = id; onHover(id); }
   });
+  labels.domElement.addEventListener('pointermove', (e) => {
+    if (!onWireHover || e.buttons || performance.now() - wireHoverT < 40) return; wireHoverT = performance.now();
+    const h = wireAt(e.clientX, e.clientY); if (h) { wireHoverOn = true; onWireHover(h); } else if (wireHoverOn) { wireHoverOn = false; onWireHover(null); }
+  });
+  labels.domElement.addEventListener('pointerleave', () => { if (wireHoverOn && onWireHover) { wireHoverOn = false; onWireHover(null); } });
   labels.domElement.addEventListener('dblclick', (e) => { e.preventDefault(); if (selected) focus(selected); else fit(); });
   host.tabIndex = 0;
   host.addEventListener('keydown', (e) => {
@@ -450,6 +455,23 @@ function fit(name, opt) {
 // Marker spheres at given points ({easting, northing, elevation, color}); kept apart from the model so update() leaves them.
 let onHover = null, markGroup = null;
 function hover(cb) { onHover = cb || null; }
+// Point on the selected conductor under the mouse: { e, n, z, t (0-1 along the span), from, to, segment } or null.
+let onWireHover = null, wireHoverT = 0, wireHoverOn = false;
+function wireHover(cb) { onWireHover = cb || null; }
+function wireAt(cx, cy) {
+  if (!selectedSection || !camera || !origin) return null;
+  const r = renderer.domElement.getBoundingClientRect(), x = cx - r.left, y = cy - r.top, scr = (v) => { const p = v.clone().project(camera); return { x: (p.x + 1) / 2 * r.width, y: (1 - p.y) / 2 * r.height, z: p.z }; };
+  let best = null;
+  wireLines.forEach((l) => {
+    if (l.userData.segment !== selectedSection || !l.userData.pts) return; const vs = l.userData.pts, n = vs.length - 1;
+    for (let k = 0; k < n; k++) {
+      const a = scr(vs[k]), b = scr(vs[k + 1]); if (a.z > 1 || b.z > 1) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1, s = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L2)), d = Math.hypot(a.x + dx * s - x, a.y + dy * s - y);
+      if (d < 14 && (!best || d < best.d)) { const v = vs[k].clone().lerp(vs[k + 1], s); best = { d, e: v.x + origin.e, n: origin.n - v.z, z: v.y + origin.z, t: (k + s) / n, from: l.userData.pole, to: l.userData.to, segment: l.userData.segment }; }
+    }
+  });
+  return best;
+}
 function marks(list) {
   if (!scene) return;
   if (!markGroup) { markGroup = new THREE.Group(); markGroup.renderOrder = 5; scene.add(markGroup); }
@@ -601,5 +623,5 @@ function state() {
   };
 }
 
-window.PNW3D = { street, clearance, context: (fn) => { onContext = fn || onContext; }, mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS, hover, marks, basemap, tiles: () => Object.assign({ kind: tileOpts.kind, terrain: tileOpts.terrain, meshes: tileGroup ? tileGroup.children.length : 0 }, tileStat) };
+window.PNW3D = { street, clearance, wireHover, context: (fn) => { onContext = fn || onContext; }, mount, update, fit, view, reset, select: setSelected, selectSection, focus, resize, snapshot, state, colors: COLORS, hover, marks, basemap, tiles: () => Object.assign({ kind: tileOpts.kind, terrain: tileOpts.terrain, meshes: tileGroup ? tileGroup.children.length : 0 }, tileStat) };
 window.dispatchEvent(new Event('pnw3d-ready'));

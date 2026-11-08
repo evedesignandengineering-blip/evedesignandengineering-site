@@ -317,6 +317,22 @@
   // Writes a pole type (a library pole or a calculated Existing-<ID> type) into the project: the pole's own row (structure code,
   // ground-line and average diameter) and, when PNW has saved a tipload for the pole, that tipload's pole type and strength.
   // Only fields that already exist in the file are set; nothing is added to rows PNW wrote. Returns true when something changed.
+  // Renames a pole everywhere in the project: leaf fields equal to the ID (Table2 ID, Table8 pole, Table6 id, tipload pole refs),
+  // its calculated pole type 'Existing-<ID>', and element names such as <pole_ID>. Nothing else changes.
+  function renamePole(p, from, to) {
+    to = String(to || '').trim(); if (!to) throw new Error('Enter the new pole number.');
+    if (!p.poles.some(function (r) { return r.ID === from; })) throw new Error('Pole ' + from + ' is not in this project.');
+    if (p.poles.some(function (r) { return r.ID === to; })) throw new Error('Pole ' + to + ' is already in this project.');
+    var ef = esc(from), et = esc(to), n = 0;
+    (function walk(node) {
+      if (typeof node === 'string') return;
+      if (node.tag === 'pole_' + from) { node.tag = 'pole_' + to; node.open = node.open.replace('<pole_' + from, '<pole_' + to); if (node.close) node.close = '</pole_' + to + '>'; n++; }
+      var kids = node.children || [];
+      if (kids.length === 1 && typeof kids[0] === 'string' && (kids[0] === ef || kids[0] === 'Existing-' + ef)) { kids[0] = kids[0] === ef ? et : 'Existing-' + et; n++; return; }
+      kids.forEach(walk);
+    })(p._root);
+    refresh(p); return n;
+  }
   function setPoleType(p, id, t) {
     var r = p.poles.filter(function (x) { return x.ID === id; })[0];
     if (!r || !t || !t.code) return false;
@@ -772,7 +788,7 @@
   return {
     parseXml: parseXml, serialize: serialize, readPnwx: readPnwx, writePnwx: writePnwx, setField: setField, setAttr: setAttr,
     updateConstruction: updateConstruction, addConstruction: addConstruction, removeConstruction: removeConstruction,
-    constructionFrom: constructionFrom, buildRegister: buildRegister, addPole: addPole, updatePole: updatePole, setPoleType: setPoleType, removePole: removePole, pointAt: pointAt,
+    constructionFrom: constructionFrom, buildRegister: buildRegister, addPole: addPole, updatePole: updatePole, setPoleType: setPoleType, renamePole: renamePole, removePole: removePole, pointAt: pointAt,
     ensureConductor: ensureConductor, addSection: addSection, updateSection: updateSection, removeSection: removeSection, setSectionPoles: setSectionPoles, cutSections: cutSections, crossarmAxes: crossarmAxes, attachmentPoints: attachmentPoints,
     wires: wires, illustrativeSag: illustrativeSag,
     parseLibrary: parseLibrary, libraryConstruction: libraryConstruction, defaultKingbolt: defaultKingbolt, matchPoleType: matchPoleType,
