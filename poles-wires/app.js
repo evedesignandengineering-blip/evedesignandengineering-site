@@ -285,9 +285,16 @@
         L.tooltip({ permanent: true, direction: 'center', offset: off, className: 'span-label' }).setLatLng(L.latLng((line[i - 1].lat + line[i].lat) / 2, (line[i - 1].lng + line[i].lng) / 2)).setContent(fmt(built.rows[i].span, 2) + ' m').addTo(lySpan);
       }
     }
+    // Other profiles without a PNW line yet: their pole order as a dashed line.
+    S.profiles.forEach(function (q, k) {
+      if (k === S.active || q.file || q.hidden || q.poleIds.length < 2) return;
+      var ll = q.poleIds.map(function (id) { var mp = merged.poles[id]; return mp ? poleLatLng(mp) : null; });
+      for (var i = 1; i < ll.length; i++) if (ll[i - 1] && ll[i]) L.polyline([ll[i - 1], ll[i]], { color: '#0e7490', weight: 3, opacity: .7, dashArray: '6 6' }).bindTooltip(esc(q.name || 'Profile ' + (k + 1)) + ' (profile, click to switch)').on('click', function () { switchProfile(k); }).addTo(lyAlign);
+    });
     xLines.forEach(function (x) {
+      if (x.hidden) return;
       var ll = x.dm.allPoles.map(function (p) { var m = x.common[p.id]; return m ? toLatLng(m.easting, m.northing) : toLatLng(p.easting, p.northing); });
-      for (var i = 1; i < ll.length; i++) if (ll[i - 1] && ll[i]) L.polyline([ll[i - 1], ll[i]], { color: '#7c3aed', weight: 3, opacity: .85, dashArray: '8 5' }).bindTooltip(esc(x.title) + ' (intersecting line)').addTo(lyAlign);
+      for (var i = 1; i < ll.length; i++) if (ll[i - 1] && ll[i]) L.polyline([ll[i - 1], ll[i]], { color: '#7c3aed', weight: 3, opacity: .85, dashArray: '8 5' }).bindTooltip(esc(x.title) + (x.shared ? ' (intersecting line)' : ' (profile)')).addTo(lyAlign);
       x.dm.allPoles.forEach(function (p, i) {
         if (!ll[i]) return; pts.push(ll[i]);
         if (x.common[p.id]) { if (markers[x.common[p.id].id]) markers[x.common[p.id].id].setStyle({ color: '#7c3aed' }); return; }
@@ -501,7 +508,7 @@
       var heads = (f.sheets || []).map(function (s) { return '<div><b>' + esc(s.name) + '</b> · ' + s.rows + ' rows<br>' + esc(s.headers.join(' | ')) + '</div>'; }).join('');
       return '<div class="file"><div class="fn">' + esc(f.name) + '</div><div class="meta">' + (f.name.split('.').pop() || '').toUpperCase() + ' · ' + (f.size / 1024).toFixed(1) + ' KB · ' + count + (f.sheetUsed ? ' · sheet ' + esc(f.sheetUsed) + ', header row ' + f.headerRow : '') + '</div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">' + st + '<span class="meta">' + conf + '</span></div>' +
-        (TEXT_ROLES[f.role] ? '<div class="meta"><b>' + TEXT_ROLES[f.role] + '</b>' + (f.role === 'pnwx' && f.kind === 'profile' ? (S.design.link === f.name ? ' · <span class="pill info">linked design</span>' : (xLines.some(function (x) { return x.name === f.name; }) ? ' · <span class="pill info" style="background:#ede9fe;color:#5b21b6" title="Shares ' + esc(Object.keys(xLines.filter(function (x) { return x.name === f.name; })[0].common).join(', ')) + ' with the design; drawn with it in plan and 3D">intersecting line</span>' : '') + ' · <button class="btn small" data-link="' + i + '">Use as design</button>') : '') + '</div>' :
+        (TEXT_ROLES[f.role] ? '<div class="meta"><b>' + TEXT_ROLES[f.role] + '</b>' + (f.role === 'pnwx' && f.kind === 'profile' ? (S.design.link === f.name ? ' · <span class="pill info">linked design</span>' : (xLines.some(function (x) { return x.name === f.name && x.shared; }) ? ' · <span class="pill info" style="background:#ede9fe;color:#5b21b6" title="Shares ' + esc(Object.keys(xLines.filter(function (x) { return x.name === f.name; })[0].common).join(', ')) + ' with the design; drawn with it in plan and 3D">intersecting line</span>' : '') + ' · <button class="btn small" data-link="' + i + '">Use as design</button>') : '') + '</div>' :
         (f.manual ? '<div class="meta">Poles you created in <b>Design → New pole</b>. Edit or delete them from the pole\'s inspector.</div>' : '<select data-role="' + i + '" aria-label="Role of ' + esc(f.name) + '">' + opts + '</select>')) +
         ((f.issues || []).length ? '<details><summary>' + (f.issues || []).length + ' message' + ((f.issues || []).length > 1 ? 's' : '') + ' from this file</summary><ul class="msgs">' + (f.issues || []).slice(0, 8).map(function (x) { return '<li class="' + esc(x.level) + '">' + esc(x.message) + '</li>'; }).join('') + ((f.issues || []).length > 8 ? '<li class="info">…and ' + ((f.issues || []).length - 8) + ' more (see the Issues tab)</li>' : '') + '</ul></details>' : '') +
         '<details><summary>Data mapping: sheets and headers</summary><div class="heads">' + heads + '</div></details>' +
@@ -1440,22 +1447,25 @@
   var xLines = [], xCache = {};
   function syncIntersecting() {
     xLines = [];
-    if (!project || !dm) return;
-    filesOf('pnwx').filter(function (f) { return f.kind === 'profile' && f.name !== linked.name; }).forEach(function (f) {
+    // Plan and 3D show every profile's line (the eye in Explorer hides one); lines sharing a pole with the design are always
+    // kept (their loads go into the shared pole's tipload) and only hidden from view.
+    var cur = linked ? linked.name : prof().file, own = {};
+    S.profiles.forEach(function (q, i) { if (q.file && i !== S.active) own[q.file] = q; });
+    filesOf('pnwx').filter(function (f) { return f.kind === 'profile' && f.name !== cur; }).forEach(function (f) {
       var k = f.name + '|' + f.text.length, p = xCache[k];
       if (!p) { try { p = xCache[k] = M.readPnwx(f.text); } catch (e) { return; } }
-      var d = M.designModel(p, { file: f.name, poleType: poleTypeFor }), common = {};
-      d.allPoles.forEach(function (q) {
+      var d = M.designModel(p, { file: f.name, poleType: poleTypeFor }), common = {}, op = own[f.name];
+      if (dm) d.allPoles.forEach(function (q) {
         var hit = dm.allPoles.filter(function (m) { return m.id === q.id || (isFinite(q.easting) && isFinite(m.easting) && Math.hypot(q.easting - m.easting, q.northing - m.northing) < 0.5); })[0];
         if (hit) common[q.id] = hit;
       });
-      if (!Object.keys(common).length) return;
+      var shared = Object.keys(common).length > 0; if (!shared && (!op || op.hidden)) return;
       applySag(d, p, false);
-      xLines.push({ name: f.name, title: (p.attrs.title || f.name).replace(/\.pnwx$/i, ''), project: p, dm: d, common: common });
+      xLines.push({ name: f.name, title: op ? op.name : (p.attrs.title || f.name).replace(/\.pnwx$/i, ''), project: p, dm: d, common: common, shared: shared, hidden: !!(op && op.hidden) });
     });
   }
   function xPole(id) {
-    for (var i = 0; i < xLines.length; i++) { var x = xLines[i], q = x.dm.allPoles.filter(function (p) { return p.id === id && !x.common[p.id]; })[0]; if (q) return { line: x, pole: q }; }
+    for (var i = 0; i < xLines.length; i++) { var x = xLines[i]; if (x.hidden) continue; var q = x.dm.allPoles.filter(function (p) { return p.id === id && !x.common[p.id]; })[0]; if (q) return { line: x, pole: q }; }
     return null;
   }
 
@@ -2770,7 +2780,30 @@
       var ex = S.design.extras || {}, stays = [], plant = [];
       Object.keys(ex).forEach(function (id) { (ex[id].stays || []).forEach(function (st) { stays.push(Object.assign({ pole: id }, st)); }); (ex[id].plant || []).forEach(function (pl) { plant.push(Object.assign({ pole: id }, pl)); }); });
       var d = { poles: dm.poles.slice(), axes: dm.axes.slice(), constructions: dm.constructions.slice(), points: dm.points.slice(), wires: dm.wires.slice(), ribbons: [ribbon(dm.poles, dm.axes)], stays: stays, plant: plant, showLabels: S.labels, keepView: true };
+      return addX3d(d, ribbon);
+    }
+    var rows = built ? built.rows.filter(function (r) { return isFinite(r.easting) && isFinite(r.northing) && isFinite(r.elevation); }) : [];
+    var poles = rows.map(function (r) { var t = poleTypeFor(r.id, r.length); return { id: r.id, easting: r.easting, northing: r.northing, ground: r.elevation, height: r.height, sunk: r.sunk, diamTip: t ? t.diamTip : null, diamGL: t ? t.diamGL : null }; });
+    var d0 = { poles: poles, axes: M.crossarmAxes(poles), constructions: [], points: [], wires: [], showLabels: S.labels, keepView: true };
+    if (!xLines.some(function (x) { return !x.hidden; }) && !S.profiles.some(function (q, k) { return k !== S.active && !q.file && !q.hidden && q.poleIds.length > 1; })) return d0;
+    d0.ribbons = poles.length ? [poles.map(function (p, i) { return { easting: p.easting, northing: p.northing, ground: p.ground, right: d0.axes[i] ? d0.axes[i].right : [1, 0] }; })] : [];
+    return addX3d(d0, function (ps, ax) { return ps.map(function (p, i) { return { easting: p.easting, northing: p.northing, ground: p.ground, right: ax[i] ? ax[i].right : [1, 0] }; }); });
+  }
+  // Every other visible profile in 3D: designed lines with their constructions and wires, others as bare poles.
+  function addX3d(d, ribbon) {
+    var have = {}; d.poles.forEach(function (p) { have[p.id] = 1; });
+    // Only lines at the same site (within 3 km) join the 3D model; a profile somewhere else is on the plan only.
+    var near = function (ps) { var r = d.poles.filter(function (p) { return isFinite(p.easting); })[0], q = ps.filter(function (p) { return isFinite(p.easting); })[0]; return q && (!r || Math.hypot(q.easting - r.easting, q.northing - r.northing) < 3000); };
+    S.profiles.forEach(function (q, k) {
+      if (k === S.active || q.file || q.hidden || q.poleIds.length < 2) return;
+      var bt = null; try { bt = PNW.buildProfile(merged.poles, q); } catch (e) { return; }
+      var ps = (bt && bt.rows || []).filter(function (r) { return isFinite(r.easting) && isFinite(r.northing) && isFinite(r.elevation); }).map(function (r) { var t = poleTypeFor(r.id, r.length); return { id: r.id, easting: r.easting, northing: r.northing, ground: r.elevation, height: r.height, sunk: r.sunk, diamTip: t ? t.diamTip : null, diamGL: t ? t.diamGL : null, line: q.name }; });
+      if (ps.length < 2 || !near(ps)) return; var ax = M.crossarmAxes(ps);
+      ps.forEach(function (p, i) { if (have[p.id]) return; have[p.id] = 1; d.poles.push(p); d.axes.push(ax[i]); });
+      d.ribbons.push(ribbon(ps, ax));
+    });
       xLines.forEach(function (x) {
+        if (x.hidden || (!x.shared && !near(x.dm.poles))) return;
         var axisOf = {}, shift = {};
         x.dm.poles.forEach(function (p, i) {
           axisOf[p.id] = x.dm.axes[i] ? x.dm.axes[i].right : [1, 0];
@@ -2785,10 +2818,6 @@
         d.ribbons.push(ribbon(x.dm.poles, x.dm.axes));
       });
       return d;
-    }
-    var rows = built ? built.rows.filter(function (r) { return isFinite(r.easting) && isFinite(r.northing) && isFinite(r.elevation); }) : [];
-    var poles = rows.map(function (r) { var t = poleTypeFor(r.id, r.length); return { id: r.id, easting: r.easting, northing: r.northing, ground: r.elevation, height: r.height, sunk: r.sunk, diamTip: t ? t.diamTip : null, diamGL: t ? t.diamGL : null }; });
-    return { poles: poles, axes: M.crossarmAxes(poles), constructions: [], points: [], wires: [], showLabels: S.labels, keepView: true };
   }
   // 3D map layer: web tiles under the model (website only; the private build's page policy blocks tile servers).
   function base3d() {
@@ -2892,6 +2921,12 @@
       });
       if (pvShow().att) dm.points.forEach(function (q) { var c0 = chainOf[q.pole]; if (c0 == null || c0 < x0 || c0 > x1) return; d += '<circle cx="' + X(c0) + '" cy="' + Y(q.elevation) + '" r="2.6" fill="#fff" stroke="#172638" stroke-width="1.2"><title>' + esc(q.pole + ' ' + q.construction + ' #' + q.order + ': ' + q.heightAG + ' m above ground (king bolt ' + q.provenance.kingbolt + ' + y ' + q.provenance.y + ')') + '</title></circle>'; });
     }
+    // Clicked conductor: the lowest ground clearance in each span of its strain section.
+    if (dm && S.selSection) secLows(S.selSection).forEach(function (r) {
+      var a = chainOf[r.from], b = chainOf[r.to]; if (a == null || b == null) return; var c = a + (b - a) * r.t; if (c < x0 || c > x1) return;
+      var xs = X(c).toFixed(1), y1 = Y(r.z), y2 = Y(r.z - r.clr);
+      d += '<g class="pvmin" pointer-events="none"><line x1="' + xs + '" x2="' + xs + '" y1="' + y1.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="#f59e0b" stroke-width="1.4" stroke-dasharray="4 3"/><circle cx="' + xs + '" cy="' + y1.toFixed(1) + '" r="2.6" fill="#f59e0b"/><text x="' + xs + '" y="' + ((y1 + y2) / 2).toFixed(1) + '" dx="' + (X(c) > m.l + pw - 70 ? -5 : 5) + '" text-anchor="' + (X(c) > m.l + pw - 70 ? 'end' : 'start') + '" class="pvmin-t">' + esc(r.text) + '</text></g>';
+    });
     for (var i = 1; i < ids.length; i++) d += '<rect class="hit span" data-span="' + esc(ids[i - 1]) + '|' + esc(ids[i]) + '" x="' + X(chainOf[ids[i - 1]]) + '" y="' + m.t + '" width="' + Math.max(0, X(chainOf[ids[i]]) - X(chainOf[ids[i - 1]])) + '" height="' + (H - m.t - m.b) + '" fill="transparent"><title>Span ' + esc(ids[i - 1]) + ' → ' + esc(ids[i]) + ': click to select</title></rect>';
     d += wh;
     if (CT.on && dm) d += ctProfile(chainOf, X, Y);
@@ -2957,7 +2992,7 @@
   function clrText(z, c, gnd) {
     var gz = groundAtCh(c, gnd); if (gz == null) return null;
     var c1 = groundAtCh(c, gnd.filter(function (q) { return q.c1 > 0; }), 'c1'), cl = z - gz;
-    return { clr: cl, gz: gz, text: 'Ground clearance ' + cl.toFixed(2) + ' m at ' + c.toFixed(1) + ' m' + (c1 > 0 ? ' · ' + (cl - c1 >= 0 ? '+' : '') + (cl - c1).toFixed(2) + ' m to the ' + c1.toFixed(1) + ' m line' : '') };
+    return { clr: cl, gz: gz, low: c1 > 0 && cl < c1, text: 'Ground clearance: ' + cl.toFixed(2) + ' m' };
   }
   function pvHover(e) {
     var box = $('profileView'), tip = $('pvHov'), mp = pv.map;
@@ -2977,7 +3012,7 @@
     if (!ln) { ln = document.createElementNS(ns, 'line'); ln.id = 'pvHovLn'; ln.setAttribute('stroke', '#f59e0b'); ln.setAttribute('stroke-width', '1.5'); ln.setAttribute('stroke-dasharray', '4 3'); ln.style.pointerEvents = 'none'; svg.appendChild(ln); }
     ln.setAttribute('x1', xs); ln.setAttribute('x2', xs); ln.setAttribute('y1', ytop); ln.setAttribute('y2', ybot);
     var br = box.getBoundingClientRect();
-    tip.textContent = best.w.segment + ' ' + best.w.conductor + ': ' + info.text; tip.hidden = false;
+    tip.textContent = info.text; tip.classList.toggle('low', !!info.low); tip.hidden = false;
     tip.style.left = Math.min(br.width - 260, Math.max(4, e.clientX - br.left + 12)) + 'px'; tip.style.top = Math.max(4, e.clientY - br.top - 34) + 'px';
   }
   // 3D: the same readout on the selected conductor (view3d reports the point on the wire under the mouse).
@@ -2986,7 +3021,7 @@
     if (!h || !dm) { show3dClr(); return; }
     var ch = {}; (dm.allPoles || []).forEach(function (p) { ch[p.id] = p.chainage; }); var a = ch[h.from], b = ch[h.to]; if (a == null || b == null) { show3dClr(); return; }
     var c = a + (b - a) * h.t, info = clrText(h.z, c, pvGroundArr()); if (!info) { show3dClr(); return; }
-    PNW3D.clearance({ e: h.e, n: h.n, z: h.z, clr: info.clr, text: info.text });
+    PNW3D.clearance(secLows(S.selSection).concat([{ e: h.e, n: h.n, z: h.z, clr: info.clr, text: info.text, hover: true }]));
   }
   window.addEventListener('pnw3d-ready', function () { if (window.PNW3D && PNW3D.wireHover) PNW3D.wireHover(on3dWire); });
   if (window.PNW3D && PNW3D.wireHover) PNW3D.wireHover(on3dWire);
@@ -4627,7 +4662,7 @@
       if (gz ? c0 == null || c1 == null : g0 == null || g1 == null) return;
       for (var k = 0; k <= 24; k++) {
         var t = k / 24, z = w.from.elevation + (w.to.elevation - w.from.elevation) * t - (w.sag ? 4 * w.sag * t * (1 - t) : 0), c = z - (gz ? gz(c0 + (c1 - c0) * t) : g0 + (g1 - g0) * t);
-        if (isFinite(c) && (!best || c < best.clr)) best = { clr: c, z: z, code: w.code || w.conductor || '', e: w.from.easting + (w.to.easting - w.from.easting) * t, n: w.from.northing + (w.to.northing - w.from.northing) * t };
+        if (isFinite(c) && (!best || c < best.clr)) best = { clr: c, z: z, t: t, from: w.from.pole, to: w.to.pole, code: w.code || w.conductor || '', e: w.from.easting + (w.to.easting - w.from.easting) * t, n: w.from.northing + (w.to.northing - w.from.northing) * t };
       }
     });
     return best;
@@ -4635,7 +4670,14 @@
   function spanClearance(a, b) { var r = spanLowest(a, b); return r ? r.clr : null; }
   // 3D: clicking a conductor shows its ground clearance (lowest point of that conductor in the span above the ground).
   var clr3d = null;
-  function show3dClr() { if (!window.PNW3D || !window.PNW3D.clearance) return; var r = clr3d ? spanLowest(clr3d[0], clr3d[1], clr3d[2]) : null; window.PNW3D.clearance(r ? Object.assign(r, { text: 'Ground clearance ' + r.clr.toFixed(2) + ' m' + (r.code ? ' (' + r.code + ')' : '') }) : null); }
+  function show3dClr() { if (!window.PNW3D || !window.PNW3D.clearance) return; var seg = S.selSection, r = seg ? secLows(seg) : clr3d ? [spanLowest(clr3d[0], clr3d[1])].filter(Boolean).map(function (q) { return Object.assign(q, { text: 'Min ground clearance: ' + q.clr.toFixed(2) + ' m' }); }) : []; window.PNW3D.clearance(r.length ? r : null); }
+  // Lowest ground clearance in each span of a strain section (between each pair of poles), for the clicked conductor.
+  function secLows(seg) {
+    if (!seg || !dm) return [];
+    var seen = {}, out = [];
+    dm.wires.forEach(function (w) { if (w.segment !== seg) return; var k = w.from.pole + '|' + w.to.pole; if (seen[k]) return; seen[k] = 1; var r = spanLowest(w.from.pole, w.to.pole, seg); if (r) out.push(Object.assign(r, { a: w.from.pole, b: w.to.pole, text: 'Min ' + r.clr.toFixed(2) + ' m' })); });
+    return out;
+  }
   function spanList() {
     var ids = lineIds(), out = [];
     for (var i = 1; i < ids.length; i++) {
@@ -5436,7 +5478,7 @@
         exNode('conds', 'Conductors', secs.length, secs.map(function (r) { return exItem('data-xc="' + esc(r.name) + '" data-xcp="' + esc(r.first || '') + '"', '〰', esc(r.name) + ' · ' + esc(r.conductor), esc(r.tension), S.selSection === r.name); }).join('')) +
         exNode('equip', 'Equipment', tx.length + st.length, tx.map(function (t) { return exItem('data-xe="' + esc(t.p) + '|plant|' + t.i + '"', '▣', 'Transformer · ' + esc(t.p), esc(t.x.code || '')); }).join('') + st.map(function (t) { return exItem('data-xe="' + esc(t.p) + '|stay|' + t.i + '"', '⟋', 'Stay · ' + esc(t.p), esc(t.x.wire || '')); }).join('')) +
         exNode('cons', 'Construction', Object.keys(cons).length, Object.keys(cons).sort().map(function (c) { return exItem('data-xact="reg"', '⊞', esc(c), '×' + cons[c]); }).join('')) +
-        exNode('profiles', 'Profiles', S.profiles.length, S.profiles.map(function (p, i) { return exItem('data-xprof="' + i + '"', '📈', esc(p.name || 'Profile ' + (i + 1)) + (i === S.active ? '<span class="act">Active</span>' : '') + '<button class="xauto" data-xren="' + i + '" title="Rename this profile">✎</button><button class="xauto" data-xauto="' + i + '" title="Auto design this profile: constructions and conductors from photos / Street View">🪄</button>', p.poleIds.length + ' poles', false); }).join('') + exItem('data-xact="newprof"', '＋', 'New profile…'))) +
+        exNode('profiles', 'Profiles', S.profiles.length, S.profiles.map(function (p, i) { return exItem('data-xprof="' + i + '"', '📈', esc(p.name || 'Profile ' + (i + 1)) + (i === S.active ? '<span class="act">Active</span>' : '') + (i === S.active ? '' : '<button class="xauto xvis' + (p.hidden ? ' off' : '') + '" data-xvis="' + i + '" title="' + (p.hidden ? 'Show this profile on the plan and in 3D' : 'Hide this profile from the plan and 3D') + '" aria-pressed="' + !p.hidden + '">👁</button>') + '<button class="xauto" data-xren="' + i + '" title="Rename this profile">✎</button><button class="xauto" data-xauto="' + i + '" title="Auto design this profile: constructions and conductors from photos / Street View">🪄</button>', p.poleIds.length + ' poles', false); }).join('') + exItem('data-xact="newprof"', '＋', 'New profile…'))) +
       exNode('files', '🗂 Files', S.files.length, exItem('data-xact="import"', '⇪', 'Import files…') + exItem('data-xact="imported"', '🗂', 'Review imported files…', S.files.length ? String(S.files.length) : '') + exItem('data-xact="photos"', '📷', 'Pole photos…'));
     if (ex.dataset.h !== h) { var sc = ex.parentNode.scrollTop; ex.innerHTML = h; ex.dataset.h = h; ex.parentNode.scrollTop = sc; }
   }
@@ -6779,6 +6821,7 @@
 
   // Profiles: 🪄 on a profile (explorer) or right-click it to switch to it and run Auto design on that line only.
   function autoProfile(i) { switchProfile(i); if (+i !== S.active) return; autoDesign(); }
+  document.addEventListener('click', function (e) { var b = e.target.closest('[data-xvis]'); if (!b) return; e.stopPropagation(); e.preventDefault(); var q = S.profiles[+b.dataset.xvis]; if (!q) return; q.hidden = !q.hidden; recompute(); setStatus((q.name || 'Profile') + (q.hidden ? ' is hidden from the plan and 3D.' : ' is shown on the plan and in 3D.'), 'good'); }, true);
   document.addEventListener('click', function (e) { var b = e.target.closest('[data-xren],[data-pren]'); if (!b) return; e.stopPropagation(); e.preventDefault(); if (b.dataset.xren != null) renameProfileDlg(+b.dataset.xren); else renamePoleDlg(b.dataset.pren); }, true);
   $('explorer').addEventListener('dblclick', function (e) { var t = e.target.closest('[data-xprof],[data-xp]'); if (!t) return; e.preventDefault(); if (t.dataset.xprof != null) renameProfileDlg(+t.dataset.xprof); else renamePoleDlg(t.dataset.xp); });
   document.addEventListener('click', function (e) { var b = e.target.closest('[data-xauto]'); if (!b) return; e.stopPropagation(); e.preventDefault(); autoProfile(b.dataset.xauto); }, true);

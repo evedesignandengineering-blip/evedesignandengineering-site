@@ -563,14 +563,16 @@ function clearance(m) { clrMark = m || null; drawClr(); }
 function drawClr() {
   if (!group) return;
   clrObjs.forEach((o) => { group.remove(o); if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); if (o.element) o.element.remove(); }); clrObjs = [];
-  const m = clrMark;
+  // One mark, or a list (the lowest point of each span of a clicked conductor, plus the hover point).
+  (Array.isArray(clrMark) ? clrMark : [clrMark]).forEach((m) => {
   if (m && origin && isFinite(m.e) && isFinite(m.n) && isFinite(m.z) && isFinite(m.clr)) {
     const top = P(m.e, m.n, m.z), bot = P(m.e, m.n, m.z - m.clr), g = new LineGeometry(); g.setPositions([top.x, top.y, top.z, bot.x, bot.y, bot.z]);
     const mt = new LineMaterial({ color: 0xf59e0b, linewidth: 2, worldUnits: false, dashed: true, dashSize: 0.4, gapSize: 0.25 }); mt.resolution.set(host.clientWidth || 1, host.clientHeight || 1); lineMats.push(mt);
     const ln = new Line2(g, mt); ln.computeLineDistances(); group.add(ln); clrObjs.push(ln);
     [top, bot].forEach((v) => { const s = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf59e0b })); s.position.copy(v); group.add(s); clrObjs.push(s); });
-    clrObjs.push(label(m.text || ('clearance ' + m.clr.toFixed(2) + ' m'), top.clone().lerp(bot, 0.5), 'l3d clr'));
+    clrObjs.push(label(m.text || ('clearance ' + m.clr.toFixed(2) + ' m'), top.clone().lerp(bot, 0.5), 'l3d clr' + (m.hover ? ' hov' : '')));
   }
+  });
   invalidate();
 }
 function selectSection(name) {
