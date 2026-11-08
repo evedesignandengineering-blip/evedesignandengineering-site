@@ -1273,9 +1273,48 @@
     });
     return '  <pole_' + id + '><![CDATA[<tipload_project ' + A.map(function (a) { return a[0] + '="' + xe(a[1]) + '"'; }).join(' ') + '>\n  <poletype>\n    <poletype>\n' + row(PT, '      ') + '\n    </poletype>\n  </poletype>\n  <ccts>\n' + ccts.join('\n') + '\n  </ccts>\n</tipload_project>]]></pole_' + id + '>\n';
   }
-  function pnwxText() { return withPoleTypes(pnwxTextRaw()); }
+  function pnwxText() { return withExtras(withPoleTypes(pnwxTextRaw())); }
+  // PNW keeps a pole's transformer and stay in two places: the pole row (Table2 poleMountPlant / plantAttachHt / plantOrient /
+  // plantisNew, stayed / staydir / stayht / stayangle / staycode, as in your S1242155 project) and the pole's saved tipload
+  // (plant1 / plant_attht / plant_dir, stay1_*). Transformers and stays added here are written to both on export.
+  function pnwPlant(c) { c = String(c || ''); return !c || /^\s/.test(c) ? c : '    ' + c; }
+  function withExtras(xml) {
+    var ex = S.design.extras || {}, ids = Object.keys(ex).filter(function (id) { return (ex[id].plant || []).length || (ex[id].stays || []).length; });
+    if (!xml || !ids.length) return xml;
+    try {
+      var p = M.readPnwx(xml); if (p.kind !== 'profile') return xml;
+      var n = function (v) { return v == null || v === '' || !isFinite(Number(v)) ? '0' : String(Math.round(Number(v) * 1000) / 1000); };
+      var sf = function (r, k, v) { try { M.setField(r, k, v); } catch (e) { /* field not in this file */ } };
+      var tips = {};
+      ids.forEach(function (id) {
+        var r = p.poles.filter(function (x) { return x.ID === id; })[0], inp = tipInput(id); if (!r || !inp) return;
+        var pl = inp.plant.filter(function (q) { return q.code; }), st = inp.stays, p1 = pl[0], s1 = st[0];
+        if (p1) { sf(r, 'poleMountPlant', pnwPlant(p1.code)); sf(r, 'plantAttachHt', n(p1.attHt)); sf(r, 'plantOrient', n(p1.dir)); sf(r, 'plantisNew', 'True'); }
+        if (s1) { sf(r, 'stayed', 'True'); sf(r, 'staydir', n(s1.dir)); sf(r, 'stayht', n(s1.attHt)); sf(r, 'stayangle', n(s1.angle)); sf(r, 'staycode', s1.wire || ''); }
+        var A = {}, p2 = pl[1], s2 = st[1];
+        A.plant_checked = p1 && p1.include !== false ? 'True' : 'False'; A.plant1 = p1 ? pnwPlant(p1.code) : ''; A.plant_attht = n(p1 && p1.attHt); A.plant_dir = n(p1 && p1.dir);
+        A.plant_checked2 = p2 && p2.include !== false ? 'True' : 'False'; A.plant2 = p2 ? pnwPlant(p2.code) : ''; A.plant_attht2 = n(p2 && p2.attHt); A.plant_dir2 = n(p2 && p2.dir);
+        [s1, s2].forEach(function (q, k) { var b = 'stay' + (k + 1) + '_'; A[b + 'checked'] = q && q.include ? 'True' : 'False'; A[b + 'wire'] = q ? q.wire || '' : ''; A[b + 'dir'] = n(q && q.dir); A[b + 'angle'] = n(q ? q.angle : 0); A[b + 'att_ht'] = n(q && q.attHt); });
+        tips[id] = A;
+      });
+      var out = M.writePnwx(p), add = '';
+      Object.keys(tips).forEach(function (id) {
+        var tag = '<pole_' + id + '><![CDATA[<tipload_project', i = out.indexOf(tag);
+        if (i < 0) { // no saved tipload for this pole yet: write one with its pole type, so PNW's tipload sees the transformer and stay
+          var row = p.poles.filter(function (x) { return x.ID === id; })[0], t = poleTypeFor(id, row && PNW.num(row.Length)), x = t ? tipProjectXml(id, t, p.attrs || {}) : '';
+          if (x) add += Object.keys(tips[id]).reduce(function (acc, k) { return acc.replace(new RegExp('(\\s' + k + '=")[^"]*(")'), function (m0, a, b) { return a + tips[id][k].replace(/&/g, '&amp;').replace(/"/g, '&quot;') + b; }); }, x);
+          return;
+        }
+        var j = out.indexOf('>', i + tag.length), head = out.slice(i, j);
+        Object.keys(tips[id]).forEach(function (k) { var v = tips[id][k].replace(/&/g, '&amp;').replace(/"/g, '&quot;'), re = new RegExp('(\\s' + k + '=")[^"]*(")'); head = re.test(head) ? head.replace(re, function (m0, a, b) { return a + v + b; }) : head + ' ' + k + '="' + v + '"'; });
+        out = out.slice(0, i) + head + out.slice(j);
+      });
+      if (add) { var NL = /\r\n/.test(out) ? '\r\n' : '\n'; out = out.replace(/<\/profile_project>\s*$/, add.replace(/\n/g, NL) + '</profile_project>' + NL); }
+      return out;
+    } catch (e) { return xml; }
+  }
   function pnwxTextRaw() { if (project && project.constructions && project.constructions.length && projectXml()) return projectXml(); return PNW.profilePnwx(built, { title: 'Ground Profile - ' + baseName(), createdBy: S.settings.createdBy, option: S.settings.optionSet, clearance1: PNW.num(S.settings.clr1), clearance2: PNW.num(S.settings.clr2) }); }
-  function exportDesign() { download(new Blob([withPoleTypes(projectXml())], { type: 'application/xml' }), linked.name.replace(/\.pnwx$/i, '') + (liveLog().length ? ' (edited)' : '') + '.pnwx'); setStatus('Downloaded the updated PNW project.', 'good'); }
+  function exportDesign() { download(new Blob([withExtras(withPoleTypes(projectXml()))], { type: 'application/xml' }), linked.name.replace(/\.pnwx$/i, '') + (liveLog().length ? ' (edited)' : '') + '.pnwx'); setStatus('Downloaded the updated PNW project.', 'good'); }
   function exportLog() {
     var rows = [['Time', 'Pole', 'Construction', 'Field', 'Original', 'Proposed', 'Approved value', 'Source', 'Reference', 'Approved by']].concat(liveLog().map(function (l) { return [l.t, l.pole, l.construction, l.field, l.from, l.proposed, l.to, l.source, l.reference, l.by]; }));
     download(new Blob([rows.map(function (r) { return r.map(function (v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n')], { type: 'text/csv' }), 'Change log - ' + (linked ? linked.name.replace(/\.pnwx$/i, '') : baseName()) + '.csv');
