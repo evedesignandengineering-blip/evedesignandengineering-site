@@ -485,8 +485,8 @@ function marks(list) {
 // Map layer under the model: web-map tiles (Esri World Imagery or OpenStreetMap), flat at the lowest pole base or draped
 // on the ground interpolated from the surveyed pole levels (no terrain model is loaded). opts: {kind, terrain, toLL, toEN}.
 let tileGroup = null, tileOpts = { kind: 'none', terrain: false }, tileKey = '', gridRef = null, tileExt = 20, gridY = 0, tileStat = { want: 0, ok: 0, failed: 0 };
-const TILE_URL = { satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', street: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' };
-const TILE_ATTR = { satellite: 'Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community', street: '© OpenStreetMap contributors' };
+const TILE_URL = { satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', street: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', light: 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' };
+const TILE_ATTR = { satellite: 'Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community', street: '© OpenStreetMap contributors', light: '© OpenStreetMap contributors © CARTO' };
 function basemap(opts) { tileOpts = Object.assign({}, tileOpts, opts || {}); tileKey = ''; buildTiles(); return tileStat; }
 function buildTiles() {
   if (!scene || !origin || !lastData) return;
@@ -499,6 +499,7 @@ function buildTiles() {
   tileStat = { want: 0, ok: 0, failed: 0 };
   const src = tileOpts.fetch && tileOpts.kind !== 'none' ? tileOpts.fetch : null, attrTxt = src ? (tileOpts.attr || '') : TILE_ATTR[tileOpts.kind];
   if (attr) attr.textContent = src || TILE_URL[tileOpts.kind] ? attrTxt : '';
+  const fbUrl = tileOpts.fallback && TILE_URL[tileOpts.fallback]; // a fetched tile that cannot load uses this public map
   if ((!src && !TILE_URL[tileOpts.kind]) || !tileOpts.toLL || !tileOpts.toEN) { invalidate(); return; }
   const pad = Math.max(60, tileExt * 0.4), e0 = origin.e - tileExt - pad, e1 = origin.e + tileExt + pad, n0 = origin.n - tileExt - pad, n1 = origin.n + tileExt + pad;
   const ll = [[e0, n0], [e1, n0], [e0, n1], [e1, n1]].map((c) => tileOpts.toLL(c[0], c[1])).filter(Boolean); if (ll.length < 4) return;
@@ -522,7 +523,8 @@ function buildTiles() {
     const fail = () => { tileStat.failed++; m.color.set(0xe7ecf1); if (attr) attr.textContent = attrTxt + ' · ' + tileStat.failed + ' tile(s) could not load' + (src ? '' : ' (offline, or blocked by this page)'); invalidate(); }, myKey = tileKey;
     (src ? Promise.resolve(src(tileOpts.kind, z, x, y)) : Promise.resolve(TILE_URL[tileOpts.kind].replace('{z}', z).replace('{x}', x).replace('{y}', y))).then((url) => {
       if (myKey !== tileKey) return; if (!url) return fail();
-      loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; m.map = t; m.needsUpdate = true; tileStat.ok++; invalidate(); }, undefined, fail);
+      const ok = (t) => { t.colorSpace = THREE.SRGBColorSpace; m.map = t; m.needsUpdate = true; tileStat.ok++; invalidate(); };
+      loader.load(url, ok, undefined, src && fbUrl ? () => { if (myKey === tileKey) loader.load(fbUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y), ok, undefined, fail); } : fail);
     }, fail);
   }
   invalidate();

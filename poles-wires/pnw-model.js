@@ -333,6 +333,29 @@
     })(p._root);
     refresh(p); return n;
   }
+  // Flips the line end for end: chainage c becomes L - c (L = the last chainage), the ground, poles and strain-section members
+  // are reordered along the new direction, and attachment outreach changes sign (x is measured to the right looking along
+  // increasing chainage, so each wire keeps its real position). Coordinates, levels, heights and phases are unchanged.
+  function flipProfile(p) {
+    var L = 0;
+    p.ground.forEach(function (r) { L = Math.max(L, numOr(r.Chainage, 0)); }); p.poles.forEach(function (r) { L = Math.max(L, numOr(r.Distance, 0)); });
+    var fl = function (v) { var n = numOr(v, null); return n == null ? v : fmtNum(round3(L - n)); };
+    p.ground.forEach(function (r) { if (r.Chainage !== '') setField(r, 'Chainage', fl(r.Chainage)); });
+    p.poles.forEach(function (r) { setField(r, 'Distance', fl(r.Distance)); });
+    p.segPoles.forEach(function (r) { if (String(r.chain).trim() !== '') setField(r, 'chain', fl(r.chain)); });
+    p.constructions.forEach(function (r) { if (String(r.attachOutreach || '').trim()) setField(r, 'attachOutreach', String(r.attachOutreach).split(';').map(function (x) { var n = Number(x); return x.trim() === '' || !isFinite(n) ? x : fmtNum(n === 0 ? 0 : -n); }).join(';')); });
+    var reorder = function (table, key) {
+      var wrap = el(p._root, table); if (!wrap) return;
+      var idx = [], recs = []; wrap.children.forEach(function (c, i) { if (typeof c !== 'string' && c.tag === table) { idx.push(i); recs.push(c); } });
+      var sorted = recs.map(function (c, i) { return { c: c, k: key(record(c), i) }; }).sort(function (a, b) { return a.k[0] - b.k[0] || a.k[1] - b.k[1]; });
+      idx.forEach(function (at, i) { wrap.children[at] = sorted[i].c; });
+    };
+    reorder('Table1', function (r, i) { return [0, numOr(r.Chainage, i)]; });
+    reorder('Table2', function (r, i) { return [0, numOr(r.Distance, i)]; });
+    var sec = []; p.segPoles.forEach(function (r) { if (sec.indexOf(r.strsection) < 0) sec.push(r.strsection); });
+    reorder('Table6', function (r, i) { return [sec.indexOf(r.strsection), numOr(r.chain, -i)]; });
+    refresh(p); return L;
+  }
   function setPoleType(p, id, t) {
     var r = p.poles.filter(function (x) { return x.ID === id; })[0];
     if (!r || !t || !t.code) return false;
@@ -788,7 +811,7 @@
   return {
     parseXml: parseXml, serialize: serialize, readPnwx: readPnwx, writePnwx: writePnwx, setField: setField, setAttr: setAttr,
     updateConstruction: updateConstruction, addConstruction: addConstruction, removeConstruction: removeConstruction,
-    constructionFrom: constructionFrom, buildRegister: buildRegister, addPole: addPole, updatePole: updatePole, setPoleType: setPoleType, renamePole: renamePole, removePole: removePole, pointAt: pointAt,
+    constructionFrom: constructionFrom, buildRegister: buildRegister, addPole: addPole, updatePole: updatePole, setPoleType: setPoleType, renamePole: renamePole, flipProfile: flipProfile, removePole: removePole, pointAt: pointAt,
     ensureConductor: ensureConductor, addSection: addSection, updateSection: updateSection, removeSection: removeSection, setSectionPoles: setSectionPoles, cutSections: cutSections, crossarmAxes: crossarmAxes, attachmentPoints: attachmentPoints,
     wires: wires, illustrativeSag: illustrativeSag,
     parseLibrary: parseLibrary, libraryConstruction: libraryConstruction, defaultKingbolt: defaultKingbolt, matchPoleType: matchPoleType,

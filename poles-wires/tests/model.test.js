@@ -229,3 +229,14 @@ test('design editing: add a pole, string a strain section, change and remove the
   M.removeSection(q, 'SS3'); M.removePole(q, 'NEW1');
   assert.equal(q.poles.length, 4); assert.equal(q.segments.length, 2); assert.equal(q.segPoles.length, 8); assert.equal(q.constructions.length, 8);
 });
+
+test('flipProfile reverses chainage, pole and section order, mirrors outreach; flipping twice restores the file', opts, () => {
+  const src = fs.readFileSync(path.join(DIR, 'Ground Profile - MP219050.pnwx'), 'utf8');
+  const p = M.readPnwx(src); M.flipProfile(p);
+  const q = M.readPnwx(M.writePnwx(p));
+  assert.deepEqual(q.poles.map((r) => r.ID + '@' + r.Distance), ['S120378@0', 'S120776@44.61', 'S119850@82.27', 'S119846@113.05']);
+  assert.equal(q.ground[0].Level, '7.49');
+  assert.equal(q.segPoles[0].id, 'S120378');
+  assert.equal(q.constructions[0].attachOutreach, '0.9;0;-0.9');
+  M.flipProfile(q); assert.equal(M.writePnwx(q), src);
+});
