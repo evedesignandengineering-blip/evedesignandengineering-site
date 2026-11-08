@@ -345,14 +345,16 @@
   function addFiles(list) {
     var arr = Array.prototype.slice.call(list || []);
     var pj = arr.filter(function (f) { return /\.pwproj\.json$/i.test(f.name); });
-    if (pj.length) { openProjectFile(pj[0]); arr = arr.filter(function (f) { return pj.indexOf(f) < 0; }); }
+    if (pj.length) { pj.forEach(function (f) { openProjectFile(f, true); }); arr = arr.filter(function (f) { return pj.indexOf(f) < 0; }); }
     // Pole photos dropped together with the spreadsheets: attached after the import (matched by file name), then Auto design runs.
     var imgs = arr.filter(function (f) { return /\.(jpe?g|png|webp)$/i.test(f.name); }); arr = arr.filter(function (f) { return imgs.indexOf(f) < 0; });
     var cads = arr.filter(function (f) { return /\.(dgn|dxf)$/i.test(f.name); }); arr = arr.filter(function (f) { return cads.indexOf(f) < 0; }); cads.forEach(cadAdd);
     if (!arr.length && cads.length) { if (imgs.length) dropPhotos(imgs); return; }
     if (!arr.length) { if (imgs.length) dropPhotos(imgs); return; }
-    var existed = {}; S.files.forEach(function (f) { existed[f.name] = 1; });
+    var existed = {}, kept = 0; S.files.forEach(function (f) { existed[f.name] = f.size; });
     var jobs = arr.map(function (f) {
+      // A different file with the name of one already imported (QLINK and GIS exports all get the same names) is kept beside it.
+      if (existed[f.name] != null && existed[f.name] !== f.size) { var f0 = f, nm0 = uniqueFileName(f.name); kept++; f = { name: nm0, size: f0.size, arrayBuffer: function () { return f0.arrayBuffer(); } }; }
       var ext = (f.name.split('.').pop() || '').toLowerCase();
       if (['xlsx', 'xls', 'csv', 'xlsm', 'pnwx', 'txt', 'json'].indexOf(ext) < 0) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-type', message: f.name + ': only .xlsx, .xls, .csv, .pnwx, PNW library or DCSH .txt and DCSH register .json files can be imported.', file: f.name }] });
       if (f.size > MAX_BYTES) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-size', message: f.name + ' is larger than 50 MB.', file: f.name }] });
@@ -366,12 +368,26 @@
     });
     setStatus('Reading ' + arr.length + ' file' + (arr.length > 1 ? 's' : '') + '…');
     Promise.all(jobs).then(function (results) {
-      var replaced = 0;
-      results.forEach(function (r) { upsertFile(r); if (existed[r.name]) replaced++; });
-      var hadPoles = prof().poleIds.length > 0;
+      var replaced = 0, was = {};
+      Object.keys(merged.poles).forEach(function (k) { if (merged.poles[k].survey) was[k] = 1; });
+      results.forEach(function (r) { upsertFile(r); if (existed[r.name] != null) replaced++; });
+      var hadPoles = prof().poleIds.length > 0, only = !hadPoles && S.profiles.length === 1;
+      var fresh = results.filter(function (r) { return r.status === 'ok' && r.role === 'pnwx' && r.kind === 'profile' && existed[r.name] == null; }).map(function (r) { return r.name; });
       recompute();
       seedNote = '';
-      if (!hadPoles) { if (project) useProject(true); else seedProfile(true); }
+      // A new PNW line gets its own profile (or fills the empty / matching active one); other profiles keep their poles.
+      var usedProj = false;
+      if (fresh.length && S.design.link !== fresh[0]) { linkDesign(fresh[0]); usedProj = true; }
+      else if (!hadPoles && project) { useProject(true); usedProj = true; }
+      fresh.slice(1).forEach(addFileProfile);
+      if (!usedProj) { // new surveyed poles: into the active profile when it is empty, else into a new profile
+        var inP = {}; S.profiles.forEach(function (q) { q.poleIds.forEach(function (k) { inP[k] = 1; }); });
+        var loose = Object.keys(merged.poles).filter(function (k) { return merged.poles[k].survey && (only || (!was[k] && !inP[k])); });
+        var first = loose.length ? seedProfile(true, loose) : -1;
+        if (first >= 0 && first !== S.active) { switchProfile(first); seedNote += ' The new poles are in profile “' + prof().name + '”; your other profiles are unchanged.'; }
+      }
+      if (fresh.length) seedNote += ' ' + fresh.length + ' PNW line' + (fresh.length > 1 ? 's' : '') + ' added as profile' + (fresh.length > 1 ? 's' : '') + '.';
+      if (kept) seedNote += ' ' + kept + ' file' + (kept > 1 ? 's' : '') + ' had the name of an imported one and were kept beside it (renamed).';
       recompute(); fit();
       if (results.some(function (r) { return r.status === 'error' || r.role === 'unknown'; })) openFilesDlg();
       setStatus('Imported ' + results.length + ' file' + (results.length > 1 ? 's' : '') + (replaced ? ' (' + replaced + ' replaced)' : '') + '. ' + summaryText() + (seedNote ? ' ' + seedNote : ''), 'good');
@@ -389,7 +405,7 @@
       var n = ids.filter(Boolean).length; if (n) { renderSelected(); renderTable(); }
       var note = (n ? n + ' photo' + (n > 1 ? 's' : '') + ' attached. ' : '') + (miss.length ? miss.length + ' photo' + (miss.length > 1 ? 's' : '') + ' not matched by file name: use Files › Pole photos. ' : '');
       var surveyed = Object.keys(merged.poles).some(function (k) { return merged.poles[k].survey; }), hasCons = project && project.constructions && project.constructions.length;
-      if ((n || imported) && surveyed && !hasCons && !AD.busy && $('genDlg').hidden) { if (note) setStatus(note + 'Starting Auto design…', 'good'); autoDesign(); }
+      if ((n || imported) && surveyed && prof().poleIds.length && !hasCons && !AD.busy && $('genDlg').hidden) { if (note) setStatus(note + 'Starting Auto design…', 'good'); autoDesign(); }
       else if (note) setStatus(note, miss.length ? 'bad' : 'good');
     });
   }
@@ -399,14 +415,28 @@
     S.files.push(r); renderFiles(); return false;
   }
   // split: where the surveyed poles branch (tee-offs, crossing streets), each line becomes its own profile.
-  function seedProfile(split) {
-    var ids = Object.keys(merged.poles).filter(function (id) { return merged.poles[id].survey; });
-    if (!ids.length) return;
+  // only: the poles to place (default every surveyed pole). They fill the active profile when it is empty, else new profiles.
+  // Returns the index of the first profile filled.
+  function seedProfile(split, only) {
+    var ids = only || Object.keys(merged.poles).filter(function (id) { return merged.poles[id].survey; });
+    if (!ids.length) return -1;
     var lines = split && PNW.splitLines ? PNW.splitLines(merged.poles, ids) : null;
-    if (!lines || lines.length < 2) { prof().poleIds = PNW.autoOrder(merged.poles, ids); return; }
-    prof().poleIds = lines[0];
-    lines.slice(1).forEach(function (l) { var q = newProfile(uniqueProfName()); q.poleIds = l; S.profiles.push(q); });
-    seedNote = 'The poles branch, so they were split into ' + lines.length + ' profiles (one per line, sharing the junction poles). Switch with the profile list.';
+    if (!lines || lines.length < 2) lines = [PNW.autoOrder(merged.poles, ids)];
+    var tgt = !prof().poleIds.length && !prof().file ? prof() : null, first = -1;
+    lines.forEach(function (l, i) {
+      if (!i && tgt) { tgt.poleIds = l; first = S.active; return; }
+      var q = newProfile(uniqueProfName()); q.poleIds = l; S.profiles.push(q); if (first < 0) first = S.profiles.length - 1;
+    });
+    if (lines.length > 1) seedNote = 'The poles branch, so they were split into ' + lines.length + ' profiles (one per line, sharing the junction poles). Switch with the profile list.';
+    return first;
+  }
+  function uniqueFileName(n) { var m = /^(.*?)(\.[^.]*)?$/.exec(n), i = 2; while (S.files.some(function (f) { return f.name === m[1] + ' (' + i + ')' + (m[2] || ''); })) i++; return m[1] + ' (' + i + ')' + (m[2] || ''); }
+  function uniqueProfTitle(t) { var n = t, i = 2; while (S.profiles.some(function (p) { return p.name === n; })) n = t + ' (' + i++ + ')'; return n; }
+  // A further PNW line imported in the same batch: its own profile (linked when it is opened).
+  function addFileProfile(name) {
+    if (S.profiles.some(function (q) { return q.file === name; })) return;
+    var f = S.files.filter(function (x) { return x.name === name; })[0], pj = null; try { pj = M.readPnwx(f.text); } catch (e) { return; }
+    var q = newProfile(uniqueProfTitle(((pj.attrs && pj.attrs.title) || name).replace(/^Ground Profile - /i, '').replace(/\.pnwx$/i, ''))); q.file = name; q.poleIds = pj.poles.map(function (r) { return r.ID; }); S.profiles.push(q);
   }
   var seedNote = '';
   function summaryText() {
@@ -1278,7 +1308,7 @@
     var profiles = filesOf('pnwx').filter(function (f) { return f.kind === 'profile'; });
     if (S.design.link && !profiles.some(function (f) { return f.name === S.design.link; })) S.design = Object.assign(blankDesign(), { register: S.design.register });
     // No link yet: link the active profile's own line; a profile without one (after a switch) stays unlinked.
-    if (!S.design.link && profiles.length) { var pf0 = prof() && prof().file, pick0 = pf0 ? profiles.filter(function (f) { return f.name === pf0; })[0] : S.profiles.filter(function (q) { return q.file || q.poleIds.length; }).length <= 1 ? profiles[0] : null; if (pick0) S.design.link = pick0.name; }
+    if (!S.design.link && profiles.length) { var pf0 = prof() && prof().file, pick0 = pf0 ? profiles.filter(function (f) { return f.name === pf0; })[0] : S.profiles.length === 1 && !prof().poleIds.length ? profiles[0] : null; if (pick0) S.design.link = pick0.name; }
     linked = profiles.filter(function (f) { return f.name === S.design.link; })[0] || null;
     project = null;
     if (linked) { try { project = M.readPnwx(projectXml()); } catch (e) { setStatus('The linked project could not be read: ' + e.message, 'bad'); } }
@@ -1318,11 +1348,13 @@
   }
   function linkDesign(name) {
     var old = S.design;
+    if (linked && prof() && !prof().file && prof().poleIds.length) prof().file = linked.name;
     if (linked && old.xml) { var lf = S.files.filter(function (f) { return f.name === linked.name; })[0]; if (lf) lf.text = old.xml; xCache = {}; textCache = {}; regCache = null; }
     S.design = Object.assign(blankDesign(), { register: old.register, link: name, log: old.log || [], extras: old.extras, poleTypes: old.poleTypes, tables: old.tables, pstr: old.pstr, poleLib: old.poleLib });
     recompute();
     var title = ((project && (project.attrs.title || name)) || name).replace(/^Ground Profile - /i, '').replace(/\.pnwx$/i, ''), idx = S.profiles.findIndex(function (q) { return q.file === name; }); if (idx < 0) idx = S.profiles.findIndex(function (q) { return q.name === title && !q.file; });
-    if (idx < 0 && S.profiles.length === 1 && !S.profiles[0].poleIds.length) idx = 0;
+    if (idx < 0 && !prof().file && (!prof().poleIds.length || (project && project.poles.filter(function (r) { return prof().poleIds.indexOf(r.ID) >= 0; }).length >= Math.min(2, project.poles.length)))) idx = S.active;
+    if (idx < 0) title = uniqueProfTitle(title);
     if (idx < 0) { S.profiles.push(newProfile(title)); idx = S.profiles.length - 1; }
     S.active = idx; S.profiles[idx].file = name; useProject(false);
   }
@@ -2608,7 +2640,7 @@
   function autoDesign() {
     if (AD.busy) return;
     if (!Object.keys(merged.poles).some(function (id) { return merged.poles[id].survey; })) { setStatus('Load the QLINK LiDAR export first. Auto design takes the poles and ground levels from it.', 'bad'); return; }
-    if (!prof().poleIds.length) { seedProfile(true); S.generated = false; recompute(); }
+    if (!prof().poleIds.length) { var inO = {}; S.profiles.forEach(function (q) { q.poleIds.forEach(function (k) { inO[k] = 1; }); }); var fr = Object.keys(merged.poles).filter(function (k) { return merged.poles[k].survey && !inO[k]; }); seedProfile(true, fr.length ? fr : null); S.generated = false; recompute(); }
     // Constructions need the height above ground: take missing or invalid lengths (e.g. -9999) from the pole type first.
     var fixIds = lineIds().filter(function (k) { return badLen(curLen(k)) && typeOf(k); }); if (fixIds.length) fixFromType(fixIds);
     if (!project) startDesign();
@@ -2992,14 +3024,37 @@
     var blob = new Blob([JSON.stringify({ app: 'eve-poles-wires', version: 2, saved: new Date().toISOString(), state: S })], { type: 'application/json' });
     download(blob, (prof().name || 'Poles and Wires project').replace(/[\\/:*?"<>|]+/g, '-') + '.pwproj.json'); setStatus('Saved the project file. Open it here later to carry on.', 'good');
   }
-  function openProjectFile(file) {
+  // add: a project file imported into a project that already has data is added to it (its files and profiles join the
+  // ones here) instead of replacing it. Open (toolbar) still opens it on its own.
+  function openProjectFile(file, add) {
     file.text().then(function (t) {
       var j = JSON.parse(t, function (k, v) { return k === 'date' && typeof v === 'string' ? new Date(v) : v; });
       if (!j || j.app !== 'eve-poles-wires' || !j.state || !Array.isArray(j.state.files)) throw new Error('not a Poles & Wires project file');
+      if (add && S.files.length) { var n0 = S.profiles.length; restoringWrap(function () { mergeProject(j.state); }); setStatus('Added ' + file.name + ' to this project: its files' + (S.profiles.length > n0 ? ' and ' + (S.profiles.length - n0) + ' profile' + (S.profiles.length - n0 > 1 ? 's' : '') + ' (now in the profile list)' : '') + ' joined the ones here. ' + summaryText(), 'good'); return; }
       S = Object.assign(blank(), j.state); S.settings = Object.assign({}, DEFAULT_SETTINGS, j.state.settings); S.design = Object.assign(blankDesign(), j.state.design);
       buffers = {}; undoStack = []; redoStack = []; lastSnap = null; aiResults = {}; syncInputs(); recompute(); fit(); setView(S.view, true); markDirty(false);
       setStatus('Opened ' + file.name + '. ' + summaryText(), 'good');
     }).catch(function (e) { setStatus(file.name + ' could not be opened: ' + e.message, 'bad'); });
+  }
+  function mergeProject(st) {
+    var d = st.design || {}, ren = {}, act = (st.profiles || [])[st.active || 0];
+    if (linked && prof() && !prof().file && prof().poleIds.length) prof().file = linked.name;
+    (st.files || []).forEach(function (f0) {
+      var f = Object.assign({}, f0); if (d.link && d.xml && f.name === d.link) f.text = d.xml; // its design edits live in its line
+      var ex = S.files.filter(function (x) { return x.name === f.name; })[0];
+      if (ex && ex.size === f.size && (ex.text || '') === (f.text || '')) { ren[f.name] = f.name; return; }
+      if (ex) f.name = uniqueFileName(f.name); ren[f0.name] = f.name; S.files.push(f);
+    });
+    (st.profiles || []).forEach(function (p0) {
+      if (!p0.poleIds || !p0.poleIds.length) return;
+      var q = Object.assign(newProfile(''), JSON.parse(JSON.stringify(p0)));
+      if (!q.file && p0 === act && d.link) q.file = d.link; if (q.file) q.file = ren[q.file] || q.file;
+      q.name = uniqueProfTitle(q.name || 'Profile'); S.profiles.push(q);
+    });
+    ['photos', 'renames'].forEach(function (k) { var o = st[k] || {}; S[k] = S[k] || {}; Object.keys(o).forEach(function (x) { if (!(x in S[k])) S[k][x] = o[x]; }); });
+    ['register', 'extras', 'poleTypes', 'tables', 'pstr', 'poleLib'].forEach(function (k) { var o = d[k] || {}; S.design[k] = S.design[k] || {}; Object.keys(o).forEach(function (x) { if (!(x in S.design[k])) S.design[k][x] = o[x]; }); });
+    S.design.log = liveLog().concat(d.log || []);
+    xCache = {}; textCache = {}; regCache = null; recompute(); fit();
   }
   $('tbSave').onclick = function () { saveProjectFile(); markDirty(false); };
   $('tbOpen').onclick = function () { $('projInput').click(); };
@@ -4984,10 +5039,12 @@
     var order = Object.keys(merged.poles).filter(function (k) { return poleXY(k); }).sort();
     var inProf = function (k) { return S.profiles.filter(function (p) { return p.poleIds.indexOf(k) >= 0 && p.poleIds.length; }).map(function (p) { return p.name; }); };
     var picked = {}; (pre || []).forEach(function (k) { if (order.indexOf(k) >= 0) picked[k] = 1; });
-    openGen('Create profile', '<div class="mp-top"><div class="field"><label for="mpName">Profile name</label><input id="mpName" value="' + esc(uniqueProfName()) + '"></div><div class="field"><label for="mpFind">Find pole</label><input id="mpFind" placeholder="Pole ID"></div></div>' +
+    var conds = condList();
+    openGen('Create profile', '<div class="mp-top"><div class="field"><label for="mpName">Profile name</label><input id="mpName" value="' + esc(uniqueProfName()) + '"></div><div class="field"><label for="mpFind">Find pole</label><input id="mpFind" placeholder="Pole ID"></div>' +
+      (conds.length ? '<div class="field"><label for="mpCond">Poles on a conductor</label><select id="mpCond"><option value="">Pick a conductor…</option>' + conds.map(function (c) { return '<option value="' + esc(c.v) + '">' + esc(c.t) + '</option>'; }).join('') + '</select></div>' : '') + '</div>' +
       '<p class="hint" style="display:block">Tick poles here or click them on the plan or in 3D (this window stays open). For a tee-off, include the pole it branches from.</p>' +
       '<div class="mp-list">' + order.map(function (k) { var ip = inProf(k); return '<label data-mp="' + esc(k) + '"><input type="checkbox" value="' + esc(k) + '"' + (picked[k] ? ' checked' : '') + '> <b>' + esc(k) + '</b>' + (ip.length ? ' <small>' + esc(ip.join(', ')) + '</small>' : '') + '</label>'; }).join('') + '</div>' +
-      '<div class="mp-sum" id="mpSum"></div><p class="err" id="mpErr" hidden></p><div class="btnrow"><button class="btn primary" id="mpOk">Create profile</button><button class="btn" id="mpClear">Clear ticks</button><button class="btn" id="mpNo">Cancel</button></div>', { noFocus: true, side: true });
+      '<div class="mp-sum" id="mpSum"></div><p class="err" id="mpErr" hidden></p><div class="btnrow"><button class="btn primary" id="mpOk">Create profile</button><button class="btn" id="mpEmpty" title="An empty profile: files you import next put their new poles into it">Create empty profile</button><button class="btn" id="mpClear">Clear ticks</button><button class="btn" id="mpNo">Cancel</button></div>', { noFocus: true, side: true });
     var box = $('genBody'), list = function () { return Array.prototype.map.call(box.querySelectorAll('.mp-list input:checked'), function (c) { return c.value; }); };
     function upd() {
       var ids = list(), o = ids.length > 1 ? PNW.autoOrder(merged.poles, ids.slice()) : ids, sum = $('mpSum'); if (!sum) return;
@@ -5003,12 +5060,31 @@
     $('mpFind').oninput = function () { var q = this.value.trim().toUpperCase(); Array.prototype.forEach.call(box.querySelectorAll('[data-mp]'), function (l) { l.hidden = q && !smartScore(q, l.dataset.mp + ' ' + l.textContent); }); };
     $('mpClear').onclick = function () { Array.prototype.forEach.call(box.querySelectorAll('.mp-list input:checked'), function (c) { c.checked = false; }); upd(); };
     $('mpNo').onclick = closeGen;
+    if ($('mpCond')) $('mpCond').onchange = function () { condPoles(this.value).forEach(function (k) { var c = box.querySelector('[data-mp="' + (window.CSS && CSS.escape ? CSS.escape(k) : k) + '"] input'); if (c) c.checked = true; }); this.value = ''; upd(); };
+    $('mpEmpty').onclick = function () {
+      var nm = $('mpName').value.trim(); if (!nm || S.profiles.some(function (p) { return p.name === nm; })) { $('mpErr').textContent = nm ? 'A profile called “' + nm + '” already exists.' : 'Give the profile a name.'; $('mpErr').hidden = false; return; }
+      closeGen(); S.profiles.push(newProfile(nm)); switchProfile(S.profiles.length - 1); S.multi = []; select(null);
+      setStatus('Created the empty profile “' + nm + '”. Import files now (Files › Import, or drop them): their new poles and PNW lines go into it. Or tick poles with Create profile.', 'good');
+    };
     var go = function () {
       var nm = $('mpName').value.trim(); if (!nm) { $('mpErr').textContent = 'Give the profile a name.'; $('mpErr').hidden = false; $('mpName').focus(); return; }
       var e; restoringWrap(function () { e = makeProfile(list(), nm); }); if (e) { $('mpErr').textContent = e; $('mpErr').hidden = false; } else closeGen();
     };
     $('mpOk').onclick = go; $('mpName').onkeydown = function (ev) { if (ev.key === 'Enter') go(); };
     upd(); setTimeout(function () { var n = $('mpName'); if (n) n.select(); }, 0);
+  }
+  // Conductors that poles can be picked by: strain sections of the line being designed, and GIS HV / LV feeders.
+  function condList() {
+    var out = [], seen = {};
+    if (project) project.segPoles.forEach(function (x) { if (x.strsection && !seen['s:' + x.strsection]) { seen['s:' + x.strsection] = 1; out.push({ v: 's:' + x.strsection, t: 'Strain section ' + x.strsection }); } });
+    Object.keys(merged.poles).forEach(function (k) { var g = merged.poles[k].gis; if (!g) return; [['HV', g.feeder], ['LV', g.lvFeeder]].forEach(function (a) { if (a[1] && !seen[a[0] + ':' + a[1]]) { seen[a[0] + ':' + a[1]] = 1; out.push({ v: a[0] + ':' + a[1], t: a[0] + ' conductor, feeder ' + a[1] }); } }); });
+    return out;
+  }
+  function condPoles(v) {
+    var i = String(v || '').indexOf(':'); if (i < 0) return [];
+    var kind = v.slice(0, i), key = v.slice(i + 1);
+    if (kind === 's') return project ? project.segPoles.filter(function (x) { return x.strsection === key; }).map(function (x) { return x.id; }).filter(function (k, j, a) { return a.indexOf(k) === j; }) : [];
+    return Object.keys(merged.poles).filter(function (k) { var g = merged.poles[k].gis; return g && (kind === 'HV' ? g.feeder : g.lvFeeder) === key; });
   }
   // Run a multi-step change as one undo step.
   function restoringWrap(fn) { var before = lastSnap; restoring = true; try { fn(); } finally { restoring = false; } var now = snapState(); if (before != null && now !== before) { undoStack.push(before); redoStack = []; } lastSnap = now; renderHistory(); }
@@ -5181,7 +5257,7 @@
   }
   var FN = {
     delPole: function () { var ids = S.multi && S.multi.length > 1 ? S.multi.slice() : (S.selected ? [S.selected] : []); if (!ids.length) { setStatus('Select a pole first.', 'bad'); return; } delPoles(ids); },
-    mkProf: function () { profPickDlg(S.multi && S.multi.length > 1 ? S.multi.slice() : S.selected ? [S.selected] : []); },
+    mkProf: function () { profPickDlg(S.multi && S.multi.length > 1 ? S.multi.slice() : S.selSpan ? [S.selSpan.a, S.selSpan.b] : S.selSection ? condPoles('s:' + S.selSection) : S.selected ? [S.selected] : []); },
     editSpan: function () { if (!S.selSpan) { setStatus('Select a span first: click a span on the plan, the profile or the Span table.', 'bad'); return; } runWb('spanedit'); },
     construction: function () { var id = S.selected; if (!id) { setStatus('Select a pole first.', 'bad'); return; } if (!project) { setStatus('Start a design first to add constructions.', 'bad'); return; } U.right = true; applyLayout(); openSection('design'); saveUi(); select(id); },
     sagten: function () { navGo('sag'); },
