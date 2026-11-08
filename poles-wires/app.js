@@ -2241,6 +2241,23 @@
   function conductorsOf(code) { var lay = knownLayout(code); if (lay && lay.attachments.length) return lay.attachments.length; var c = aiCandidates().filter(function (x) { return x.code === code; })[0]; return c && c.phases ? +c.phases || null : null; }
   // The AI is asked for one construction per circuit, but it can still list a code once per conductor it sees.
   // Group by circuit (HV / LV / earth from the code), keep each code once with its best confidence, three options per circuit.
+  // One-sided levels are terminations: when the AI saw a level's wires on one side only but ranked an intermediate or in-line
+  // strain code first, the termination code of the same family goes first (HV5, HV44 on an anti-swan arm, LV5, AB3 for ABC).
+  function aiSides(j) {
+    var sd = (j && j.line_sides) || {}, ok = {}; aiCandidates().forEach(function (c) { ok[c.code] = 1; });
+    var isTerm = function (c) { return /^(HV5|HV44|LV5|AB3)\b/i.test(c) || /termination/i.test(((M.libraryConstruction(lib, c) || {}).description) || ''); };
+    ['hv', 'lv'].forEach(function (k) {
+      if (sd[k] !== 'one') return;
+      var ms = (j.matches || []).filter(function (m) { return circuitClass(m.code) === k; }).sort(function (a, b) { return a.rank - b.rank || b.confidence - a.confidence; });
+      if (!ms.length || isTerm(ms[0].code)) return;
+      var top = ms[0], t = k === 'hv' ? (/AS|HV43/i.test(top.code) ? 'HV44' : 'HV5') : (/^AB|ABC/i.test(top.code) ? 'AB3' : 'LV5'); if (!ok[t]) return;
+      var had = ms.filter(function (m) { return m.code === t; })[0];
+      ms.forEach(function (m) { if (m !== had) m.rank = (m.rank || 1) + 1; });
+      var why = 'Wires on one side only (the line ends here), so a termination, not ' + top.code + (sd.notes ? ': ' + String(sd.notes).slice(0, 120) : '');
+      if (had) { had.rank = 1; had.confidence = Math.max(had.confidence || 0, top.confidence || 0.6); had.reasons = [why].concat(had.reasons || []); }
+      else j.matches.push({ level: top.level, code: t, rank: 1, confidence: Math.max(0.6, top.confidence || 0), reasons: [why] });
+    });
+  }
   function aiLevelFilter(j) { // keep a match only when its circuit level is on the pole by the AI's own account
     var lv = (j && j.levels) || {}, seen = {};
     ((j && j.components) || []).forEach(function (c) { if (!/conductor|wire|phase|neutral/i.test(c.name || '') || c.count == null) return; var k = /hv|high/i.test(c.level) ? 'hv' : /earth/i.test(c.level) ? 'earth' : /lv|low/i.test(c.level) ? 'lv' : null; if (k) seen[k] = (seen[k] || 0) + (Number(c.count) || 0); });
@@ -2354,13 +2371,14 @@
     return 'You help an Australian power distribution designer. Look at the attached photo of pole ' + id + '. Identify the overhead line hardware you can see and rank which of these Poles n Wires construction codes describe each circuit level (HV, LV, running earth).\n' +
       'A construction code covers a whole circuit, not one conductor: one HV1 carries all three HV phases and one LV1 carries all four LV conductors (R W B N). Return at most 3 alternative codes per circuit level, ranked, and never repeat a code for each conductor. In components, count the conductors on each level (name "conductors", level HV, LV or earth).\n' +
       'Rules: only use codes from the list; if nothing fits a level, return no match for it. Describe only visible hardware (crossarms, insulator type: pin, post, disc/strain, reel; conductors per level; terminations; angle or straight; stays; pole top plant). Confidence 0 to 1, below 0.5 when the photo does not show the hardware clearly. Do not estimate dimensions, heights or pole strength.\n' +
+      'For each circuit level, look at the wires on the LEFT of the pole and on the RIGHT of the pole separately and report in "line_sides" whether that level\'s spans leave the pole on both sides ("both") or on one side only ("one": the line ends here, even if a cable, fuse or transformer drop takes the supply down the pole). A level with wires on one side only is a termination (HV5, LV5, AB3), never an intermediate (HV1, LV1) or in-line strain (HV9, LV3). A pole-mounted transformer does not make a pole a termination by itself: count the sides.\n' +
       'Also report what you can see of stays (count), a pole-mounted transformer (present or not) and the conductors on each level; for conductors only name a code from the conductor list below, or null. If a pole number is legible, report it. List anything you cannot tell (field checks). Never present a guess as measured.\n' +
       'Many poles carry LV only, with no HV. First decide which circuit levels are actually on this pole from the photo alone. Only return an HV match when HV conductors and HV insulators are clearly visible on this pole (taller insulators, wider phase spacing, above the LV). Never add a level because it is common, because it is in the design, or because a reference photo shows it. Return no matches for a level that is not on the pole and set it false in "levels".\n' +
       'The PNW design currently lists: ' + (existing.join(', ') || 'none') + '. This may be a proposal or wrong: do not copy it; judge only from the photo.\n' +
       'Candidate conductor codes (code | name | material): ' + aiConductors(id).map(function (c) { return c.code + ' | ' + c.name + ' | ' + c.material; }).join('; ') + '\n' +
       (window.PNW_AI_GUIDE ? 'How to read the photo:\n' + PNW_AI_GUIDE.rules.map(function (x, k) { return (k + 1) + '. ' + x; }).join('\n') + '\n' : '') +
       'Candidate codes (code | description | DCSH | phases | what it looks like):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || '') + ' | ' + ((window.PNW_AI_GUIDE && PNW_AI_GUIDE.looks[c.code]) || ''); }).join('\n') +
-      '\nReturn JSON only: {"photo_quality":string,"levels":{"hv":boolean,"lv":boolean,"earth":boolean},"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
+      '\nReturn JSON only: {"photo_quality":string,"levels":{"hv":boolean,"lv":boolean,"earth":boolean},"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"line_sides":{"hv":"both"|"one"|null,"lv":"both"|"one"|null,"earth":"both"|"one"|null,"notes":string},"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
   }
   /* ---- Auto design: profile from QLINK, constructions from pole photos (or a Street View image aimed at the pole when there is
      no photo), strain sections from strain/termination constructions, conductor from the photo or the GIS feeder, tension by
@@ -2420,8 +2438,9 @@
         P.picks.push({ cls: k, code: m.code, conf: m.confidence, on: m.confidence >= 0.5, why: m.reasons[0] || '', ref: 'Photo ' + r.photo + ', ' + m.level + ' rank ' + m.rank + ', ' + Math.round(m.confidence * 100) + '% (' + resp.model + ')' });
       });
       var o = resp.obs || {};
-      if (o.stays && o.stays.count) plan.notes.push(id + ': ' + o.stays.count + ' stay' + (o.stays.count > 1 ? 's' : '') + ' seen (' + Math.round(o.stays.confidence * 100) + '%). Add in Equipment if correct.');
-      if (o.transformer && o.transformer.present) plan.notes.push(id + ': transformer seen (' + Math.round(o.transformer.confidence * 100) + '%). Add in Equipment if correct.');
+      var ex0 = extras(id); P.equip = [];
+      if (o.stays && o.stays.count > ex0.stays.length) P.equip.push({ kind: 'stay', n: o.stays.count - ex0.stays.length, conf: o.stays.confidence, on: o.stays.confidence >= 0.6, why: o.stays.notes });
+      if (o.transformer && o.transformer.present && !ex0.plant.length) P.equip.push({ kind: 'plant', n: 1, conf: o.transformer.confidence, on: o.transformer.confidence >= 0.6, why: o.transformer.notes });
       P.obs = o; plan.poles.push(P);
     });
     adSections(plan); return plan;
@@ -2500,6 +2519,8 @@
     plan.sections.forEach(function (s, i) { var sd = (plan.doneSec || {})[adKey(s.cls, s.ids)]; h += '<tr' + (s.flags.length && !sd ? ' class="warn"' : '') + '><td><input type="checkbox" data-ads="' + i + '"' + (s.on ? ' checked' : '') + (s.cond && s.tension && !sd ? '' : ' disabled') + ' aria-label="String section ' + (i + 1) + '">' + (sd ? ' <span class="pill ok">strung</span>' : '') + '</td><td>' + s.cls.toUpperCase() + '</td><td>' + esc(s.ids[0] + ' → ' + s.ids[s.ids.length - 1]) + ' <small class="meta">(' + s.ids.length + ')</small></td><td>' + '<div class="adpick">' + combo('ads|' + i, { value: s.cond || '', placeholder: 'Search conductor…', aria: 'Conductor for section ' + (i + 1), groups: function () { return conductorGroups(s.ids[0], s.codes[0]); }, onPick: function (v) { (plan.condPick = plan.condPick || {})[adKey(s.cls, s.ids)] = v; adSections(plan); adShow(); } }) + (s.csrc ? ' <small class="meta">' + esc(s.csrc) + '</small>' : '') + '</div></td><td>' + (s.tension ? esc(s.tension + ' ' + s.units) + (s.auto ? ' <small class="meta">auto</small>' : '') : '–') + '</td><td class="num">' + (s.rs ? s.rs.toFixed(1) + ' m' : '–') + '</td><td><small>' + esc(s.flags.join('; ') || s.tsrc || '') + '</small></td></tr>'; });
     if (!plan.sections.length) h += '<tr><td colspan="7" class="meta">No sections to string.</td></tr>';
     h += '<tr class="adnew"><td>＋</td><td><select data-addr="cls" aria-label="Circuit">' + [['lv', 'LV'], ['hv', 'HV'], ['earth', 'Earth']].map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === (dr.cls || 'lv') ? ' selected' : '') + '>' + c[1] + '</option>'; }).join('') + '</select></td><td>' + psel('from', dr.from) + ' → ' + psel('to', dr.to) + '</td><td class="adpick">' + combo('adNewCond', { value: dr.cond || '', placeholder: 'Search conductor…', aria: 'Conductor for the new section', groups: function () { return conductorGroups(AD.draft.from, (AD.draft.cls || 'lv') === 'hv' ? 'H' : 'L'); }, onPick: function (v) { AD.draft.cond = v; } }) + '</td><td colspan="3"><button class="btn small primary" id="adAddSec">Add section</button> <small class="meta">Tension and ruling span come from the spans</small></td></tr>';
+    var eq = ''; plan.poles.forEach(function (P, i) { (P.equip || []).forEach(function (q, j) { eq += '<tr' + (q.conf < 0.5 ? ' class="warn"' : '') + '><td><input type="checkbox" data-ade="' + i + '-' + j + '"' + (q.on ? ' checked' : '') + (q.done ? ' disabled' : '') + ' aria-label="Add ' + (q.kind === 'stay' ? 'stay' : 'transformer') + ' on ' + esc(P.id) + '"></td><td>' + esc(P.id) + (q.done ? ' <span class="pill ok">added</span>' : '') + '</td><td>' + (q.kind === 'stay' ? (q.n > 1 ? q.n + ' stays' : 'Stay') : 'Transformer') + '</td><td class="num">' + pct(q.conf) + '</td><td>' + esc(q.why || '') + '</td></tr>'; }); });
+    if (eq) h += '</tbody></table><h4>Stays and transformers seen</h4><table class="grid"><thead><tr><th></th><th>Pole</th><th>Add</th><th class="num">AI</th><th>What the photo shows</th></tr></thead><tbody>' + eq;
     h += '</tbody></table>' + (AD.err ? '<p class="hint bad" style="display:block">' + esc(AD.err) + '</p>' : '');
     if (plan.missing.length) h += '<h4>Needs you</h4><ul class="hint">' + plan.missing.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>';
     if (plan.notes.length) h += '<h4>Seen, not added</h4><ul class="hint">' + plan.notes.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>';
@@ -2511,6 +2532,7 @@
     body.onchange = function (e) {
       var t = e.target; if (t.dataset.adc) { var q = t.dataset.adc.split('-'); AD.plan.poles[+q[0]].picks[+q[1]].on = t.checked; adSections(AD.plan); adShow(); }
       else if (t.dataset.ads) AD.plan.sections[+t.dataset.ads].on = t.checked;
+      else if (t.dataset.ade) { var qe = t.dataset.ade.split('-'); AD.plan.poles[+qe[0]].equip[+qe[1]].on = t.checked; }
       else if (t.dataset.addr) AD.draft[t.dataset.addr] = t.value;
       else if (t.dataset.adlen != null) { var lv = PNW.num(t.value); AD.len = AD.len || {}; if (lv > 0 && lv <= 40) AD.len[t.dataset.adlen] = lv; else delete AD.len[t.dataset.adlen]; }
     };
@@ -2570,8 +2592,13 @@
       cons.forEach(function (c, i) { var x = lvRule(r.ID, cons, i); if (x && x.value != null && Math.abs(x.value - (c.kingbolt || 0)) > 0.0005 && plan.poles.some(function (P) { return P.id === r.ID && P.picks.some(function (k) { return k.on && k.code === c.code; }); })) ups.push({ id: r.ID, c: c, v: x.value, src: x.src }); });
     });
     if (ups.length) commit(function (p) { return ups.map(function (u) { M.updateConstruction(p, u.c.unique, { kingbolt: u.v }); nl++; return logEntry(u.id, u.c.descr, 'King bolt', u.c.kingbolt + ' m', u.v + ' m', 'calculated', 'Auto design; ' + u.src); }); });
+    var ne = 0; plan.poles.forEach(function (P) { (P.equip || []).filter(function (q) { return q.on && !q.done; }).forEach(function (q) {
+      var before = liveLog().length;
+      try { for (var k = 0; k < q.n; k++) addExtra(P.id, q.kind); q.done = true; ne += q.n; } catch (e) { fails.push(P.id + ' ' + (q.kind === 'stay' ? 'stay' : 'transformer') + ': ' + (q.kind === 'stay' ? 'add a construction first (the stay hangs below the top king bolt)' : e.message)); return; }
+      var log = liveLog().slice(); for (var i = before; i < log.length; i++) if (log[i].pole === P.id) log[i] = Object.assign({}, log[i], { source: 'AI suggestion', reference: 'Auto design, from the photo. ' + log[i].reference }); S.design.log = log;
+    }); }); if (ne) save();
     if (fails.length) openGen('🪄 Auto design: not everything was applied', '<p>' + nc + ' construction' + (nc === 1 ? '' : 's') + ' and ' + ns + ' strain section' + (ns === 1 ? '' : 's') + ' were added. These were not:</p><ul>' + fails.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul><p class="hint">Back to review keeps what was added and lets you enter missing pole lengths or change constructions and conductors, then apply the rest.</p><div class="btnrow"><button class="btn primary" id="adFailBack">Back to review</button><button class="btn" id="adFailOk">Close</button></div>', { narrow: true }), $('adFailOk').onclick = closeGen, $('adFailBack').onclick = function () { closeGen(); AD.err = ''; adShow(); };
-    setStatus('Auto design applied: ' + nc + ' construction' + (nc === 1 ? '' : 's') + ', ' + ns + ' strain section' + (ns === 1 ? '' : 's') + (nl ? ', ' + nl + ' LV height' + (nl === 1 ? '' : 's') + ' by the separation rule' : '') + '.' + (fails.length ? ' Not done: ' + fails.join('; ') + '.' : ''), fails.length ? 'bad' : 'good');
+    setStatus('Auto design applied: ' + nc + ' construction' + (nc === 1 ? '' : 's') + ', ' + ns + ' strain section' + (ns === 1 ? '' : 's') + (nl ? ', ' + nl + ' LV height' + (nl === 1 ? '' : 's') + ' by the separation rule' : '') + (ne ? ', ' + ne + ' stay/transformer item' + (ne === 1 ? '' : 's') + ' (check height, bearing and size)' : '') + '.' + (fails.length ? ' Not done: ' + fails.join('; ') + '.' : ''), fails.length ? 'bad' : 'good');
   }
   function autoDesign() {
     if (AD.busy) return;
@@ -2631,6 +2658,7 @@
       r.resp = { model: 'Claude', photo_quality: String(j.photo_quality || ''), components: (j.components || []).map(function (c) { return { name: String(c.name || ''), level: String(c.level || ''), count: Number(c.count) || null, confidence: conf(c.confidence) }; }),
         matches: matches, cautions: (j.cautions || []).map(String).concat((function () { var bad = all.filter(function (m) { return !valid[String(m.code || '').toUpperCase()]; }).length; return bad ? [bad + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []; })()),
         obs: aiObservations(j) };
+      aiSides(Object.assign(r.resp, { line_sides: j.line_sides }));
     }).catch(function (e) { r.error = e && e.code === 'not_granted' ? 'Claude was not allowed to look at the photo. Allow it when asked to use this.' : e && e.code === 'rate_limited' ? 'Too many requests at once. Wait a moment and try again.' : (e && e.message) || String(e); })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
@@ -2644,7 +2672,7 @@
     }).then(function (res) {
       if (res.status === 404) throw new Error('The AI photo service is not switched on yet (the pnw-pole-photo-ai function is not deployed).');
       return res.json().then(function (j) { if (!res.ok || !j.ok) throw new Error(j.error || 'AI request failed (' + res.status + ').'); return j; });
-    }).then(function (j) { var ok = aiLevelFilter(j); j.matches = (j.matches || []).filter(ok); r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
+    }).then(function (j) { var ok = aiLevelFilter(j); j.matches = (j.matches || []).filter(ok); aiSides(j); r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
   $('selected').addEventListener('change', function (e) { if (e.target.id === 'aiPhoto' && e.target.files[0]) runAi(S.selected, e.target.files[0]); });
