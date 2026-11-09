@@ -884,7 +884,7 @@
         (pl.ref ? '<small class="muted">' + esc(pl.ref) + '</small>' : '') + (db && (pl.weight == null || pl.weight === '') ? '<small class="muted">Tipload uses ' + db.weight + ' kg, ' + db.offset + ' m, ' + db.area + ' m²: ' + esc(db.source) + '</small>' : !db && (pl.weight == null || pl.weight === '') ? '<small class="muted">Enter weight, offset and wind area from the PNW plant database to include it in the tipload.</small>' : '') + '</div>';
     });
     if (!x.stays.length && !x.plant.length) h += '<p class="meta">No stays or plant on ' + esc(id) + '.</p>';
-    h += '<div class="btnrow"><button class="btn small" data-xadd="stay"' + (cons.length ? '' : ' disabled title="Add a construction first: the stay goes 300 mm below its king bolt"') + '>Add stay</button><button class="btn small" data-xadd="plant"' + (hag != null ? '' : ' disabled') + '>Add transformer</button></div></div>';
+    h += '<div class="btnrow"><button class="btn small" data-xadd="stay"' + (cons.length ? '' : ' disabled title="Add a construction first: the stay goes 300 mm below its king bolt"') + '>Add stay</button><button class="btn small" data-xadd="plant"' + (hag == null ? ' disabled' : x.plant.length ? ' disabled title="A pole takes one transformer"' : '') + '>Add transformer</button></div></div>';
     return h;
   }
   // Re-place HV, RE and LV to the transformer arrangement (DCSH H10-1 / H11-1, measured from the tip), then the stays.
@@ -922,6 +922,7 @@
   }
   function addExtra(id, kind) {
     var row = project.poles.filter(function (r) { return r.ID === id; })[0], hag = PNW.num(row.HeightAG), dirs = lineDirs(id) || {}, x = extras(id), entry, what;
+    if (kind !== 'stay' && x.plant.length) { setStatus(id + ' already has a transformer: a pole takes one transformer (stays can be more than one).', 'bad'); return; }
     if (kind === 'stay') {
       var top = ((dm && dm.byPole[id]) || []).filter(function (c) { return c.kingbolt != null; }).sort(function (a, b) { return b.kingbolt - a.kingbolt; })[0];
       entry = { wire: lib && lib.stays && lib.stays.length ? (lib.stays[0].code || lib.stays[0].Code) : '', attHt: Math.round((top.kingbolt - 0.3) * 1000) / 1000, dir: dirs.stay != null ? dirs.stay : 0, angle: 45,
@@ -1283,7 +1284,7 @@
     var st = inp.stays || [], pl2 = (inp.plant || []);
     var A = [['saved', saved], ['currentoption', pa.currentoption || ''], ['title', id], ['flex', '0'], ['ht', n(inp.pole.height)], ['length', n(inp.pole.length)], ['sink', n(inp.pole.length - inp.pole.height)], ['diam', n(t.diamAvg)], ['poletype', t.code], ['orient', '0'], ['comment', ''], ['filename', '']];
     [0, 1].forEach(function (k) { var s0 = st[k] || {}; A.push(['stay' + (k + 1) + '_dir', n(s0.dir)], ['stay' + (k + 1) + '_angle', n(st[k] ? s0.angle : 0)], ['stay' + (k + 1) + '_att_ht', n(s0.attHt)], ['stay' + (k + 1) + '_checked', st[k] && s0.include !== false ? 'True' : 'False'], ['stay' + (k + 1) + '_wire', s0.wire || '']); });
-    var p1 = pl2[0] || {}, p2 = pl2[1] || {};
+    var p1 = pl2[0] || {}, p2 = {}; pl2 = pl2.slice(0, 1); // one transformer per pole
     A.push(['plant_checked', pl2[0] && p1.include ? 'True' : 'False'], ['plant1', pnwPlant(p1.code)], ['plant_attht', n(p1.attHt)], ['plant_dir', String(Math.round(Number(p1.dir) || 0))], ['plant_fixedload', '0'], ['plant_checked2', pl2[1] && p2.include ? 'True' : 'False'], ['plant2', p2.code || ''], ['plant_attht2', n(p2.attHt)], ['plant_dir2', String(Math.round(Number(p2.dir) || 0))],
       ['version', pa.pnw_version || '7.18.1'], ['tipload_version', '2.0.0.911'], ['soiltype', ''], ['footdiam', n(t.diamButt)], ['footfactor', '0'], ['gnddiam', n(t.diamGL)], ['class', '']);
     var PT = [['code', t.code], ['description', t.description || t.code], ['defLength', n(t.length)], ['soilType', '0'], ['defSunk1', n(t.sinking)], ['defSunk2', '0'], ['defSunk3', '0'], ['defSunk4', '0'], ['defHeight', n(t.height != null ? t.height : t.length - t.sinking)], ['material', t.material || 'Wood'], ['otherDesc', null],
@@ -1318,7 +1319,7 @@
         var pl = inp.plant.filter(function (q) { return q.code; }), st = inp.stays, p1 = pl[0], s1 = st[0];
         if (p1) { sf(r, 'poleMountPlant', pnwPlant(p1.code)); sf(r, 'plantAttachHt', h2(p1.attHt)); sf(r, 'plantOrient', deg(p1.dir)); sf(r, 'plantisNew', 'True'); }
         if (s1) { sf(r, 'stayed', 'True'); sf(r, 'staydir', n(s1.dir)); sf(r, 'stayht', n(s1.attHt)); sf(r, 'stayangle', n(s1.angle)); sf(r, 'staycode', s1.wire || ''); }
-        var A = {}, p2 = pl[1], s2 = st[1];
+        var A = {}, p2 = null, s2 = st[1]; // one transformer per pole: a second plant item is never exported
         A.plant_checked = p1 && p1.include !== false ? 'True' : 'False'; A.plant1 = p1 ? pnwPlant(p1.code) : ''; A.plant_attht = h2(p1 && p1.attHt); A.plant_dir = deg(p1 && p1.dir);
         A.plant_checked2 = p2 && p2.include !== false ? 'True' : 'False'; A.plant2 = p2 ? pnwPlant(p2.code) : ''; A.plant_attht2 = h2(p2 && p2.attHt); A.plant_dir2 = deg(p2 && p2.dir);
         [s1, s2].forEach(function (q, k) { var b = 'stay' + (k + 1) + '_'; A[b + 'checked'] = q && q.include ? 'True' : 'False'; A[b + 'wire'] = q ? q.wire || '' : ''; A[b + 'dir'] = n(q && q.dir); A[b + 'angle'] = n(q ? q.angle : 0); A[b + 'att_ht'] = n(q && q.attHt); });
@@ -3291,7 +3292,7 @@
     var pole = { id: id, height: q.height, length: q.length, type: t ? t.code : null, diamAvg: t && t.diamAvg > 0 ? t.diamAvg : null, diamTip: t ? t.diamTip : null, diamGL: t ? t.diamGL : null,
       weight: t ? t.weight : null, strength: t ? t.ultimate : null, strengthVert: t ? t.vertical : null, flex: 0 };
     if (!t) notes.push('No PNW library pole type for ' + id + ': no wind on the pole, no self weight and no % loaded. Pick the pole type in the Pole tab.');
-    var plant = ex.plant.map(function (pl) {
+    var plant = ex.plant.slice(0, 1).map(function (pl) { // one transformer per pole
       var db = plantData(pl.code), w = pl.weight != null && pl.weight !== '' ? Number(pl.weight) : db ? db.weight : null;
       var r = { code: pl.code, attHt: Number(pl.attHt), dir: Number(pl.dir), weight: w, offset: pl.offset != null && pl.offset !== '' ? Number(pl.offset) : db ? db.offset : null, area: pl.area != null && pl.area !== '' ? Number(pl.area) : db ? db.area : null, include: pl.include !== false };
       if (r.include && (r.weight == null || r.offset == null || r.area == null)) { notes.push('Transformer ' + (pl.code || '') + ' has no weight, offset or wind area, so it is left out. Enter them in the Pole tab (PNW plant database values).'); r.include = false; }
@@ -5755,7 +5756,7 @@
       '-',
       { t: 'Add construction', ic: '▦', fn: function () { FN.construction(); }, off: project ? '' : 'Start or link a design first' },
       { t: 'Add stay', ic: '⟋', fn: function () { showDetails(id); addExtra(id, 'stay'); }, off: dsg && ((dm && dm.byPole[id]) || []).some(function (c) { return c.kingbolt != null; }) ? '' : 'Needs a construction on a design pole' },
-      { t: 'Add transformer', ic: '▣', fn: function () { showDetails(id); addExtra(id, 'plant'); }, off: dsg ? '' : 'Only on poles in the design' },
+      { t: 'Add transformer', ic: '▣', fn: function () { showDetails(id); addExtra(id, 'plant'); }, off: !dsg ? 'Only on poles in the design' : extras(id).plant.length ? 'This pole already has a transformer' : '' },
       { t: 'Rename pole…', ic: '✎', fn: function () { renamePoleDlg(id); } },
       { t: 'Draw conductor from here', ic: '〰', fn: function () { $('tbCond').click(); setTimeout(function () { select(id); }, 0); }, off: project ? '' : 'Start or link a design first' },
       { t: 'AI photo', ic: '✨', fn: function () { fireCtx('photo'); } },
