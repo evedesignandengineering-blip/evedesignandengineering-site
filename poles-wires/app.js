@@ -164,14 +164,33 @@
      LVDesign default for signed-in users). Metadata through the Maps JavaScript API, photos from the Street View Static API.
      The Supabase route (webMaps) is only the fallback; inside Claude the PNW Maps connector is used instead. */
   var webKeyP = null, directBad = false, imgBad = false;
+  // The LVDesign sign-in token in this browser expires after an hour; when it has (Ishan, 2026-11-08: the default key call
+  // answered 401 and Street View fell back to the slow photos), it is refreshed once with the stored refresh token.
+  var SB = 'https://hszkloepnewfkzdegfhl.supabase.co', SB_AUTH = 'sb-hszkloepnewfkzdegfhl-auth-token', GM_DEF = 'eve-pnw-gmaps-default';
+  function sbSession() { try { return JSON.parse(localStorage.getItem(SB_AUTH)) || null; } catch (e) { return null; } }
+  function sbRefresh(ses) {
+    if (!ses || !ses.refresh_token) return Promise.resolve(null);
+    return fetch(SB + '/auth/v1/token?grant_type=refresh_token', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY }, body: JSON.stringify({ refresh_token: ses.refresh_token }) })
+      .then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j || !j.access_token) return null;
+        var cur = sbSession(); if (cur && cur.access_token && cur.access_token !== ses.access_token) return cur.access_token; // the LVDesign page refreshed it meanwhile
+        try { localStorage.setItem(SB_AUTH, JSON.stringify(Object.assign({}, ses, j))); } catch (e) { /* storage blocked */ }
+        return j.access_token;
+      }, function () { return null; });
+  }
   function webKey() {
     var k = gmKey(); if (k) return Promise.resolve(k);
     if (webKeyP) return webKeyP;
-    var tok = null; try { var raw = localStorage.getItem('sb-hszkloepnewfkzdegfhl-auth-token'); tok = raw && JSON.parse(raw).access_token; } catch (e) { tok = null; }
-    if (!tok) return Promise.resolve(null);
-    return webKeyP = fetch('https://hszkloepnewfkzdegfhl.supabase.co/rest/v1/rpc/lvd_gmaps_default', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + tok }, body: '{}' })
-      .then(function (r) { return r.ok ? r.json() : null; }).then(function (v) { return typeof v === 'string' && v ? v : null; }, function () { return null; })
-      .then(function (v) { if (!v) webKeyP = null; return v; });
+    var ses = sbSession(), cached = null; try { cached = JSON.parse(localStorage.getItem(GM_DEF) || 'null'); } catch (e) { cached = null; }
+    if (cached && cached.k && Date.now() - cached.t < 7 * 864e5) return webKeyP = Promise.resolve(cached.k); // no wait on later visits
+    if (!ses || !ses.access_token) return Promise.resolve(null);
+    var ask = function (tok) { return fetch(SB + '/rest/v1/rpc/lvd_gmaps_default', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: AI_KEY, Authorization: 'Bearer ' + tok }, body: '{}' }); };
+    var stale = ses.expires_at && ses.expires_at * 1000 < Date.now() + 30000;
+    return webKeyP = (stale ? sbRefresh(ses) : Promise.resolve(ses.access_token))
+      .then(function (tok) { return tok ? ask(tok) : null; })
+      .then(function (r) { if (r && r.status === 401 && !stale) return sbRefresh(ses).then(function (tok) { return tok ? ask(tok) : null; }); return r; })
+      .then(function (r) { return r && r.ok ? r.json() : null; }).then(function (v) { return typeof v === 'string' && v ? v : null; }, function () { return null; })
+      .then(function (v) { if (!v) webKeyP = null; else { try { localStorage.setItem(GM_DEF, JSON.stringify({ k: v, t: Date.now() })); } catch (e) { /* storage blocked */ } } return v; });
   }
   function gDist(a, b) { return L.latLng(a.lat, a.lng).distanceTo(L.latLng(b.lat, b.lng)); }
   function gMeta(gm, a) {
