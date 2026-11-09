@@ -370,7 +370,9 @@
 
   function addFiles(list) {
     var arr = Array.prototype.slice.call(list || []);
-    var pj = arr.filter(function (f) { return /\.pwproj\.json$/i.test(f.name); });
+    // Saved project files, also when the browser renamed the download ("Profile 1.pwproj (4).json"); any other .json is
+    // checked by content below.
+    var pj = arr.filter(function (f) { return /\.pwproj\b[^\\/]*\.json$/i.test(f.name); });
     if (pj.length) { pj.forEach(function (f) { openProjectFile(f, true); }); arr = arr.filter(function (f) { return pj.indexOf(f) < 0; }); }
     // Pole photos dropped together with the spreadsheets: attached after the import (matched by file name), then Auto design runs.
     var imgs = arr.filter(function (f) { return /\.(jpe?g|png|webp)$/i.test(f.name); }); arr = arr.filter(function (f) { return imgs.indexOf(f) < 0; });
@@ -387,13 +389,17 @@
       upsertFile({ name: f.name, size: f.size, role: '…', status: 'reading', items: [], sheets: [], issues: [] });
       return f.arrayBuffer().then(function (buf) {
         buffers[f.name] = buf;
-        if (ext === 'pnwx' || ext === 'json' || (ext === 'txt' && !PNW.isFieldSurvey(PNW.decodeText(buf.slice(0, 256))))) return importText(f.name, new TextDecoder('utf-8').decode(buf));
+        if (ext === 'json') { var jt = new TextDecoder('utf-8').decode(buf); if (/^\s*\{\s*"app"\s*:\s*"eve-poles-wires"/.test(jt)) { S.files = S.files.filter(function (x) { return !(x.name === f.name && x.status === 'reading'); }); openProjectFile({ name: f.name, text: function () { return Promise.resolve(jt); } }, true); return { name: f.name, project: true }; } return importText(f.name, jt); }
+        if (ext === 'pnwx' || (ext === 'txt' && !PNW.isFieldSurvey(PNW.decodeText(buf.slice(0, 256))))) return importText(f.name, new TextDecoder('utf-8').decode(buf));
         return parse(f.name, buf, null);
       }).then(function (res) { res.size = f.size; res.status = 'ok'; return res; })
         .catch(function (e) { return { name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'parse', message: f.name + ' could not be read: ' + e.message, file: f.name }] }; });
     });
     setStatus('Reading ' + arr.length + ' file' + (arr.length > 1 ? 's' : '') + '…');
     Promise.all(jobs).then(function (results) {
+      var projs = results.filter(function (r) { return r.project; }); results = results.filter(function (r) { return !r.project; });
+      if (projs.length) { S.files = S.files.filter(function (f) { return !projs.some(function (r) { return r.name === f.name && f.status === 'reading'; }); }); renderFiles(); }
+      if (!results.length) return;
       var replaced = 0, was = {};
       Object.keys(merged.poles).forEach(function (k) { if (merged.poles[k].survey) was[k] = 1; });
       results.forEach(function (r) { upsertFile(r); if (existed[r.name] != null) replaced++; });
@@ -3143,7 +3149,7 @@
     file.text().then(function (t) {
       var j = JSON.parse(t, function (k, v) { return k === 'date' && typeof v === 'string' ? new Date(v) : v; });
       if (!j || j.app !== 'eve-poles-wires' || !j.state || !Array.isArray(j.state.files)) throw new Error('not a Poles & Wires project file');
-      if (add && S.files.length) { var n0 = S.profiles.length; restoringWrap(function () { mergeProject(j.state); }); setStatus('Added ' + file.name + ' to this project: its files' + (S.profiles.length > n0 ? ' and ' + (S.profiles.length - n0) + ' profile' + (S.profiles.length - n0 > 1 ? 's' : '') + ' (now in the profile list)' : '') + ' joined the ones here. ' + summaryText(), 'good'); return; }
+      if (add && S.files.some(function (f) { return f.status !== 'reading'; })) { var n0 = S.profiles.length; restoringWrap(function () { mergeProject(j.state); }); setStatus('Added ' + file.name + ' to this project: its files' + (S.profiles.length > n0 ? ' and ' + (S.profiles.length - n0) + ' profile' + (S.profiles.length - n0 > 1 ? 's' : '') + ' (now in the profile list)' : '') + ' joined the ones here. ' + summaryText(), 'good'); return; }
       S = Object.assign(blank(), j.state); S.settings = Object.assign({}, DEFAULT_SETTINGS, j.state.settings); S.design = Object.assign(blankDesign(), j.state.design);
       buffers = {}; undoStack = []; redoStack = []; lastSnap = null; aiResults = {}; syncInputs(); recompute(); fit(); setView(S.view, true); markDirty(false);
       setStatus('Opened ' + file.name + '. ' + summaryText(), 'good');
