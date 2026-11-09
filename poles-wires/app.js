@@ -1303,7 +1303,10 @@
   // PNW keeps a pole's transformer and stay in two places: the pole row (Table2 poleMountPlant / plantAttachHt / plantOrient /
   // plantisNew, stayed / staydir / stayht / stayangle / staycode, as in your S1242155 project) and the pole's saved tipload
   // (plant1 / plant_attht / plant_dir, stay1_*). Transformers and stays added here are written to both on export.
-  function pnwPlant(c) { c = String(c || ''); return !c || /^\s/.test(c) ? c : '    ' + c; }
+  // PNW plant codes must match its plant database exactly, leading spaces included (Ishan's tests 2026-11-09: 'XT0039-3ph' opens,
+  // '    XT0039-3ph' fails). These are the codes in the Western Power PNW database export (pnwdata-wp-may19.xml) that carry spaces; all others have none.
+  var PNW_PLANT_PAD = ["  GS0320-LBS", " GS0314- 1 PhRec", " GS 0310 -1PhRec", "  XT0010-3Ph", " X T0032-3Ph", " X T00 35 - 3Ph", "  X T 0039-3Ph", "    X T 0127-3Ph", " . XT. 0182 - 3 Ph", " X T 0007-1Ph", "  .X T 0018-1Ph", "       .XT0020-1Ph", "        .XT0022-1Ph", "           XT  0024 - 1Ph"];
+  function pnwPlant(c) { c = String(c || ''); var k = c.trim(); return PNW_PLANT_PAD.filter(function (x) { return x.trim() === k; })[0] || k; }
   function withExtras(xml) {
     var ex = S.design.extras || {}, ids = Object.keys(ex).filter(function (id) { return (ex[id].plant || []).length || (ex[id].stays || []).length; });
     if (!xml || !ids.length) return xml;
