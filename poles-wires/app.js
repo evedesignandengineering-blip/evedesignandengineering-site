@@ -1325,11 +1325,9 @@
       var out = M.writePnwx(p), add = '';
       Object.keys(tips).forEach(function (id) {
         var tag = '<pole_' + id + '><![CDATA[<tipload_project', i = out.indexOf(tag);
-        if (i < 0) { // no saved tipload for this pole yet: write one with its pole type, so PNW's tipload sees the transformer and stay
-          var row = p.poles.filter(function (x) { return x.ID === id; })[0], t = poleTypeFor(id, row && PNW.num(row.Length)), x = t ? tipProjectXml(id, t, p.attrs || {}) : '';
-          if (x) add += Object.keys(tips[id]).reduce(function (acc, k) { return acc.replace(new RegExp('(\\s' + k + '=")[^"]*(")'), function (m0, a, b) { return a + tips[id][k].replace(/&/g, '&amp;').replace(/"/g, '&quot;') + b; }); }, x);
-          return;
-        }
+        // No saved tipload: leave it to PNW. The pole row (Table2) carries the plant and stay, which PNW's profile turns into the
+        // tipload itself (manual 7.9.4). A tipload written here made old PNW fail on the pole ('Argument Index is not a valid value').
+        if (i < 0) return;
         var j = out.indexOf('>', i + tag.length), head = out.slice(i, j);
         Object.keys(tips[id]).forEach(function (k) { var v = tips[id][k].replace(/&/g, '&amp;').replace(/"/g, '&quot;'), re = new RegExp('(\\s' + k + '=")[^"]*(")'); head = re.test(head) ? head.replace(re, function (m0, a, b) { return a + v + b; }) : head + ' ' + k + '="' + v + '"'; });
         out = out.slice(0, i) + head + out.slice(j);
