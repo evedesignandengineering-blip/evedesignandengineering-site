@@ -1284,7 +1284,7 @@
     var A = [['saved', saved], ['currentoption', pa.currentoption || ''], ['title', id], ['flex', '0'], ['ht', n(inp.pole.height)], ['length', n(inp.pole.length)], ['sink', n(inp.pole.length - inp.pole.height)], ['diam', n(t.diamAvg)], ['poletype', t.code], ['orient', '0'], ['comment', ''], ['filename', '']];
     [0, 1].forEach(function (k) { var s0 = st[k] || {}; A.push(['stay' + (k + 1) + '_dir', n(s0.dir)], ['stay' + (k + 1) + '_angle', n(st[k] ? s0.angle : 0)], ['stay' + (k + 1) + '_att_ht', n(s0.attHt)], ['stay' + (k + 1) + '_checked', st[k] && s0.include !== false ? 'True' : 'False'], ['stay' + (k + 1) + '_wire', s0.wire || '']); });
     var p1 = pl2[0] || {}, p2 = pl2[1] || {};
-    A.push(['plant_checked', pl2[0] && p1.include ? 'True' : 'False'], ['plant1', p1.code || ''], ['plant_attht', n(p1.attHt)], ['plant_dir', n(p1.dir)], ['plant_fixedload', '0'], ['plant_checked2', pl2[1] && p2.include ? 'True' : 'False'], ['plant2', p2.code || ''], ['plant_attht2', n(p2.attHt)], ['plant_dir2', n(p2.dir)],
+    A.push(['plant_checked', pl2[0] && p1.include ? 'True' : 'False'], ['plant1', pnwPlant(p1.code)], ['plant_attht', n(p1.attHt)], ['plant_dir', String(Math.round(Number(p1.dir) || 0))], ['plant_fixedload', '0'], ['plant_checked2', pl2[1] && p2.include ? 'True' : 'False'], ['plant2', p2.code || ''], ['plant_attht2', n(p2.attHt)], ['plant_dir2', String(Math.round(Number(p2.dir) || 0))],
       ['version', pa.pnw_version || '7.18.1'], ['tipload_version', '2.0.0.911'], ['soiltype', ''], ['footdiam', n(t.diamButt)], ['footfactor', '0'], ['gnddiam', n(t.diamGL)], ['class', '']);
     var PT = [['code', t.code], ['description', t.description || t.code], ['defLength', n(t.length)], ['soilType', '0'], ['defSunk1', n(t.sinking)], ['defSunk2', '0'], ['defSunk3', '0'], ['defSunk4', '0'], ['defHeight', n(t.height != null ? t.height : t.length - t.sinking)], ['material', t.material || 'Wood'], ['otherDesc', null],
       ['weightTotal', n(t.weight)], ['widthLong', '0'], ['widthTrans', '0'], ['diamTipLong', n(t.diamTip)], ['diamTipTrans', n(t.diamTip)], ['diamAvLong', n(t.diamAvg)], ['diamAvTrans', n(t.diamAvg)], ['diamGLLong', n(t.diamGL)], ['diamGLTrans', n(t.diamGL)], ['diamButtLong', n(t.diamButt)], ['diamButtTrans', n(t.diamButt)],
@@ -1310,15 +1310,17 @@
       var p = M.readPnwx(xml); if (p.kind !== 'profile') return xml;
       var n = function (v) { return v == null || v === '' || !isFinite(Number(v)) ? '0' : String(Math.round(Number(v) * 1000) / 1000); };
       var sf = function (r, k, v) { try { M.setField(r, k, v); } catch (e) { /* field not in this file */ } };
+      // Old PNW fails on a pole whose plant direction is not a whole number (Ishan's test files A/C), so plant values are written like PNW saves them.
+      var deg = function (v) { return isFinite(Number(v)) && v !== '' && v != null ? String(((Math.round(Number(v)) % 360) + 360) % 360) : '0'; }, h2 = function (v) { return isFinite(Number(v)) && v !== '' && v != null ? String(Math.round(Number(v) * 100) / 100) : '0'; };
       var tips = {};
       ids.forEach(function (id) {
         var r = p.poles.filter(function (x) { return x.ID === id; })[0], inp = tipInput(id); if (!r || !inp) return;
         var pl = inp.plant.filter(function (q) { return q.code; }), st = inp.stays, p1 = pl[0], s1 = st[0];
-        if (p1) { sf(r, 'poleMountPlant', pnwPlant(p1.code)); sf(r, 'plantAttachHt', n(p1.attHt)); sf(r, 'plantOrient', n(p1.dir)); sf(r, 'plantisNew', 'True'); }
+        if (p1) { sf(r, 'poleMountPlant', pnwPlant(p1.code)); sf(r, 'plantAttachHt', h2(p1.attHt)); sf(r, 'plantOrient', deg(p1.dir)); sf(r, 'plantisNew', 'True'); }
         if (s1) { sf(r, 'stayed', 'True'); sf(r, 'staydir', n(s1.dir)); sf(r, 'stayht', n(s1.attHt)); sf(r, 'stayangle', n(s1.angle)); sf(r, 'staycode', s1.wire || ''); }
         var A = {}, p2 = pl[1], s2 = st[1];
-        A.plant_checked = p1 && p1.include !== false ? 'True' : 'False'; A.plant1 = p1 ? pnwPlant(p1.code) : ''; A.plant_attht = n(p1 && p1.attHt); A.plant_dir = n(p1 && p1.dir);
-        A.plant_checked2 = p2 && p2.include !== false ? 'True' : 'False'; A.plant2 = p2 ? pnwPlant(p2.code) : ''; A.plant_attht2 = n(p2 && p2.attHt); A.plant_dir2 = n(p2 && p2.dir);
+        A.plant_checked = p1 && p1.include !== false ? 'True' : 'False'; A.plant1 = p1 ? pnwPlant(p1.code) : ''; A.plant_attht = h2(p1 && p1.attHt); A.plant_dir = deg(p1 && p1.dir);
+        A.plant_checked2 = p2 && p2.include !== false ? 'True' : 'False'; A.plant2 = p2 ? pnwPlant(p2.code) : ''; A.plant_attht2 = h2(p2 && p2.attHt); A.plant_dir2 = deg(p2 && p2.dir);
         [s1, s2].forEach(function (q, k) { var b = 'stay' + (k + 1) + '_'; A[b + 'checked'] = q && q.include ? 'True' : 'False'; A[b + 'wire'] = q ? q.wire || '' : ''; A[b + 'dir'] = n(q && q.dir); A[b + 'angle'] = n(q ? q.angle : 0); A[b + 'att_ht'] = n(q && q.attHt); });
         tips[id] = A;
       });
