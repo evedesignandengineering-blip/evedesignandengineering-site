@@ -1142,4 +1142,144 @@ let sa=0;$("sumC").onclick=()=>{if(Date.now()-sa>4000&&(rows.length||!$("rv").hi
 $("clr").addEventListener("click",()=>{if(!$("f").files[0]){showQ();qf("CFD")}});
 })();
 </script>
+<!-- qmk:start --><style>
+/* ---- Drawing vs quote: marked-up quote (Nov 2026) ---- */
+#qmk[hidden]{display:none!important}
+#qmList{list-style:none;margin:0;padding:0;max-height:75vh;overflow:auto}#qmList li{display:flex;gap:8px;align-items:flex-start;padding:8px;border-bottom:1px solid var(--bd);cursor:pointer;font-size:12.5px}#qmList li:hover{background:var(--hov)}#qmList li.on{background:var(--hov);outline:2px solid var(--ac);outline-offset:-2px}#qmList li:focus-visible{outline:2px solid var(--ac);outline-offset:-2px}#qmList li>div{flex:1;min-width:0;overflow-wrap:anywhere}#qmList code{font-size:11.5px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;padding:0 4px}
+#qmPdf{max-height:75vh;overflow:auto;background:#525a63;border-radius:8px;padding:12px}#qmPdf pre{border:0;font-size:11.5px}
+@media print{#qmk{display:none!important}}
+</style>
+<script>
+(function(){
+// ---- Drawing vs quote: mark up the supplied quote with every inconsistency found (Nov 2026)
+// Uses window.lastCmp from runCompare (res: CU, expected from drawing, in quote, status; review.quoteIssues from the AI)
+// and draws red-pen callouts on the supplied quote PDF. Download gives the quote back in its own format (PDF or .txt).
+const card=document.createElement("div");card.className="card";card.id="qmk";card.hidden=true;
+card.innerHTML="<div class='row' style='justify-content:space-between;align-items:center'><h2 style='margin:0'>Marked-up quote</h2><span><select id='qmZoom' title='Zoom' aria-label='Quote zoom'><option value='0'>Fit width</option><option value='1.5'>150%</option><option value='2'>200%</option><option value='3'>300%</option></select> <button class='g' id='qmRestore' hidden>Restore removed</button> <button id='qmDl' type='button'>Download marked-up quote</button></span></div>"+
+ "<div id='qmSum' style='margin:8px 0 12px'></div><div class='rvg'><ul id='qmList'></ul><div id='qmPdf'></div></div>"+
+ "<p style='font-size:12px;color:var(--mut);margin:10px 0 0'>Each callout compares the quote line with what the drawing needs. In the downloaded PDF every callout is a normal Bluebeam / Acrobat markup you can move, edit or delete.</p>";
+const cmp=$("cmp");cmp.parentNode.insertBefore(card,cmp.nextSibling);
+let Q=null,QF=[],qZoom=0,qGen=0,qObs=null,qBusy=0;
+const num=v=>{const n=Math.round(Number(v)*1000)/1000;return String(n)};
+// ---- read the quote: rows that carry a CU ID, with boxes for the CU ID and its quantity
+async function readQuote(f){const isPdf=/\.pdf$/i.test(f.name)||f.type==="application/pdf";
+ if(!isPdf){const t=await f.text();return{kind:"txt",file:f,text:t,rows:t.split(/\r?\n/).map((raw,i)=>{const L=raw.toUpperCase();if(!L.trim()||/DCSH/.test(L))return null;const h=findId(L);return h?{id:h.id,line:i}:null}).filter(Boolean)}}
+ pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+ const bytes=await f.arrayBuffer(),pdf=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise,pages=[],rows=[];
+ for(let n=1;n<=pdf.numPages;n++){const p=await pdf.getPage(n),c=await p.getTextContent();
+  const items=c.items.filter(x=>typeof x.str==="string"&&x.str.trim()).map(x=>({s:x.str,t:x.transform,w:x.width,h:x.height}));pages.push({n,items});
+  // group into text rows by baseline
+  const hs=items.map(i=>i.h||0).filter(h=>h>0).sort((a,b)=>a-b),tol=Math.max(1.5,(hs[hs.length>>1]||8)*.45),grp=[];
+  items.slice().sort((a,b)=>b.t[5]-a.t[5]||a.t[4]-b.t[4]).forEach(it=>{const g=grp.find(g=>Math.abs(g.y-it.t[5])<=tol);if(g)g.its.push(it);else grp.push({y:it.t[5],its:[it]})});
+  grp.forEach(g=>{const its=g.its.sort((a,b)=>a.t[4]-b.t[4]);if(/DCSH/i.test(its.map(i=>i.s).join(" ")))return;
+   for(let k=0;k<its.length;k++){const U=its[k].s.toUpperCase(),h=findId(U);if(!h)continue;
+    // quantity = first plain number after the CU ID (same rule as the comparison)
+    let qb=null,qv=null;const segs=[[k,U.slice(h.i+h.id.length),h.i+h.id.length]];for(let m=k+1;m<its.length;m++)segs.push([m,its[m].s.toUpperCase(),0]);
+    for(const [m,s,off] of segs){const re=/\S+(?:\s\S+)*/g;let z;while((z=re.exec(s))){if(/^\d+(\.\d+)?$/.test(z[0])){const it=its[m],L=Math.max(1,it.s.length);qv=parseFloat(z[0]);qb=itemBox(it,(off+z.index)/L,(off+z.index+z[0].length)/L);break}}if(qb)break}
+    if(qv===null)continue;const L=Math.max(1,its[k].s.length);
+    rows.push({id:h.id,page:n,qty:qv,idBox:pad(itemBox(its[k],h.i/L,(h.i+h.id.length)/L)),qBox:pad(qb),y:g.y});break}})}
+ return{kind:"pdf",file:f,bytes,pdf,pages,rows}}
+const pad=r=>[r[0]-2,r[1]-2,r[2]+2,r[3]+2];
+function findId(L){for(const id of IDS){const i=L.indexOf(id);if(i<0)continue;const b=L[i-1],a=L[i+id.length];if((b&&/[A-Z0-9_]/.test(b))||(a&&/[A-Z0-9_]/.test(a)))continue;return{id,i}}return null}
+// ---- findings: one per inconsistent quote line, plus "add" callouts where a missing CU would sit (alphabetical order)
+function buildFindings(){const c=window.lastCmp;if(!c||!Q)return[];const out=[],qi=((c.review||{}).quoteIssues||[]).filter(q=>q&&q.cu&&!q._rm);
+ const ai=id=>qi.filter(q=>String(q.cu).toUpperCase().trim()===id),aiTxt=id=>ai(id).map(q=>q.fix||q.issue).filter(Boolean).join(" "),aiSev=(id,d)=>{const s=ai(id).map(q=>q.severity);return s.includes("high")?"high":s.includes("medium")?"medium":s.length?(d||"low"):d};
+ const first=id=>Q.rows.find(r=>r.id===id),used=new Set();
+ c.res.filter(x=>!x.rm).forEach(x=>{const r=first(x.id);used.add(x.id);
+  if(x.st==="diff")out.push({kind:"diff",cu:x.id,sev:aiSev(x.id,"medium"),note:"DRAWING: "+num(x.e),detail:"Quote has "+num(x.u)+". "+aiTxt(x.id),row:r,tgt:r&&r.qBox,qty:x.e});
+  else if(x.st==="extra")out.push({kind:"extra",cu:x.id,sev:aiSev(x.id,"medium"),note:"NOT ON DRAWING?",detail:aiTxt(x.id),row:r,tgt:r&&r.idBox});
+  else if(x.st==="missing"){const after=Q.rows.filter(r=>r.id<x.id).pop()||Q.rows[0];
+   out.push({kind:"missing",cu:x.id,sev:aiSev(x.id,"high"),note:"ADD "+x.id+" x "+num(x.e),detail:((BY[x.id]||{}).d||"")+(aiTxt(x.id)?". "+aiTxt(x.id):""),row:after,tgt:after&&after.idBox&&(after.id<x.id?[after.idBox[0],after.idBox[1]-(after.idBox[3]-after.idBox[1])*.6,after.idBox[2],after.idBox[1]+1]:after.idBox),qty:x.e,after:after&&after.id})}
+  else if(x.st==="match"&&ai(x.id).length)out.push({kind:"ai",cu:x.id,sev:aiSev(x.id,"low"),note:x.id+": "+aiTxt(x.id),detail:"",row:r,tgt:r&&r.idBox})});
+ // AI notes on CUs that the table doesn't cover
+ qi.forEach(q=>{const id=String(q.cu).toUpperCase().trim();if(used.has(id))return;used.add(id);const r=first(id);out.push({kind:"ai",cu:id,sev:aiSev(id,"low"),note:id+": "+(q.fix||q.issue),detail:q.fix?q.issue||"":"",row:r,tgt:r&&r.idBox})});
+ out.forEach(f=>{f.detail=String(f.detail||"").replace(/^\.\s*/,"").trim();if(f.row&&f.tgt)f.loc={page:f.row.page,rect:f.tgt}});
+ const R={high:0,medium:1,low:2},K={missing:0,diff:1,extra:2,ai:3};
+ return out.sort((a,b)=>R[a.sev]-R[b.sev]||K[a.kind]-K[b.kind]||(a.loc?a.loc.page:99)-(b.loc?b.loc.page:99)||(a.loc&&b.loc?b.row.y-a.row.y:0)).map((f,i)=>Object.assign(f,{n:i+1}))}
+// ---- callout layout on the quote pages (same red-pen style as design review)
+async function layout(){if(Q.kind!=="pdf")return;for(const pgx of Q.pages){const on=QF.filter(x=>x.loc&&x.loc.page===pgx.n);if(!on.length)continue;
+ const v=(await Q.pdf.getPage(pgx.n)).getViewport({scale:1}),W=v.width,H=v.height,dr=r=>{const q=v.convertToViewportRectangle(r);return[Math.min(q[0],q[2]),Math.min(q[1],q[3]),Math.max(q[0],q[2]),Math.max(q[1],q[3])]};
+ const obs=pgx.items.map(it=>dr(itemBox(it,0,1))),hs=pgx.items.map(it=>it.h||0).filter(h=>h>0).sort((a,b)=>a-b);
+ const fs=Math.min(14,Math.max(6.5,(hs[hs.length>>1]||8)*1.25)),pd=.4*fs,lh=1.2*fs,gap=.3*fs;on.forEach(x=>obs.push(dr(x.loc.rect)));const placed=[];
+ on.forEach(x=>{const T=dr(x.loc.rect),wr=wrapNote(x.note,fs,22*fs),bw=wr.w+2*pd,bh=wr.lines.length*lh+2*pd-.2*fs,cx=(T[0]+T[2])/2,cy=(T[1]+T[3])/2;let best=null,bs=1e18;
+  for(const g of [1.5,3,5,8,12,17,24,32].map(k=>k*fs))for(const [dx,dy] of [[1,0],[1,-1],[1,1],[-1,0],[-1,-1],[-1,1],[0,-1],[0,1]]){
+   const l=dx>0?T[2]+g:dx<0?T[0]-g-bw:cx-bw/2,t=dy<0?T[1]-g-bh:dy>0?T[3]+g:cy-bh/2,B=[l,t,l+bw,t+bh];if(l<fs||t<fs||l+bw>W-fs||t+bh>H-fs)continue;
+   const sc=obs.reduce((s,o)=>s+ovl(B,o,gap),0)+placed.reduce((s,o)=>s+ovl(B,o,gap)*50,0)+g*.01;if(sc<bs){bs=sc;best=B}if(sc<1)break}
+  if(!best){const l=Math.min(Math.max(fs,T[2]+2*fs),W-bw-fs),t=Math.min(Math.max(fs,T[1]-2*fs-bh),H-bh-fs);best=[l,t,l+bw,t+bh]}
+  placed.push(best);obs.push(best);const bc=[(best[0]+best[2])/2,(best[1]+best[3])/2],cl=(a,lo,hi)=>Math.min(Math.max(a,lo),hi);
+  const tip=[cl(bc[0],T[0],T[2]),cl(bc[1],T[1],T[3])],st=[cl(tip[0],best[0],best[2]),cl(tip[1],best[1],best[3])];if(st[0]>best[0]&&st[0]<best[2]&&st[1]>best[1]&&st[1]<best[3])st[1]=best[3];
+  x.co={fs,pad:pd,lh,box:best,lines:wr.lines,tip,st,T}})}}
+// ---- list + page view
+function renderList(){const live=QF.filter(x=>!x._rm),k=t=>live.filter(x=>x.kind===t).length,nl=live.filter(x=>!x.loc).length;
+ $("qmSum").innerHTML="<div><span class='chip bad'>"+k("missing")+" to add</span><span class='chip wr'>"+k("diff")+" quantity to change</span><span class='chip bad'>"+k("extra")+" not on drawing</span>"+(k("ai")?"<span class='chip'>"+k("ai")+" other notes</span>":"")+(nl&&Q.kind==="pdf"?"<span class='chip'>"+nl+" not found on the quote</span>":"")+"</div>";
+ const rm=QF.length-live.length;$("qmRestore").hidden=!rm;$("qmRestore").textContent="Restore removed ("+rm+")";
+ $("qmList").innerHTML=live.length?live.map(x=>"<li data-n='"+x.n+"' tabindex='0'><span class='rvd' style='background:"+SEVH[x.sev]+"' title='"+esc(x.sev)+"'></span><div><div class='rvnote'>"+esc(x.note)+"</div><div class='rvmeta'><code>"+esc(x.cu)+"</code>"+(x.kind==="missing"&&x.after?" · goes near "+esc(x.after):"")+"</div>"+(x.detail?"<div class='rvmeta'>"+esc(x.detail)+"</div>":"")+"<div class='rvmeta'>"+({missing:"Missing from quote",diff:"Quantity differs",extra:"In quote, not on drawing",ai:"Review note"}[x.kind])+(Q.kind==="pdf"?" · "+(x.loc?"page "+x.loc.page:"not found on the quote"):"")+"</div></div><button class='g rm' title='Drop this one'>×</button></li>").join(""):"<li style='display:block;color:var(--mut)'>The quote matches the drawing. Nothing to mark up.</li>";
+ document.querySelectorAll("#qmPdf [data-i]").forEach(m=>{const x=QF[+m.dataset.i],h=!!(x&&x._rm);if(m.tagName==="g")m.style.display=h?"none":"";else m.hidden=h})}
+async function renderPdf(){const box=$("qmPdf"),gen=++qGen;box.innerHTML="";if(qObs)qObs.disconnect();$("qmZoom").hidden=Q.kind!=="pdf";
+ if(Q.kind!=="pdf"){box.innerHTML="<pre style='max-height:70vh;overflow:auto;white-space:pre;background:#fff;color:#13202b'>"+esc(markedTxt())+"</pre>";return}
+ const W=Math.max(320,box.clientWidth-24);qObs=new IntersectionObserver(es=>es.forEach(e=>{if(!e.isIntersecting||e.target._done)return;e.target._done=1;const {p,sc}=e.target._pg,cv=document.createElement("canvas"),dpr=Math.min(2,window.devicePixelRatio||1),v=p.getViewport({scale:sc*dpr});
+  cv.width=v.width;cv.height=v.height;cv.style.width="100%";cv.style.height="100%";e.target.insertBefore(cv,e.target.firstChild);p.render({canvasContext:cv.getContext("2d"),viewport:v})}),{root:box,rootMargin:"800px"});
+ for(let i=1;i<=Q.pdf.numPages;i++){const p=await Q.pdf.getPage(i);if(gen!==qGen)return;const v1=p.getViewport({scale:1}),fit=W/v1.width,sc=qZoom?fit*qZoom:fit,v=p.getViewport({scale:sc});
+  const wrap=document.createElement("div");wrap.className="rvpg";wrap.style.width=v.width+"px";wrap.style.height=v.height+"px";wrap._pg={p,sc};box.appendChild(wrap);qObs.observe(wrap);
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");svg.setAttribute("viewBox","0 0 "+v1.width+" "+v1.height);svg.setAttribute("class","rvsvg");wrap.appendChild(svg);
+  QF.forEach((x,k)=>{if(!x.co||x.loc.page!==i)return;const co=x.co,[l,t,r,b]=co.box,T=co.T,lw=Math.max(.6,co.fs*.09),g=document.createElementNS("http://www.w3.org/2000/svg","g");g.dataset.i=k;if(x._rm)g.style.display="none";
+   g.innerHTML=(x.kind==="missing"?"":"<rect x='"+T[0]+"' y='"+T[1]+"' width='"+(T[2]-T[0])+"' height='"+(T[3]-T[1])+"' fill='none' stroke='"+MKC+"' stroke-width='"+lw+"' rx='"+lw+"'/>")+
+    "<line x1='"+co.st[0]+"' y1='"+co.st[1]+"' x2='"+co.tip[0]+"' y2='"+co.tip[1]+"' stroke='"+MKC+"' stroke-width='"+lw+"'/><polygon points='"+arrowPts(co).map(q=>q.join(",")).join(" ")+"' fill='"+MKC+"'/><rect x='"+l+"' y='"+t+"' width='"+(r-l)+"' height='"+(b-t)+"' fill='#fff' stroke='"+MKC+"' stroke-width='"+lw+"'/>"+
+    co.lines.map((s,j)=>"<text x='"+(l+co.pad)+"' y='"+(t+co.pad+.82*co.fs+j*co.lh)+"' font-family='Helvetica, Arial, sans-serif' font-size='"+co.fs+"' fill='"+MKC+"'>"+esc(s)+"</text>").join("");svg.appendChild(g);
+   const m=document.createElement("div");m.className="mk";m.dataset.i=k;m.hidden=!!x._rm;m.style.cssText="left:"+(l*sc-3)+"px;top:"+(t*sc-3)+"px;width:"+((r-l)*sc+6)+"px;height:"+((b-t)*sc+6)+"px";m.title=x.note+(x.detail?" ("+x.detail+")":"");m.onclick=()=>pickQ(x.n);wrap.appendChild(m)})}}
+const pickQ=n=>{document.querySelectorAll("#qmList li.on").forEach(z=>z.classList.remove("on"));const li=document.querySelector("#qmList li[data-n='"+n+"']");if(li){li.classList.add("on");li.scrollIntoView({behavior:"smooth",block:"nearest"})}};
+function flashQ(x){const z=document.querySelector("#qmPdf .mk[data-i='"+QF.indexOf(x)+"']");if(z){z.scrollIntoView({behavior:"smooth",block:"center",inline:"center"});z.classList.remove("flash");void z.offsetWidth;z.classList.add("flash")}}
+$("qmList").addEventListener("click",e=>{const li=e.target.closest("li[data-n]");if(!li)return;const x=QF.find(f=>f.n===+li.dataset.n);if(!x)return;
+ if(e.target.closest("button.rm")){x._rm=1;renderList();if(Q.kind!=="pdf")renderPdf();return}pickQ(x.n);if(Q.kind==="pdf"&&!qZoom&&x.loc){qZoom=2;$("qmZoom").value="2";renderPdf().then(()=>flashQ(x))}else flashQ(x)});
+$("qmList").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("li[data-n]")){e.preventDefault();e.target.click()}});
+$("qmRestore").onclick=()=>{QF.forEach(x=>delete x._rm);renderList();if(Q.kind!=="pdf")renderPdf()};
+$("qmZoom").onchange=()=>{qZoom=+$("qmZoom").value;renderPdf()};
+// ---- outputs in the quote's own format
+function markedTxt(){const L=Q.text.split(/\r?\n/),live=QF.filter(x=>!x._rm),by={};live.forEach(x=>{if(x.kind==="missing")return;const r=Q.rows.find(r=>r.id===x.cu);if(r)(by[r.line]=by[r.line]||[]).push(x.note)});
+ const add=live.filter(x=>x.kind==="missing"),other=live.filter(x=>x.kind!=="missing"&&!Q.rows.find(r=>r.id===x.cu));
+ let out=L.map((s,i)=>by[i]?s+"   <<< "+by[i].join(" | "):s).join("\n").replace(/\s+$/,"");
+ if(add.length)out+="\n\n--- ADD (needed by the drawing, not in this quote) ---\n"+add.map(x=>x.cu+"  "+num(x.qty)).join("\n");
+ if(other.length)out+="\n\n--- OTHER NOTES ---\n"+other.map(x=>x.note).join("\n");return out+"\n"}
+async function markedQuotePdf(){const {PDFDocument,PDFName,PDFString,StandardFonts,rgb}=PDFLib;const pd=await PDFDocument.load(Q.bytes.slice(0),{ignoreEncryption:true});
+ const ctx=pd.context,fontRef=ctx.register(ctx.obj({Type:"Font",Subtype:"Type1",BaseFont:"Helvetica",Encoding:"WinAnsiEncoding"})),pages=pd.getPages(),live=QF.filter(x=>!x._rm),c3=MKR.map(v=>v.toFixed(3)).join(" "),f=n=>(+n).toFixed(2);
+ const now="D:"+new Date().toISOString().replace(/[-:T]/g,"").slice(0,14),addAnnot=(pg,an)=>{const ex=pg.node.lookup(PDFName.of("Annots"));if(ex&&ex.push)ex.push(an);else pg.node.set(PDFName.of("Annots"),ctx.obj([an]))};
+ for(const x of live){if(!x.co)continue;const pg=pages[x.loc.page-1];if(!pg)continue;const v=(await Q.pdf.getPage(x.loc.page)).getViewport({scale:1}),co=x.co,[l,t,r,b]=co.box;
+  const [A,B,C,D,E,F]=v.transform,det=A*D-B*C,M=[D/det,-B/det,-C/det,A/det,(C*F-D*E)/det,(B*E-A*F)/det],up=([X,Y])=>[M[0]*X+M[2]*Y+M[4],M[1]*X+M[3]*Y+M[5]];
+  const ub=pts=>{const q=pts.map(up),X=q.map(z=>z[0]),Y=q.map(z=>z[1]);return[Math.min(...X),Math.min(...Y),Math.max(...X),Math.max(...Y)]},lw=Math.max(.6,co.fs*.09);
+  // ring round the quote value (a Square markup) for everything but "add" notes
+  if(x.kind!=="missing"){const T=co.T,SR=ub([[T[0],T[1]],[T[2],T[1]],[T[0],T[3]],[T[2],T[3]]]);
+   const sap=ctx.register(ctx.stream("q "+c3+" RG "+f(lw)+" w "+f(SR[0]+lw/2)+" "+f(SR[1]+lw/2)+" "+f(SR[2]-SR[0]-lw)+" "+f(SR[3]-SR[1]-lw)+" re S Q",{Type:"XObject",Subtype:"Form",BBox:SR,Resources:{}}));
+   addAnnot(pg,ctx.register(ctx.obj({Type:"Annot",Subtype:"Square",Rect:SR,C:MKR,BS:{W:lw},F:4,Contents:PDFString.of(asc(x.note)),T:PDFString.of("EVE Quote Review"),Subj:PDFString.of("Rectangle"),NM:PDFString.of("eve-qr-box-"+x.n),M:PDFString.of(now),AP:{N:sap}})))}
+  const ar=arrowPts(co),xs=[l,r,co.tip[0],...ar.map(q=>q[0])],ys=[t,b,co.tip[1],...ar.map(q=>q[1])],e=co.fs*.2,BB=[Math.min(...xs)-e,Math.min(...ys)-e,Math.max(...xs)+e,Math.max(...ys)+e];
+  const R=ub([[BB[0],BB[1]],[BB[2],BB[1]],[BB[0],BB[3]],[BB[2],BB[3]]]),TB=ub([[l,t],[r,t],[l,b],[r,b]]);
+  let ops="q "+c3+" RG "+c3+" rg "+f(lw)+" w "+f(co.st[0])+" "+f(co.st[1])+" m "+f(co.tip[0])+" "+f(co.tip[1])+" l S "+ar.map((q,j)=>f(q[0])+" "+f(q[1])+(j?" l ":" m ")).join("")+"f 1 1 1 rg "+f(l)+" "+f(t)+" "+f(r-l)+" "+f(b-t)+" re B "+c3+" rg BT /Helv "+f(co.fs)+" Tf ";
+  co.lines.forEach((s,j)=>{ops+="1 0 0 -1 "+f(l+co.pad)+" "+f(t+co.pad+.82*co.fs+j*co.lh)+" Tm ("+pstr(s)+") Tj "});ops+="ET Q";
+  const ap=ctx.register(ctx.stream(ops,{Type:"XObject",Subtype:"Form",BBox:BB,Matrix:M,Resources:{Font:{Helv:fontRef}}})),rot=((pg.getRotation().angle%360)+360)%360;
+  addAnnot(pg,ctx.register(ctx.obj({Type:"Annot",Subtype:"FreeText",IT:"FreeTextCallout",Rect:R,CL:[...up(co.tip),...up(co.st)],LE:"OpenArrow",RD:[TB[0]-R[0],TB[1]-R[1],R[2]-TB[2],R[3]-TB[3]],BS:{W:lw},
+   DA:PDFString.of(c3+" rg /Helv "+f(co.fs)+" Tf"),DS:PDFString.of("font: Helvetica "+f(co.fs)+"pt; text-align:left; color:#E0201B"),Rotate:rot,F:4,
+   Contents:PDFString.of(asc(x.note)),T:PDFString.of("EVE Quote Review"),Subj:PDFString.of("Callout"),NM:PDFString.of("eve-qr-"+x.n),M:PDFString.of(now),CreationDate:PDFString.of(now),AP:{N:ap}})))}
+ // summary page at the end: every inconsistency, including any that could not be pinned on the quote
+ const hf=await pd.embedFont(StandardFonts.Helvetica),bf=await pd.embedFont(StandardFonts.HelveticaBold),W=595,H=842,Mg=40,red=rgb(...MKR),ink=rgb(.07,.13,.17),mut=rgb(.4,.45,.5);let pg=pd.addPage([W,H]),y=H-Mg;
+ const wrapT=(s,fn,z,w)=>{const out=[];asc(s).split("\n").forEach(par=>{let l="";par.split(/\s+/).filter(Boolean).forEach(wd=>{const c=l?l+" "+wd:wd;if(fn.widthOfTextAtSize(c,z)>w&&l){out.push(l);l=wd}else l=c});if(l)out.push(l)});return out};
+ const line=(s,fn,z,c,ind)=>{wrapT(s,fn,z,W-2*Mg-(ind||0)).forEach(t=>{if(y<Mg+z){pg=pd.addPage([W,H]);y=H-Mg}pg.drawText(t,{x:Mg+(ind||0),y:y-z,size:z,font:fn,color:c||ink});y-=z*1.35})};
+ const k=t=>live.filter(x=>x.kind===t).length;
+ line("Quote review against drawing - "+PN(),bf,15);line(new Date().toLocaleDateString()+"  |  "+Q.file.name+"  |  "+k("missing")+" to add, "+k("diff")+" quantity to change, "+k("extra")+" not on drawing",hf,9,mut);y-=10;
+ [["missing","Add to the quote"],["diff","Change the quantity"],["extra","In the quote but not on the drawing"],["ai","Other review notes"]].forEach(([t,h])=>{const L=live.filter(x=>x.kind===t);if(!L.length)return;y-=4;line(h,bf,11);
+  L.forEach(x=>{if(y<Mg+30){pg=pd.addPage([W,H]);y=H-Mg}line(x.cu+(x.kind==="diff"?"   quote "+num(x.row?x.row.qty:"")+", drawing "+num(x.qty):x.kind==="missing"?"   qty "+num(x.qty):""),hf,9,mut);line(x.note,bf,10,red,10);if(x.detail)line(x.detail,hf,9,ink,10);y-=4})});
+ y-=6;line("AI-assisted check. Confirm each item against the drawing before changing the quote.",hf,8,mut);return await pd.save()}
+$("qmDl").onclick=async()=>{if(!Q)return;const base=Q.file.name.replace(/\.[^.]+$/,"")||FN();$("qmDl").disabled=true;
+ try{if(Q.kind==="txt")await save(base+"_MARKUP.txt",markedTxt());
+  else{if(typeof PDFLib==="undefined"){st("The PDF library didn't load. Check your connection and reload.",1);return}await save(base+"_MARKUP.pdf",new Blob([await markedQuotePdf()],{type:"application/pdf"}))}}
+ catch(e){st("Couldn't build the marked-up quote: "+(e.message||e),1)}finally{$("qmDl").disabled=false}};
+// ---- build after each comparison; refresh when the AI review lands or rows are removed from the table
+async function build(){const f=$("fq").files[0],c=window.lastCmp;if(!f||!c||!c.res||$("cmp").hidden){card.hidden=true;return}const my=++qBusy;
+ try{if(!Q||Q.file!==f)Q=await readQuote(f);if(my!==qBusy)return;QF=buildFindings();if(Q.kind==="pdf")await layout();if(my!==qBusy)return;card.hidden=false;renderList();await renderPdf()}
+ catch(e){card.hidden=false;$("qmSum").innerHTML="<div class='err'>Couldn't mark up the quote: "+esc(e.message||e)+"</div>";$("qmList").innerHTML="";$("qmPdf").innerHTML=""}}
+const oCmp=runCompare;runCompare=async function(){card.hidden=true;Q=null;QF=[];qBusy++;const r=await oCmp.apply(this,arguments);await build();return r};
+$("cmp").addEventListener("click",e=>{if(e.target.closest("button.rm")||e.target.id==="cmpRestore")setTimeout(build,0)});
+new MutationObserver(()=>{if($("cmp").hidden){card.hidden=true;qBusy++}}).observe($("cmp"),{attributes:true,attributeFilter:["hidden"]});
+$("clr").addEventListener("click",()=>{card.hidden=true;Q=null;QF=[];qBusy++});
+window.QuoteMarkup={build,get findings(){return QF},get quote(){return Q},markedTxt,markedQuotePdf};
+})();
+</script><!-- qmk:end -->
 </body></html>
