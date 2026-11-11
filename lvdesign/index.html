@@ -90,7 +90,7 @@ button.ghost{background:transparent;color:var(--blue);margin-top:10px;padding:6p
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function () {
-  var VERSION = '202611100026-65437c3b', ENC = 'app-202611100026-65437c3b.bin';
+  var VERSION = '202611111228-5887faae', ENC = 'app-202611111228-5887faae.bin';
   var $ = function (id) { return document.getElementById(id); };
   var views = ['vBusy', 'vSignin', 'vSignup', 'vRequest', 'vSetpw', 'vDenied'];
   function show(v, msg, cls) { views.forEach(function (x) { $(x).hidden = x !== v; }); var s = $('status'); s.textContent = msg || ''; s.className = 'status' + (cls ? ' ' + cls : ''); }
