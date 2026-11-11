@@ -491,6 +491,9 @@ textarea{width:100%;min-height:260px;font:12px var(--mono);color:var(--ink);back
         CN53: { name: '400HV', kind: 'HV', term: 'CN73_240', termBase: 3, dcsh: [] },
       },
       ohConductors: { CN36: { name: '7/4.75 AAAC', cu: 'CN52_7/475', tie: 'CN9_7/475AA', re: 'RE3_7/475AA' } },
+      // CN9 PG clamps wherever conductor is tapped or terminated (Ishan 2026-11-10): a PTTx taps the HV bare with 3,
+      // tapping across a strain needs 6 on HV and 8 on LV when the strain CU has no CN9 of its own. Size = conductor tapped to.
+      cn9: { tx: 3, hvStrain: 6, lvStrain: 8 },
       pillars: {
         MINI: { name: 'MINI-PILLAR', cu: 'LU10', dcsh: ['U08-4'] },
         UNI: { name: 'UNI-PILLAR', cu: 'LU11', dcsh: ['U9'] },
@@ -722,6 +725,14 @@ textarea{width:100%;min-height:260px;font:12px var(--mono);color:var(--ink);back
   }
 
   // ===================================================================== GENERATE
+  // Best-guess CN9 PG clamp CU for the conductor being tapped to, from its name (e.g. '7/4.75 AAAC' -> CN9_7/475AA).
+  S.cn9For = name => {
+    const n = String(name || ''), m = /(\d+)\s*\/\s*(\d)\.(\d+)/.exec(n);
+    if (/\bcu\b|copper|hdbc/i.test(n) && !/al|aaac|aac|acsr/i.test(n)) return 'CN9_CU';
+    if (!m || !S.dqm) return 'CN9_[COND]';
+    const ck = m[1] + '/' + m[2] + m[3], keys = Object.keys(S.dqm).filter(k => k.startsWith('CN9_') && k.replace(/\./g, '').includes(ck));
+    return keys.find(k => /AA$/.test(k)) || keys.find(k => /A$/.test(k)) || keys.find(k => !/AC$/.test(k)) || 'CN9_[COND]';
+  };
   S.generate = function (M, cfg, opts) {
     opts = opts || {};
     const items = [];
@@ -739,7 +750,8 @@ textarea{width:100%;min-height:260px;font:12px var(--mono);color:var(--ink);back
       if (nd.kind === 'pole') return poleRef(nd.ref);
       if (nd.kind === 'streetlight') return (nd.ref.existing ? 'EXISTING STREETLIGHT ' : 'NEW STREETLIGHT ') + nd.ref.id;
     };
-    const ohc = c => cfg.ohConductors[c.cn] || { name: c.condName || '[CONDUCTOR]', cu: c.cu || 'CN52_[COND]', tie: 'CN9_[COND]', re: 'RE3_[COND]' };
+    const ohc = c => cfg.ohConductors[c.cn] || { name: c.condName || '[CONDUCTOR]', cu: c.cu || 'CN52_[COND]', tie: S.cn9For(c.condName), re: 'RE3_[COND]' };
+    const cn9 = Object.assign({ tx: 3, hvStrain: 6, lvStrain: 8 }, cfg.cn9 || {});
     const txCfg = kva => cfg.tx[kva] || { cu: `TX5_${kva}/12.7`, ft: '[FT]', lvFuse: '[FUSE]' };
 
     const newPoles = M.poles.filter(p => !p.existing);
@@ -779,7 +791,7 @@ textarea{width:100%;min-height:260px;font:12px var(--mono);color:var(--ink);back
       const cu = [];
       cfg.txTermination.cu.forEach(([code, q, cond]) => {
         if (cond === 'stay' && !hasStay) return;
-        cu.push([code === 'TX' ? tc.cu : code === 'TIE' ? k.tie : code === 'RE' ? k.re : code, q]);
+        cu.push(code === 'TIE' ? [k.tie, cn9.tx] : [code === 'TX' ? tc.cu : code === 'RE' ? k.re : code, q]);
       });
       add({ key: 'txpole', text: lines.join('\n'), cu, dcsh: cfg.txTermination.dcsh.slice() });
     });
@@ -792,6 +804,17 @@ textarea{width:100%;min-height:260px;font:12px var(--mono);color:var(--ink);back
         `- INSTALL NEW SINGLE PHASE TEE-OFF AND TAP ON HV BARE VIA ${ft} FAULT TAMER.`, '- INSTALL NEW RE TERMINATION AT TAP ON TO EXISTING RE.'];
       const cu = cfg.teeOff.cu.map(([code, q]) => [code === 'TIE' ? k.tie : code === 'RE' ? k.re : code === 'HV52_3FT' ? `HV52_${ft.replace('A', '')}FT` : code, q]);
       add({ key: 'teeoff', text: lines.join('\n'), cu, dcsh: cfg.teeOff.dcsh.slice() });
+    });
+
+    // 4b. tapping across a strain (pole marked HV / LV strain in the asset table): CN9 PG clamps, sized from the conductor
+    M.poles.filter(p => p.strain).forEach(p => {
+      const lines = [`AT ${poleRef(p)},`], cu = [];
+      ['HV', 'LV'].filter(v => p.strain.includes(v)).forEach(v => {
+        const c = M.conductors.find(c => (c.voltage || 'HV') === v && (c.ends || []).some(e => e && e.ref === p));
+        const tie = c ? ohc(c).tie : 'CN9_[COND]';
+        lines.push(`- TAP ACROSS ${v} STRAIN WITH PG CLAMPS.`); cu.push([tie, v === 'HV' ? cn9.hvStrain : cn9.lvStrain]);
+      });
+      add({ key: 'strain', text: lines.join('\n'), cu, notes: ['CN9 count assumes the strain CU has no PG clamps of its own.'] });
     });
 
     // 5. new pillars
@@ -1189,7 +1212,7 @@ const SAMPLE = null; /* starts empty: no sample job is published */
       h += `<div class="group">Poles</div><div class="tablewrap"><table><tr><th>Status</th><th>Pole ID</th><th>Details</th><th>Equipment</th><th>Easting / Northing</th></tr>` +
         M.poles.map(p => `<tr><td>${st(p, p.key)}</td><td><input type="text" id="id-${p.key}" data-k="${p.key}" data-f="${p.existing ? 'id' : 'assetId'}" value="${esc(p.existing ? p.id : (p.assetId || ''))}" placeholder="${p.existing ? 'S123456' : 'optional'}"></td>
         <td><input type="text" id="det-${p.key}" data-k="${p.key}" data-f="details" value="${esc(p.details || '')}" placeholder="${p.existing ? '—' : cfg.defaultPole}"></td>
-        <td class="m">${[p.tx ? `TX <input type="text" id="kva-${p.key}" data-k="${p.key}" data-f="kva" value="${esc(p.tx.kva)}" style="width:48px;min-width:0">kVA` : '', p.dof ? 'DOF' : '', p.stays.length ? p.stays.length + ' stay' : ''].filter(Boolean).join(' · ') || '—'}</td>
+        <td class="m"><select data-k="${p.key}" data-f="strain" id="strain-${p.key}" title="Strain to tap across (adds CN9 PG clamps)">${['', 'HV', 'LV', 'HV+LV'].map(v => `<option value="${v}"${(p.strain || '') === v ? ' selected' : ''}>${v ? v + ' strain' : 'No strain'}</option>`).join('')}</select> ${[p.tx ? `TX <input type="text" id="kva-${p.key}" data-k="${p.key}" data-f="kva" value="${esc(p.tx.kva)}" style="width:48px;min-width:0">kVA` : '', p.dof ? 'DOF' : '', p.stays.length ? p.stays.length + ' stay' : ''].filter(Boolean).join(' · ') || '—'}</td>
         <td class="m">${p.xy.map(v => v.toFixed(2)).join(' / ')}</td></tr>`).join('') + '</table></div>';
     }
     if (M.pillars.length) h += `<div class="group">Pillars and pits</div><div class="tablewrap"><table><tr><th>Status</th><th>Type</th><th>Location text</th><th>At pole</th></tr>` +
