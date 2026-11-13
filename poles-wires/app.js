@@ -4736,7 +4736,8 @@
     }).join('') + '</tbody></table>';
   }
   function groundAtFn() {
-    var g = project && project.ground ? project.ground.map(function (q) { return { c: PNW.num(q.Chainage), z: PNW.num(q.Level) }; }).filter(function (q) { return isFinite(q.c) && isFinite(q.z); }) : [];
+    var sv = built && built.ground && built.ground.length; // field survey ground points come before the linked project's ground line
+    var g = !sv && project && project.ground ? project.ground.map(function (q) { return { c: PNW.num(q.Chainage), z: PNW.num(q.Level) }; }).filter(function (q) { return isFinite(q.c) && isFinite(q.z); }) : [];
     if (g.length < 2 && built && built.ground && built.ground.length) g = PNW.groundSeq(built).filter(function (r) { return r.chainage != null && isFinite(r.elevation); }).map(function (r) { return { c: r.chainage, z: r.elevation }; });
     return g.length < 2 ? null : function (c) { for (var i = 1; i < g.length; i++) if (g[i].c >= c) { var a = g[i - 1], b = g[i], t = b.c === a.c ? 0 : (c - a.c) / (b.c - a.c); return a.z + (b.z - a.z) * Math.max(0, Math.min(1, t)); } return g[g.length - 1].z; };
   }
