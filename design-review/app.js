@@ -66,24 +66,6 @@ async function readPdfText(file) {
   textPreview.textContent = pages.map((p) => "PAGE " + p.page + "\n" + (p.text || "[No selectable text detected on this page.]")).join("\n\n").slice(0, 18000);
 }
 pdfInput.addEventListener("change", (event) => loadFile(event.target.files?.[0]));
-$("loadSample").addEventListener("click", async () => {
-  const button = $("loadSample");
-  button.disabled = true;
-  button.textContent = "Loading sample…";
-  setStatus("Fetching TRAINING DRAWING.pdf from the main EVE website assets…");
-  try {
-    const response = await fetch("https://raw.githubusercontent.com/evedesignandengineering-blip/evedesignandengineering-site/main/assets/TRAINING%20DRAWING.pdf");
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    const blob = await response.blob();
-    loadFile(new File([blob], "TRAINING DRAWING.pdf", { type: "application/pdf" }));
-  } catch (error) {
-    console.error(error);
-    setStatus("Could not load the sample from GitHub. Download TRAINING DRAWING.pdf from the main website repository and upload it manually.");
-  } finally {
-    button.disabled = false;
-    button.textContent = "Load website sample";
-  }
-});
 ["dragenter", "dragover"].forEach((name) => dropzone.addEventListener(name, (event) => { event.preventDefault(); dropzone.classList.add("dragover"); }));
 ["dragleave", "drop"].forEach((name) => dropzone.addEventListener(name, (event) => { event.preventDefault(); dropzone.classList.remove("dragover"); }));
 dropzone.addEventListener("drop", (event) => loadFile(event.dataTransfer?.files?.[0]));
