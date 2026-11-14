@@ -550,11 +550,14 @@
   }
 
   /* ---------- recompute and render ---------- */
+  // LiDAR bays of every surveyed pole (which pole each QLINK bay angle points at), worked out once per recompute.
+  var bayInfo = null;
+  function bays() { return bayInfo || (bayInfo = PNW.bayLinks(merged.poles)); }
   function recompute() {
     calcAt = new Date();
     syncDesign(); autoTensionSync();
     var ok = S.files.filter(function (f) { return f.status === 'ok' && !TEXT_ROLES[f.role]; });
-    merged = PNW.buildPoles(aliasFiles(ok).concat(projectSurvey(ok)));
+    merged = PNW.buildPoles(aliasFiles(ok).concat(projectSurvey(ok))); bayInfo = null;
     var p = prof();
     var gpts = [].concat.apply([], ok.filter(function (f) { return f.role === 'groundPoints'; }).map(function (f) { return f.items; }));
     built = p.poleIds.length ? PNW.buildProfile(merged.poles, gpts.length ? Object.assign({}, p, { groundPts: gpts }) : p) : null;
@@ -1040,7 +1043,8 @@
     h += '<table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
-    if (p.survey) { sec('Survey (' + esc(p.survey.kind || 'LiDAR') + ')'); row('Easting', f2(p.survey.easting, 2)); row('Northing', f2(p.survey.northing, 2)); row('Elevation', f2(p.survey.elevation, 2)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Equipment no', p.survey.equipNo); row('Surveyed', dateOnly(p.survey.surveyed)); }
+    if (p.survey) { sec('Survey (' + esc(p.survey.kind || 'LiDAR') + ')'); row('Easting', f2(p.survey.easting, 2)); row('Northing', f2(p.survey.northing, 2)); row('Elevation', f2(p.survey.elevation, 2)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : '');
+      var bq = bays().bays[p.id]; if (bq) { row('LiDAR bays', bq.map(function (b) { return b.angle + '° → ' + (b.to ? b.to + ' (' + b.dist + ' m' + (b.back != null && b.back > 8 ? ', no bay back' : '') + ')' : 'no pole in your data'); }).join(' · ')); if (bays().deviation[p.id] != null) row('Line deviation (LiDAR)', bays().deviation[p.id] + '°'); } row('Equipment no', p.survey.equipNo); row('Surveyed', dateOnly(p.survey.surveyed)); }
     else { sec('Survey'); row('Survey', 'No LiDAR survey row'); }
     if (!r && ex.value != null) { sec('Pole'); row('Existing length', ex.value + ' m (' + ex.source + ')'); }
     if (r && r.lengthSource === 'Edited') { sec('Ground profile'); row('Pole length', r.length + ' m', '<span class="tag edit">edited</span>'); }

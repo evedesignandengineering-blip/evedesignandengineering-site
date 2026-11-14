@@ -219,3 +219,27 @@ test('reads GIS HV and LV overhead conductor exports', { skip: fs.existsSync(pat
   assert.deepEqual([...new Set(lv.items.map((x) => x.description))].sort(), ['4X7/3.75 AAC', '4X7/4.75 AAC']);
   assert.ok(hv.issues.some((i) => i.code === 'no-geometry'));
 });
+
+// LiDAR bay angles: real QLINK bays point at the next pole (within 1°), and they decide the spans where the shortest-span
+// guess would join two parallel lines.
+test('bay angles link the QLINK poles and drive the line split', () => {
+  const r = Object.assign(PNW.importFile(XLSX, F.qlink219, fs.readFileSync(path.join(DIR, F.qlink219))), { status: 'ok' });
+  const m = PNW.buildPoles([r]), bl = PNW.bayLinks(m.poles);
+  const pairs = bl.links.map((l) => l.a + '-' + l.b).sort();
+  assert.deepEqual(pairs, ['S119846-S119850', 'S119850-S120776', 'S119850-S1242155', 'S120378-S120776']);
+  assert.ok(bl.links.every((l) => l.confirmed));
+  assert.equal(bl.deviation.S120776, 0.9);
+  assert.equal(bl.bays.S119846.filter((b) => !b.to).length, 3); // three bays run past the imported poles
+});
+test('bay angles beat shortest spans on parallel lines', () => {
+  const P = (id, e, n, bays) => ({ id, order: 0, survey: { easting: e, northing: n, elevation: 0, bayAngles: bays } });
+  const poles = {}; // two east-west lines 18 m apart, spans 40 m, offset so the nearest pole is on the other line
+  [['A1', 0, 0], ['A2', 40, 0], ['A3', 80, 0]].forEach(([id, e, n], i, a) => { poles[id] = P(id, e, n, [i > 0 ? 270 : null, i < a.length - 1 ? 90 : null].filter((x) => x != null)); });
+  [['B1', 20, 18], ['B2', 60, 18], ['B3', 100, 18]].forEach(([id, e, n], i, a) => { poles[id] = P(id, e, n, [i > 0 ? 270 : null, i < a.length - 1 ? 90 : null].filter((x) => x != null)); });
+  Object.keys(poles).forEach((k, i) => { poles[k].order = i; });
+  const ids = Object.keys(poles), lines = PNW.splitLines(poles, ids).map((l) => l.join(',')).sort();
+  assert.deepEqual(lines, ['A1,A2,A3', 'B1,B2,B3']);
+  assert.notDeepEqual(PNW.splitLines(poles, ids, { bays: false }).map((l) => l.join(',')).sort(), lines);
+  const b = PNW.buildProfile(poles, { name: 't', poleIds: ['A1', 'B1', 'A2'], lengths: { A1: 11, B1: 11, A2: 11 } });
+  assert.equal(b.issues.filter((i) => i.code === 'not-a-bay').length, 2);
+});

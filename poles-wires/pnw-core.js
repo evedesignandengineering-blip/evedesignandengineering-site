@@ -353,6 +353,44 @@
   // Grid bearing from a to b, degrees clockwise from north (same convention as the PNW tipload "Angle").
   function bearing(a, b) { var d = Math.atan2(b.easting - a.easting, b.northing - a.northing) * 180 / Math.PI; return d < 0 ? d + 360 : d; }
 
+  function angDiff(a, b) { var d = ((a - b) % 360 + 360) % 360; return d > 180 ? 360 - d : d; }
+  function hasXY(p) { return p && p.survey && isFinite(p.survey.easting) && isFinite(p.survey.northing) && p.survey.easting != null && p.survey.northing != null; }
+  // LiDAR bay angles (QLINK BAY_1..4_H_ANGLE_DEG) are the grid bearings of the spans leaving a pole, clockwise from north
+  // (S119846 -> S119850: bay 311.64°, the coordinates give 311.0°). Each bay is matched to the surveyed pole it points at:
+  // poles within maxSpan and tol° of the bay, preferring one whose own bays point back, then the nearest.
+  // Returns {bays: {id: [{angle, to, dist, err, back}]}, links: [{a, b, dist, confirmed}], deviation: {id: °}}.
+  // to = null: no surveyed pole in that direction (the line runs on past the imported data).
+  // deviation: line deflection at a pole with exactly two bays (0 = straight through).
+  function bayLinks(poles, ids, opts) {
+    opts = opts || {}; var tol = opts.tol || 8, maxSpan = opts.maxSpan || 200;
+    var pts = (ids || Object.keys(poles)).map(function (id) { return poles[id]; }).filter(hasXY), grid = {};
+    var key = function (e, n) { return Math.floor(e / maxSpan) + ',' + Math.floor(n / maxSpan); };
+    pts.forEach(function (p) { var k = key(p.survey.easting, p.survey.northing); (grid[k] = grid[k] || []).push(p); });
+    var near = function (p) { var cx = Math.floor(p.survey.easting / maxSpan), cy = Math.floor(p.survey.northing / maxSpan), out = []; for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) (grid[(cx + dx) + ',' + (cy + dy)] || []).forEach(function (q) { if (q !== p) out.push(q); }); return out; };
+    var bays = {}, links = {}, deviation = {};
+    pts.forEach(function (p) {
+      var angs = (p.survey.bayAngles || []).filter(function (a) { return isFinite(a); });
+      if (!angs.length) return;
+      var cand = near(p);
+      bays[p.id] = angs.map(function (a) {
+        var best = null;
+        cand.forEach(function (q) {
+          var d = dist2d(p.survey, q.survey); if (d > maxSpan || d === 0) return;
+          var e = angDiff(bearing(p.survey, q.survey), a); if (e > tol) return;
+          var qa = (q.survey.bayAngles || []).filter(function (x) { return isFinite(x); }), back = null;
+          if (qa.length) { var bb = bearing(q.survey, p.survey); back = Math.min.apply(null, qa.map(function (x) { return angDiff(x, bb); })); }
+          var c = { q: q, d: d, e: e, back: back, ok: back == null ? 1 : back <= tol ? 2 : 0, score: d * (1 + e / tol) };
+          if (!best || c.ok > best.ok || (c.ok === best.ok && c.score < best.score)) best = c;
+        });
+        var b = { angle: a, to: best ? best.q.id : null, dist: best ? round(best.d, 2) : null, err: best ? round(best.e, 1) : null, back: best && best.back != null ? round(best.back, 1) : null };
+        if (best) { var k = p.id < best.q.id ? p.id + '|' + best.q.id : best.q.id + '|' + p.id, L = links[k] || (links[k] = { a: k.split('|')[0], b: k.split('|')[1], dist: b.dist, confirmed: false }); if (best.ok === 2) L.confirmed = true; }
+        return b;
+      });
+      if (angs.length === 2) deviation[p.id] = round(180 - angDiff(angs[0], angs[1]), 1);
+    });
+    return { bays: bays, links: Object.keys(links).map(function (k) { return links[k]; }), deviation: deviation };
+  }
+
   // Orders poles along the line: shortest nearest-neighbour chain, starting from the end that appears first in the survey file.
   function autoOrder(poles, ids) {
     var pts = ids.map(function (id) { return poles[id]; }).filter(function (p) { return p && p.survey && isFinite(p.survey.easting) && isFinite(p.survey.northing); });
@@ -387,6 +425,16 @@
       var bi = -1; for (i = 1; i < n; i++) if (!inT[i] && (bi < 0 || best[i] < best[bi])) bi = i;
       inT[bi] = true; if (best[bi] <= maxSpan) edges.push([from[bi], bi]);
       for (i = 1; i < n; i++) if (!inT[i]) { var dd = dist2d(pts[bi].survey, pts[i].survey); if (dd < best[i]) { best[i] = dd; from[i] = bi; } }
+    }
+    // With LiDAR bay angles the real spans are known: they replace the shortest-span guess between poles that have bays;
+    // the guessed spans stay only where a pole has no bay data.
+    if (opts.bays !== false) {
+      var idx = {}; pts.forEach(function (p, j) { idx[p.id] = j; });
+      var hasB = pts.map(function (p) { return (p.survey.bayAngles || []).length > 0; });
+      if (hasB.filter(Boolean).length >= Math.max(2, n / 2)) {
+        var bl = bayLinks(poles, pts.map(function (p) { return p.id; }), { maxSpan: maxSpan });
+        edges = edges.filter(function (e) { return !hasB[e[0]] || !hasB[e[1]]; }).concat(bl.links.map(function (L) { return [idx[L.a], idx[L.b]]; }));
+      }
     }
     var inc = pts.map(function () { return []; });
     edges.forEach(function (e, ei) { inc[e[0]].push(ei); inc[e[1]].push(ei); });
@@ -468,6 +516,9 @@
         chain = round(chain + row.span, 2); // PNW sums spans rounded to 0.01 m (matches 113.05 in the MP219050 project)
         row.bearing = bearing(prev, row);
         if (row.span === 0) issues.push(issue('error', 'zero-span', id + ' is at the same position as ' + prev.id + '.', { poleId: id }));
+        var pa = (poles[prev.id] && poles[prev.id].survey && poles[prev.id].survey.bayAngles) || [], pb = (s && s.bayAngles) || [];
+        if (row.span && pa.length && pb.length && !pa.some(function (a) { return angDiff(a, row.bearing) <= 8; }) && !pb.some(function (a) { return angDiff(a, (row.bearing + 180) % 360) <= 8; }))
+          issues.push(issue('warning', 'not-a-bay', 'Span ' + prev.id + '–' + id + ' is not a LiDAR bay: neither pole has a bay pointing at the other. A pole may be missing between them, or the order is wrong.', { poleId: id }));
       }
       row.chainage = i === 0 ? 0 : (row.span == null ? null : chain);
       rows.push(row); prev = row;
@@ -614,7 +665,7 @@
     GROUNDLINE_HEADERS: GROUNDLINE_HEADERS, SEGMENT_HEADERS: SEGMENT_HEADERS, ROLES: ROLES,
     num: num, round: round, poleId: poleId, parseCSV: parseCSV, parseDate: parseDate, parseGeometry: parseGeometry,
     readFile: readFile, decodeText: decodeText, isFieldSurvey: isFieldSurvey, groundSeq: groundSeq, detectRole: detectRole, importFile: importFile, buildPoles: buildPoles, existingLength: existingLength,
-    dist2d: dist2d, bearing: bearing, autoOrder: autoOrder, splitLines: splitLines, settingDepth: settingDepth, buildProfile: buildProfile,
+    dist2d: dist2d, bearing: bearing, angDiff: angDiff, bayLinks: bayLinks, autoOrder: autoOrder, splitLines: splitLines, settingDepth: settingDepth, buildProfile: buildProfile,
     groundlineAoa: groundlineAoa, segmentsAoa: segmentsAoa, groundProfileWorkbook: groundProfileWorkbook, compareWithReference: compareWithReference,
     profilePnwx: profilePnwx, readProfilePnwx: readProfilePnwx, pnwDate: pnwDate
   };
