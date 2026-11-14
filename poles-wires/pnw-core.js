@@ -87,6 +87,7 @@
   // Field survey export: "FID;VID;X;Y;Z;..." (X/Y/Z = MGA easting, northing, RL ortho).
   function isFieldSurvey(text) { return /^\ufeff?FID[;,]VID[;,]X[;,]Y[;,]Z/i.test(text); }
 
+  var BIG_XLSX = 40 * 1024 * 1024;
   // Reads one file into [{name, rows}] (rows are arrays). Formulas are never evaluated; cached values only.
   function readFile(XLSX, name, data) {
     var ext = (String(name).split('.').pop() || '').toLowerCase();
@@ -95,10 +96,16 @@
       return [{ name: name.replace(/\.[^.]+$/, ''), rows: parseCSV(text, first.indexOf(';') >= 0 && first.indexOf(',') < 0 ? ';' : ',') }];
     }
     if (ext !== 'xlsx' && ext !== 'xls' && ext !== 'xlsm') throw new Error('Unsupported file type .' + ext + '. Use .xlsx, .xls or .csv.');
+    // Very large workbooks (region-wide QLINK exports, 100 MB+) are streamed: SheetJS gives an empty sheet once a sheet's XML
+    // is too long for one string. The streaming reader is only loaded in the browser (xlsx-stream.js + fflate).
+    var XS = typeof XLSXStream !== 'undefined' ? XLSXStream : null, size = data && (data.byteLength || data.length) || 0;
+    if (XS && ext !== 'xls' && size > BIG_XLSX) return XS.read(data);
     var wb = XLSX.read(data, { type: data instanceof ArrayBuffer ? 'array' : 'buffer', cellDates: true, cellFormula: false, cellHTML: false, bookVBA: false });
-    return wb.SheetNames.map(function (sn) {
+    var sheets = wb.SheetNames.map(function (sn) {
       return { name: sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: false }) };
     });
+    if (XS && ext !== 'xls' && sheets.every(function (s) { return !s.rows.length; })) return XS.read(data);
+    return sheets;
   }
 
   /* ---------- role detection ---------- */

@@ -28,7 +28,7 @@
     return tot || 6;
   }
   function smartRank(q, list, textOf) { if (!String(q || '').trim()) return list.slice(); return list.map(function (x, i) { return { x: x, s: smartScore(q, textOf(x)), i: i }; }).filter(function (o) { return o.s > 0; }).sort(function (a, b) { return b.s - a.s || a.i - b.i; }).map(function (o) { return o.x; }); }
-  var KEY = 'eve-poles-wires-project-v1', MAX_BYTES = 50 * 1024 * 1024;
+  var KEY = 'eve-poles-wires-project-v1', MAX_BYTES = 1024 * 1024 * 1024;
   var DEFAULT_SETTINGS = { createdBy: '', optionSet: 'v7 REGION AM-SL1', clr1: 5.8, clr2: 7 }; // values from Ishan's saved MP219050.pnwx
 
   /* ---------- state ---------- */
@@ -361,7 +361,7 @@
 
   /* ---------- import ---------- */
   var worker = null, wid = 0, waiting = {};
-  try { if (IN_CLAUDE) throw new Error('parse on the main thread inside Claude'); worker = new Worker('worker.js'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
+  try { if (IN_CLAUDE) throw new Error('parse on the main thread inside Claude'); worker = new Worker('worker.js?v=20261129'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
   function parse(name, buf, role) {
     if (worker) return new Promise(function (resolve, reject) { var id = ++wid; waiting[id] = { resolve: resolve, reject: reject }; worker.postMessage({ id: id, name: name, buffer: buf.slice(0), role: role }); })
       .catch(function (e) { if (/importScripts|NetworkError|Failed to execute/i.test(e.message)) { worker = null; return PNW.importFile(XLSX, name, buf, role); } throw e; });
@@ -383,9 +383,10 @@
     var jobs = arr.map(function (f) {
       // A different file with the name of one already imported (QLINK and GIS exports all get the same names) is kept beside it.
       if (existed[f.name] != null && existed[f.name] !== f.size) { var f0 = f, nm0 = uniqueFileName(f.name); kept++; f = { name: nm0, size: f0.size, arrayBuffer: function () { return f0.arrayBuffer(); } }; }
+      if (f.parsed) return Promise.resolve(f.parsed); // large survey re-trimmed to a new job area (bigArea)
       var ext = (f.name.split('.').pop() || '').toLowerCase();
       if (['xlsx', 'xls', 'csv', 'xlsm', 'pnwx', 'txt', 'json'].indexOf(ext) < 0) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-type', message: f.name + ': only .xlsx, .xls, .csv, .pnwx, PNW library or DCSH .txt and DCSH register .json files can be imported.', file: f.name }] });
-      if (f.size > MAX_BYTES) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-size', message: f.name + ' is larger than 50 MB.', file: f.name }] });
+      if (f.size > MAX_BYTES) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-size', message: f.name + ' is larger than 1 GB. Split it in Excel and import the parts together.', file: f.name }] });
       upsertFile({ name: f.name, size: f.size, role: '…', status: 'reading', items: [], sheets: [], issues: [] });
       return f.arrayBuffer().then(function (buf) {
         buffers[f.name] = buf;
@@ -395,13 +396,15 @@
       }).then(function (res) { res.size = f.size; res.status = 'ok'; return res; })
         .catch(function (e) { return { name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'parse', message: f.name + ' could not be read: ' + e.message, file: f.name }] }; });
     });
-    setStatus('Reading ' + arr.length + ' file' + (arr.length > 1 ? 's' : '') + '…');
+    var mb = arr.reduce(function (a, f) { return a + (f.parsed ? 0 : f.size || 0); }, 0) / 1048576;
+    setStatus('Reading ' + arr.length + ' file' + (arr.length > 1 ? 's' : '') + (mb > 40 ? ' (' + Math.round(mb) + ' MB, this can take a minute)' : '') + '…');
     Promise.all(jobs).then(function (results) {
       var projs = results.filter(function (r) { return r.project; }); results = results.filter(function (r) { return !r.project; });
       if (projs.length) { S.files = S.files.filter(function (f) { return !projs.some(function (r) { return r.name === f.name && f.status === 'reading'; }); }); renderFiles(); }
       if (!results.length) return;
       var replaced = 0, was = {};
       Object.keys(merged.poles).forEach(function (k) { if (merged.poles[k].survey) was[k] = 1; });
+      var needArea = trimBig(results);
       results.forEach(function (r) { upsertFile(r); if (existed[r.name] != null) replaced++; });
       var hadPoles = prof().poleIds.length > 0, only = !hadPoles && S.profiles.length === 1;
       var fresh = results.filter(function (r) { return r.status === 'ok' && r.role === 'pnwx' && r.kind === 'profile' && existed[r.name] == null; }).map(function (r) { return r.name; });
@@ -424,7 +427,70 @@
       if (results.some(function (r) { return r.status === 'error' || r.role === 'unknown'; })) openFilesDlg();
       setStatus('Imported ' + results.length + ' file' + (results.length > 1 ? 's' : '') + (replaced ? ' (' + replaced + ' replaced)' : '') + '. ' + summaryText() + (seedNote ? ' ' + seedNote : ''), 'good');
       dropPhotos(imgs, results.some(function (r) { return r.status === 'ok' && r.role !== 'unknown'; }));
+      if (needArea) bigArea(needArea);
     });
+  }
+  /* ---------- large survey files (region-wide QLINK exports) ----------
+     Only the poles of the job are kept in the project: the poles named in the other files and profiles (or the pole IDs the
+     user types) plus every surveyed pole within BIG_R of them. The full list stays in memory (not saved) to change the area. */
+  var BIG_SURVEY = 5000, BIG_R = 500, bigFull = {};
+  function trimBig(results) {
+    var need = null, ids = {};
+    S.profiles.forEach(function (q) { q.poleIds.forEach(function (k) { ids[k] = 1; }); });
+    S.files.concat(results).forEach(function (f) { if (f.big || (f.role === 'survey' && (f.items || []).length > BIG_SURVEY)) return; (f.items || []).forEach(function (it) { var k = typeof it === 'string' ? it : it && it.id; if (k) ids[k] = 1; }); });
+    results.forEach(function (r) {
+      if (r.status !== 'ok' || r.role !== 'survey' || (r.items.length <= BIG_SURVEY && !r.big)) return;
+      var full = bigFull[r.name] = r.big ? bigFull[r.name] : { items: r.items, issues: r.issues };
+      var area = (r.big && r.big.ids) || [], rad = (r.big && r.big.r) || BIG_R, want = Object.assign({}, ids);
+      area.forEach(function (k) { want[k] = 1; });
+      var ok = function (p) { return p && isFinite(p.easting) && isFinite(p.northing) && p.easting != null && p.northing != null; };
+      var anchors = full.items.filter(function (it) { return want[it.id] && ok(it); }), keep = [];
+      if (anchors.length) {
+        var cell = rad, grid = {};
+        anchors.forEach(function (a) { var k = Math.floor(a.easting / cell) + ',' + Math.floor(a.northing / cell); (grid[k] = grid[k] || []).push(a); });
+        keep = full.items.filter(function (it) {
+          if (want[it.id]) return true; if (!ok(it)) return false;
+          var cx = Math.floor(it.easting / cell), cy = Math.floor(it.northing / cell);
+          for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) { var g = grid[(cx + dx) + ',' + (cy + dy)]; if (g) for (var i = 0; i < g.length; i++) { var ex = it.easting - g[i].easting, ny = it.northing - g[i].northing; if (ex * ex + ny * ny <= rad * rad) return true; } }
+          return false;
+        });
+      }
+      var kept = {}; keep.forEach(function (it) { kept[it.id] = 1; });
+      r.items = keep;
+      r.issues = full.issues.filter(function (x) { return !x.poleId || kept[x.poleId]; }).slice(0, 200);
+      r.big = { total: full.items.length, ids: area, r: rad };
+      r.summary = keep.length ? keep.length + ' of ' + full.items.length + ' poles (job area)' : full.items.length + ' poles: choose the job area';
+      if (!keep.length) need = r.name;
+    });
+    // A large survey imported earlier is widened when this batch names poles it has but did not keep (e.g. a GIS export dropped later).
+    S.files.forEach(function (f) {
+      var full = bigFull[f.name]; if (!f.big || !full || results.some(function (r) { return r.name === f.name; })) return;
+      var have = {}; f.items.forEach(function (it) { have[it.id] = 1; });
+      if (full.items.some(function (it) { return ids[it.id] && !have[it.id]; })) setTimeout(function () { addFiles([{ name: f.name, size: f.size, parsed: Object.assign({}, f, { items: full.items, issues: full.issues, big: f.big }) }]); }, 0);
+    });
+    return need;
+  }
+  // Asks which poles the job is around (pole IDs + radius), then re-imports the kept poles from the in-memory full list.
+  function bigArea(name) {
+    var f = S.files.find(function (x) { return x.name === name; }), full = bigFull[name];
+    if (!f) return;
+    if (!full) { setStatus(name + ': drop the file again to change its job area (the full list is not kept after a page reload).', 'bad'); return; }
+    var b = f.big || {};
+    openGen('Large survey file: choose the job area',
+      '<p><b>' + esc(name) + '</b> has ' + full.items.length.toLocaleString() + ' poles. Only the poles of your job are kept in the project, so the map and saving stay fast.</p>' +
+      '<p class="hint">Poles named in your other files (GIS export, pole list, inspections, PNW profiles) are used automatically. Add pole IDs here to choose the area yourself.</p>' +
+      '<label>Pole IDs (comma, space or one per line)<br><textarea id="bigIds" rows="4" style="width:100%" placeholder="S119850, S120378">' + esc((b.ids || []).join(', ')) + '</textarea></label>' +
+      '<label>Keep every surveyed pole within <input id="bigR" type="number" min="0" step="50" value="' + (b.r || BIG_R) + '" style="width:80px"> m of them</label>' +
+      '<p class="hint" id="bigMsg"></p><div class="btnrow"><button class="btn primary" id="bigGo">Use these poles</button></div>', { narrow: true });
+    $('bigGo').onclick = function () {
+      var ids = $('bigIds').value.split(/[\s,;]+/).map(function (x) { return x.trim().toUpperCase(); }).filter(Boolean), r = Math.max(0, +$('bigR').value || 0);
+      var known = {}; full.items.forEach(function (it) { known[it.id] = 1; });
+      var miss = ids.filter(function (k) { return !known[k]; });
+      if (ids.length && miss.length === ids.length) { $('bigMsg').textContent = 'None of these pole IDs is in ' + name + '.'; return; }
+      closeGen();
+      addFiles([{ name: name, size: f.size, parsed: Object.assign({}, f, { items: full.items, issues: full.issues, status: 'ok', big: { ids: ids, r: r } }) }]);
+      if (miss.length) setTimeout(function () { setStatus('Not in ' + name + ': ' + miss.join(', ') + '.', 'bad'); }, 500);
+    };
   }
   // Attach dropped photos to the poles named in their file names; then, if the poles are surveyed and the design has no
   // constructions yet, start Auto design (it reads the photos and proposes constructions, conductors and tensions for review).
@@ -537,7 +603,7 @@
         (f.manual ? '<div class="meta">Poles you created in <b>Design → New pole</b>. Edit or delete them from the pole\'s inspector.</div>' : '<select data-role="' + i + '" aria-label="Role of ' + esc(f.name) + '">' + opts + '</select>')) +
         ((f.issues || []).length ? '<details><summary>' + (f.issues || []).length + ' message' + ((f.issues || []).length > 1 ? 's' : '') + ' from this file</summary><ul class="msgs">' + (f.issues || []).slice(0, 8).map(function (x) { return '<li class="' + esc(x.level) + '">' + esc(x.message) + '</li>'; }).join('') + ((f.issues || []).length > 8 ? '<li class="info">…and ' + ((f.issues || []).length - 8) + ' more (see the Issues tab)</li>' : '') + '</ul></details>' : '') +
         '<details><summary>Data mapping: sheets and headers</summary><div class="heads">' + heads + '</div></details>' +
-        '<div class="acts">' + (f.manual ? '' : '<button class="btn small" data-replace="' + i + '">Replace…</button>') + binBtn('data-remove="' + i + '"', 'Remove this file') + '</div></div>';
+        '<div class="acts">' + (f.big ? '<button class="btn small" data-bigarea="' + i + '">Job area…</button>' : '') + (f.manual ? '' : '<button class="btn small" data-replace="' + i + '">Replace…</button>') + binBtn('data-remove="' + i + '"', 'Remove this file') + '</div></div>';
     }).join('') + builtinNote();
   }
   function builtinNote() {
@@ -548,7 +614,8 @@
   var replaceIdx = null;
   $('files').addEventListener('click', function (e) {
     var t = e.target.closest('button'); if (!t) return;
-    if (t.dataset.remove != null) { var f = S.files.splice(+t.dataset.remove, 1)[0]; delete buffers[f.name]; recompute(); setStatus('Removed ' + f.name + '.'); }
+    if (t.dataset.bigarea != null) { bigArea(S.files[+t.dataset.bigarea].name); return; }
+    if (t.dataset.remove != null) { var f = S.files.splice(+t.dataset.remove, 1)[0]; delete buffers[f.name]; delete bigFull[f.name]; recompute(); setStatus('Removed ' + f.name + '.'); }
     if (t.dataset.replace != null) { replaceIdx = +t.dataset.replace; $('fileInput').click(); }
     if (t.dataset.link != null) { linkDesign(S.files[+t.dataset.link].name); }
   });

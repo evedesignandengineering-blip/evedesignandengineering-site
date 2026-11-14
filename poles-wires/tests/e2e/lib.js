@@ -1,9 +1,9 @@
 // Browser end-to-end helpers (Playwright). The page under test is PNW_E2E_URL (the private build serves window.PNW_ARTIFACT,
 // so saves are captured through a stubbed window.claude). PNW_CDN_MODULES, if set, is a node_modules folder used to serve
-// leaflet, proj4, xlsx, jszip and three offline instead of the CDNs.
+// leaflet, proj4, xlsx, fflate, jszip and three offline instead of the CDNs.
 const { chromium } = require('playwright');
 const NM = process.env.PNW_CDN_MODULES ? process.env.PNW_CDN_MODULES.replace(/\/?$/, '/') : null;
-const MAP = NM && { 'leaflet@1.9.4/dist/leaflet.js': NM + 'leaflet/dist/leaflet.js', 'proj4js/2.12.1/proj4.js': NM + 'proj4/dist/proj4.js', 'xlsx@0.18.5/dist/xlsx.full.min.js': NM + 'xlsx/dist/xlsx.full.min.js', 'jszip@3.10.1/dist/jszip.min.js': NM + 'jszip/dist/jszip.min.js', 'three@0.160.0/build/three.module.js': NM + 'three/build/three.module.js' };
+const MAP = NM && { 'leaflet@1.9.4/dist/leaflet.js': NM + 'leaflet/dist/leaflet.js', 'proj4js/2.12.1/proj4.js': NM + 'proj4/dist/proj4.js', 'xlsx@0.18.5/dist/xlsx.full.min.js': NM + 'xlsx/dist/xlsx.full.min.js', 'fflate@0.8.2/umd/index.js': NM + 'fflate/umd/index.js', 'jszip@3.10.1/dist/jszip.min.js': NM + 'jszip/dist/jszip.min.js', 'three@0.160.0/build/three.module.js': NM + 'three/build/three.module.js' };
 exports.URL = process.env.PNW_E2E_URL;
 exports.D = (process.env.PNW_FIXTURES || '/mnt/project-files').replace(/\/?$/, '/');
 exports.OUT = process.env.PNW_E2E_OUT || require('os').tmpdir() + '/';
