@@ -28,7 +28,7 @@
     return tot || 6;
   }
   function smartRank(q, list, textOf) { if (!String(q || '').trim()) return list.slice(); return list.map(function (x, i) { return { x: x, s: smartScore(q, textOf(x)), i: i }; }).filter(function (o) { return o.s > 0; }).sort(function (a, b) { return b.s - a.s || a.i - b.i; }).map(function (o) { return o.x; }); }
-  var KEY = 'eve-poles-wires-project-v1', MAX_BYTES = 50 * 1024 * 1024;
+  var KEY = 'eve-poles-wires-project-v1', MAX_BYTES = 1024 * 1024 * 1024;
   var DEFAULT_SETTINGS = { createdBy: '', optionSet: 'v7 REGION AM-SL1', clr1: 5.8, clr2: 7 }; // values from Ishan's saved MP219050.pnwx
 
   /* ---------- state ---------- */
@@ -361,7 +361,7 @@
 
   /* ---------- import ---------- */
   var worker = null, wid = 0, waiting = {};
-  try { if (IN_CLAUDE) throw new Error('parse on the main thread inside Claude'); worker = new Worker('worker.js'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
+  try { if (IN_CLAUDE) throw new Error('parse on the main thread inside Claude'); worker = new Worker('worker.js?v=20261130'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
   function parse(name, buf, role) {
     if (worker) return new Promise(function (resolve, reject) { var id = ++wid; waiting[id] = { resolve: resolve, reject: reject }; worker.postMessage({ id: id, name: name, buffer: buf.slice(0), role: role }); })
       .catch(function (e) { if (/importScripts|NetworkError|Failed to execute/i.test(e.message)) { worker = null; return PNW.importFile(XLSX, name, buf, role); } throw e; });
@@ -383,9 +383,10 @@
     var jobs = arr.map(function (f) {
       // A different file with the name of one already imported (QLINK and GIS exports all get the same names) is kept beside it.
       if (existed[f.name] != null && existed[f.name] !== f.size) { var f0 = f, nm0 = uniqueFileName(f.name); kept++; f = { name: nm0, size: f0.size, arrayBuffer: function () { return f0.arrayBuffer(); } }; }
+      if (f.parsed) return Promise.resolve(f.parsed); // large survey re-trimmed to a new job area (bigArea)
       var ext = (f.name.split('.').pop() || '').toLowerCase();
       if (['xlsx', 'xls', 'csv', 'xlsm', 'pnwx', 'txt', 'json'].indexOf(ext) < 0) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-type', message: f.name + ': only .xlsx, .xls, .csv, .pnwx, PNW library or DCSH .txt and DCSH register .json files can be imported.', file: f.name }] });
-      if (f.size > MAX_BYTES) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-size', message: f.name + ' is larger than 50 MB.', file: f.name }] });
+      if (f.size > MAX_BYTES) return Promise.resolve({ name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'file-size', message: f.name + ' is larger than 1 GB. Split it in Excel and import the parts together.', file: f.name }] });
       upsertFile({ name: f.name, size: f.size, role: '…', status: 'reading', items: [], sheets: [], issues: [] });
       return f.arrayBuffer().then(function (buf) {
         buffers[f.name] = buf;
@@ -395,13 +396,15 @@
       }).then(function (res) { res.size = f.size; res.status = 'ok'; return res; })
         .catch(function (e) { return { name: f.name, size: f.size, role: 'unknown', status: 'error', items: [], sheets: [], issues: [{ level: 'error', code: 'parse', message: f.name + ' could not be read: ' + e.message, file: f.name }] }; });
     });
-    setStatus('Reading ' + arr.length + ' file' + (arr.length > 1 ? 's' : '') + '…');
+    var mb = arr.reduce(function (a, f) { return a + (f.parsed ? 0 : f.size || 0); }, 0) / 1048576;
+    setStatus('Reading ' + arr.length + ' file' + (arr.length > 1 ? 's' : '') + (mb > 40 ? ' (' + Math.round(mb) + ' MB, this can take a minute)' : '') + '…');
     Promise.all(jobs).then(function (results) {
       var projs = results.filter(function (r) { return r.project; }); results = results.filter(function (r) { return !r.project; });
       if (projs.length) { S.files = S.files.filter(function (f) { return !projs.some(function (r) { return r.name === f.name && f.status === 'reading'; }); }); renderFiles(); }
       if (!results.length) return;
       var replaced = 0, was = {};
       Object.keys(merged.poles).forEach(function (k) { if (merged.poles[k].survey) was[k] = 1; });
+      var needArea = trimBig(results);
       results.forEach(function (r) { upsertFile(r); if (existed[r.name] != null) replaced++; });
       var hadPoles = prof().poleIds.length > 0, only = !hadPoles && S.profiles.length === 1;
       var fresh = results.filter(function (r) { return r.status === 'ok' && r.role === 'pnwx' && r.kind === 'profile' && existed[r.name] == null; }).map(function (r) { return r.name; });
@@ -424,7 +427,70 @@
       if (results.some(function (r) { return r.status === 'error' || r.role === 'unknown'; })) openFilesDlg();
       setStatus('Imported ' + results.length + ' file' + (results.length > 1 ? 's' : '') + (replaced ? ' (' + replaced + ' replaced)' : '') + '. ' + summaryText() + (seedNote ? ' ' + seedNote : ''), 'good');
       dropPhotos(imgs, results.some(function (r) { return r.status === 'ok' && r.role !== 'unknown'; }));
+      if (needArea) bigArea(needArea);
     });
+  }
+  /* ---------- large survey files (region-wide QLINK exports) ----------
+     Only the poles of the job are kept in the project: the poles named in the other files and profiles (or the pole IDs the
+     user types) plus every surveyed pole within BIG_R of them. The full list stays in memory (not saved) to change the area. */
+  var BIG_SURVEY = 5000, BIG_R = 500, bigFull = {};
+  function trimBig(results) {
+    var need = null, ids = {};
+    S.profiles.forEach(function (q) { q.poleIds.forEach(function (k) { ids[k] = 1; }); });
+    S.files.concat(results).forEach(function (f) { if (f.big || (f.role === 'survey' && (f.items || []).length > BIG_SURVEY)) return; (f.items || []).forEach(function (it) { var k = typeof it === 'string' ? it : it && it.id; if (k) ids[k] = 1; }); });
+    results.forEach(function (r) {
+      if (r.status !== 'ok' || r.role !== 'survey' || (r.items.length <= BIG_SURVEY && !r.big)) return;
+      var full = bigFull[r.name] = r.big ? bigFull[r.name] : { items: r.items, issues: r.issues };
+      var area = (r.big && r.big.ids) || [], rad = (r.big && r.big.r) || BIG_R, want = Object.assign({}, ids);
+      area.forEach(function (k) { want[k] = 1; });
+      var ok = function (p) { return p && isFinite(p.easting) && isFinite(p.northing) && p.easting != null && p.northing != null; };
+      var anchors = full.items.filter(function (it) { return want[it.id] && ok(it); }), keep = [];
+      if (anchors.length) {
+        var cell = rad, grid = {};
+        anchors.forEach(function (a) { var k = Math.floor(a.easting / cell) + ',' + Math.floor(a.northing / cell); (grid[k] = grid[k] || []).push(a); });
+        keep = full.items.filter(function (it) {
+          if (want[it.id]) return true; if (!ok(it)) return false;
+          var cx = Math.floor(it.easting / cell), cy = Math.floor(it.northing / cell);
+          for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) { var g = grid[(cx + dx) + ',' + (cy + dy)]; if (g) for (var i = 0; i < g.length; i++) { var ex = it.easting - g[i].easting, ny = it.northing - g[i].northing; if (ex * ex + ny * ny <= rad * rad) return true; } }
+          return false;
+        });
+      }
+      var kept = {}; keep.forEach(function (it) { kept[it.id] = 1; });
+      r.items = keep;
+      r.issues = full.issues.filter(function (x) { return !x.poleId || kept[x.poleId]; }).slice(0, 200);
+      r.big = { total: full.items.length, ids: area, r: rad };
+      r.summary = keep.length ? keep.length + ' of ' + full.items.length + ' poles (job area)' : full.items.length + ' poles: choose the job area';
+      if (!keep.length) need = r.name;
+    });
+    // A large survey imported earlier is widened when this batch names poles it has but did not keep (e.g. a GIS export dropped later).
+    S.files.forEach(function (f) {
+      var full = bigFull[f.name]; if (!f.big || !full || results.some(function (r) { return r.name === f.name; })) return;
+      var have = {}; f.items.forEach(function (it) { have[it.id] = 1; });
+      if (full.items.some(function (it) { return ids[it.id] && !have[it.id]; })) setTimeout(function () { addFiles([{ name: f.name, size: f.size, parsed: Object.assign({}, f, { items: full.items, issues: full.issues, big: f.big }) }]); }, 0);
+    });
+    return need;
+  }
+  // Asks which poles the job is around (pole IDs + radius), then re-imports the kept poles from the in-memory full list.
+  function bigArea(name) {
+    var f = S.files.find(function (x) { return x.name === name; }), full = bigFull[name];
+    if (!f) return;
+    if (!full) { setStatus(name + ': drop the file again to change its job area (the full list is not kept after a page reload).', 'bad'); return; }
+    var b = f.big || {};
+    openGen('Large survey file: choose the job area',
+      '<p><b>' + esc(name) + '</b> has ' + full.items.length.toLocaleString() + ' poles. Only the poles of your job are kept in the project, so the map and saving stay fast.</p>' +
+      '<p class="hint">Poles named in your other files (GIS export, pole list, inspections, PNW profiles) are used automatically. Add pole IDs here to choose the area yourself.</p>' +
+      '<label>Pole IDs (comma, space or one per line)<br><textarea id="bigIds" rows="4" style="width:100%" placeholder="S119850, S120378">' + esc((b.ids || []).join(', ')) + '</textarea></label>' +
+      '<label>Keep every surveyed pole within <input id="bigR" type="number" min="0" step="50" value="' + (b.r || BIG_R) + '" style="width:80px"> m of them</label>' +
+      '<p class="hint" id="bigMsg"></p><div class="btnrow"><button class="btn primary" id="bigGo">Use these poles</button></div>', { narrow: true });
+    $('bigGo').onclick = function () {
+      var ids = $('bigIds').value.split(/[\s,;]+/).map(function (x) { return x.trim().toUpperCase(); }).filter(Boolean), r = Math.max(0, +$('bigR').value || 0);
+      var known = {}; full.items.forEach(function (it) { known[it.id] = 1; });
+      var miss = ids.filter(function (k) { return !known[k]; });
+      if (ids.length && miss.length === ids.length) { $('bigMsg').textContent = 'None of these pole IDs is in ' + name + '.'; return; }
+      closeGen();
+      addFiles([{ name: name, size: f.size, parsed: Object.assign({}, f, { items: full.items, issues: full.issues, status: 'ok', big: { ids: ids, r: r } }) }]);
+      if (miss.length) setTimeout(function () { setStatus('Not in ' + name + ': ' + miss.join(', ') + '.', 'bad'); }, 500);
+    };
   }
   // Attach dropped photos to the poles named in their file names; then, if the poles are surveyed and the design has no
   // constructions yet, start Auto design (it reads the photos and proposes constructions, conductors and tensions for review).
@@ -484,11 +550,14 @@
   }
 
   /* ---------- recompute and render ---------- */
+  // LiDAR bays of every surveyed pole (which pole each QLINK bay angle points at), worked out once per recompute.
+  var bayInfo = null;
+  function bays() { return bayInfo || (bayInfo = PNW.bayLinks(merged.poles)); }
   function recompute() {
     calcAt = new Date();
     syncDesign(); autoTensionSync();
     var ok = S.files.filter(function (f) { return f.status === 'ok' && !TEXT_ROLES[f.role]; });
-    merged = PNW.buildPoles(aliasFiles(ok).concat(projectSurvey(ok)));
+    merged = PNW.buildPoles(aliasFiles(ok).concat(projectSurvey(ok))); bayInfo = null;
     var p = prof();
     var gpts = [].concat.apply([], ok.filter(function (f) { return f.role === 'groundPoints'; }).map(function (f) { return f.items; }));
     built = p.poleIds.length ? PNW.buildProfile(merged.poles, gpts.length ? Object.assign({}, p, { groundPts: gpts }) : p) : null;
@@ -537,7 +606,7 @@
         (f.manual ? '<div class="meta">Poles you created in <b>Design → New pole</b>. Edit or delete them from the pole\'s inspector.</div>' : '<select data-role="' + i + '" aria-label="Role of ' + esc(f.name) + '">' + opts + '</select>')) +
         ((f.issues || []).length ? '<details><summary>' + (f.issues || []).length + ' message' + ((f.issues || []).length > 1 ? 's' : '') + ' from this file</summary><ul class="msgs">' + (f.issues || []).slice(0, 8).map(function (x) { return '<li class="' + esc(x.level) + '">' + esc(x.message) + '</li>'; }).join('') + ((f.issues || []).length > 8 ? '<li class="info">…and ' + ((f.issues || []).length - 8) + ' more (see the Issues tab)</li>' : '') + '</ul></details>' : '') +
         '<details><summary>Data mapping: sheets and headers</summary><div class="heads">' + heads + '</div></details>' +
-        '<div class="acts">' + (f.manual ? '' : '<button class="btn small" data-replace="' + i + '">Replace…</button>') + binBtn('data-remove="' + i + '"', 'Remove this file') + '</div></div>';
+        '<div class="acts">' + (f.big ? '<button class="btn small" data-bigarea="' + i + '">Job area…</button>' : '') + (f.manual ? '' : '<button class="btn small" data-replace="' + i + '">Replace…</button>') + binBtn('data-remove="' + i + '"', 'Remove this file') + '</div></div>';
     }).join('') + builtinNote();
   }
   function builtinNote() {
@@ -548,7 +617,8 @@
   var replaceIdx = null;
   $('files').addEventListener('click', function (e) {
     var t = e.target.closest('button'); if (!t) return;
-    if (t.dataset.remove != null) { var f = S.files.splice(+t.dataset.remove, 1)[0]; delete buffers[f.name]; recompute(); setStatus('Removed ' + f.name + '.'); }
+    if (t.dataset.bigarea != null) { bigArea(S.files[+t.dataset.bigarea].name); return; }
+    if (t.dataset.remove != null) { var f = S.files.splice(+t.dataset.remove, 1)[0]; delete buffers[f.name]; delete bigFull[f.name]; recompute(); setStatus('Removed ' + f.name + '.'); }
     if (t.dataset.replace != null) { replaceIdx = +t.dataset.replace; $('fileInput').click(); }
     if (t.dataset.link != null) { linkDesign(S.files[+t.dataset.link].name); }
   });
@@ -973,7 +1043,8 @@
     h += '<table class="props">';
     function row(k, v, tag) { if (v == null || v === '') return ''; h += '<tr><th>' + k + '</th><td>' + esc(v) + (tag || '') + '</td></tr>'; return ''; }
     function sec(t) { h += '<tr class="sec"><th colspan="2">' + t + '</th></tr>'; }
-    if (p.survey) { sec('Survey (' + esc(p.survey.kind || 'LiDAR') + ')'); row('Easting', f2(p.survey.easting, 2)); row('Northing', f2(p.survey.northing, 2)); row('Elevation', f2(p.survey.elevation, 2)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : ''); row('Equipment no', p.survey.equipNo); row('Surveyed', dateOnly(p.survey.surveyed)); }
+    if (p.survey) { sec('Survey (' + esc(p.survey.kind || 'LiDAR') + ')'); row('Easting', f2(p.survey.easting, 2)); row('Northing', f2(p.survey.northing, 2)); row('Elevation', f2(p.survey.elevation, 2)); row('LiDAR height', p.survey.lidarHeight != null ? p.survey.lidarHeight + ' m' : ''); row('Lean', p.survey.leanDeg != null ? p.survey.leanDeg + '°' : '');
+      var bq = bays().bays[p.id]; if (bq) { row('LiDAR bays', bq.map(function (b) { return b.angle + '° → ' + (b.to ? b.to + ' (' + b.dist + ' m' + (b.back != null && b.back > 8 ? ', no bay back' : '') + ')' : 'no pole in your data'); }).join(' · ')); if (bays().deviation[p.id] != null) row('Line deviation (LiDAR)', bays().deviation[p.id] + '°'); } row('Equipment no', p.survey.equipNo); row('Surveyed', dateOnly(p.survey.surveyed)); }
     else { sec('Survey'); row('Survey', 'No LiDAR survey row'); }
     if (!r && ex.value != null) { sec('Pole'); row('Existing length', ex.value + ' m (' + ex.source + ')'); }
     if (r && r.lengthSource === 'Edited') { sec('Ground profile'); row('Pole length', r.length + ' m', '<span class="tag edit">edited</span>'); }
@@ -2381,6 +2452,53 @@
       else j.matches.push({ level: top.level, code: t, rank: 1, confidence: Math.max(0.6, top.confidence || 0), reasons: [why] });
     });
   }
+  /* LiDAR bays and the photo's insulators weigh the AI's construction picks (bayAdjust). Bays: 1 = the line ends here,
+     2 = a through pole with the deviation between the two bay angles, 3+ = tee-off or crossing. Angle ranges are read from
+     the PNW library description (LV1 "0°", LV2 "0° - 20°", LV3 "21° - 45°", AB2, HX1 to HX4). Pin/post insulators point to an
+     intermediate, strain discs to a strain or termination. The bays cannot tell an in-line strain from an intermediate; the
+     photo does that. Each change is shown as the first reason in the review. */
+  var BAY_STRAIGHT = 5; // ° of deviation still counted as straight (the bays agree with the coordinates to about 1°)
+  function bayRole(id) {
+    var b = bays().bays[id]; if (!b || !b.length) return null;
+    var n = b.length, dev = bays().deviation[id];
+    if (n === 1) return { n: 1, kind: 'end', text: '1 LiDAR bay (the line ends here)' };
+    if (n > 2) return { n: n, kind: 'junction', text: n + ' LiDAR bays (tee-off or crossing)' };
+    return { n: 2, dev: dev, kind: dev <= BAY_STRAIGHT ? 'straight' : 'angle', text: '2 LiDAR bays, line deviation ' + dev + '°' };
+  }
+  function angleRange(desc) { var m = /(\d+)\s*°\s*-\s*(\d+)\s*°/.exec(desc || '') || /(\d+)\s*°/.exec(desc || ''); return m ? [+m[1], m[2] != null ? +m[2] : +m[1]] : null; }
+  function bayFit(code, role, ins, oneSide) {
+    var desc = ((M.libraryConstruction(lib, code) || {}).description) || '', arr = arrangementOf(desc), d = 0, why = [], rg = angleRange(desc);
+    var add = function (v, t) { d += v; why.push(t); };
+    if (role) {
+      if (role.kind === 'end') { if (arr === 'termination') add(0.15, role.text + ': fits a termination'); else if (arr === 'intermediate' || arr === 'strain') add(-0.25, role.text + ', so not ' + (arr === 'intermediate' ? 'an intermediate' : 'an in-line or angle strain')); }
+      else if (role.kind === 'junction') { if (arr === 'tee-off') add(0.1, role.text + ': fits a tee-off'); }
+      else {
+        if (arr === 'termination' && !oneSide) add(-0.1, role.text + ': the line runs through (a termination only if this level ends here)');
+        if (arr === 'tee-off') add(-0.1, role.text + ': no third bay for a tee-off');
+        if (rg) { if (role.dev >= rg[0] - 2 && role.dev <= rg[1] + 2) add(0.2, role.text + ': within ' + code + ' ' + rg[0] + '°' + (rg[1] !== rg[0] ? '–' + rg[1] + '°' : '')); else add(-0.3, role.text + ': outside ' + code + ' ' + rg[0] + '°' + (rg[1] !== rg[0] ? '–' + rg[1] + '°' : '')); }
+        else if (oneSide) { /* this level ends here: the through-line angle says nothing about it */ }
+        else if (arr === 'intermediate' && role.kind === 'straight') add(0.1, role.text + ': straight, fits an intermediate');
+        else if (arr === 'strain' && role.kind === 'angle') add(0.1, role.text + ': fits an angle or strain');
+      }
+    }
+    if (oneSide) { if (arr === 'termination') add(0.1, 'photo: this level leaves on one side only'); else if (arr === 'intermediate' || arr === 'strain') add(-0.2, 'photo: this level leaves on one side only, so it ends here'); }
+    if (ins === 'pin' || ins === 'post') { if (arr === 'intermediate') add(0.1, ins + ' insulators: fits an intermediate'); else if (arr === 'strain' || arr === 'termination') add(-0.1, ins + ' insulators, no strain discs'); }
+    else if (ins === 'disc') { if (arr === 'strain' || arr === 'termination') add(0.1, 'strain discs: fits a strain or termination'); else if (arr === 'intermediate') add(-0.15, 'strain discs, so not an intermediate'); }
+    return { d: d, why: why };
+  }
+  function bayAdjust(id, resp, j) {
+    if (!resp || !resp.matches) return;
+    var role = bayRole(id), ins = (j && j.insulators) || {}, sides = (j && j.line_sides) || {}, cen = j && j.hv_centre_phase;
+    resp.bay = role; resp.insulators = ins; if (cen) resp.centre = cen;
+    resp.matches.forEach(function (m) {
+      var k = circuitClass(m.code), f = bayFit(m.code, role, ins[k], sides[k] === 'one');
+      if (!f.why.length) return;
+      var c0 = m.confidence || 0; m.confidence = Math.round(Math.max(0.01, Math.min(0.99, c0 + f.d)) * 100) / 100;
+      var pc = Math.round(f.d * 100); m.reasons = [(pc > 0 ? '✓ ' : pc < 0 ? '⚠ ' : '• ') + f.why.join('; ') + ' (' + (pc > 0 ? '+' : '') + pc + '%)'].concat(m.reasons || []);
+    });
+    var lv = {}; resp.matches.forEach(function (m) { (lv[circuitClass(m.code)] = lv[circuitClass(m.code)] || []).push(m); });
+    Object.keys(lv).forEach(function (k) { lv[k].sort(function (a, b) { return b.confidence - a.confidence || a.rank - b.rank; }).forEach(function (m, i) { m.rank = i + 1; }); });
+  }
   function aiLevelFilter(j) { // keep a match only when its circuit level is on the pole by the AI's own account
     var lv = (j && j.levels) || {}, seen = {};
     ((j && j.components) || []).forEach(function (c) { if (!/conductor|wire|phase|neutral/i.test(c.name || '') || c.count == null) return; var k = /hv|high/i.test(c.level) ? 'hv' : /earth/i.test(c.level) ? 'earth' : /lv|low/i.test(c.level) ? 'lv' : null; if (k) seen[k] = (seen[k] || 0) + (Number(c.count) || 0); });
@@ -2500,13 +2618,14 @@
       'A construction code covers a whole circuit, not one conductor: one HV1 carries all three HV phases and one LV1 carries all four LV conductors (R W B N). Return at most 3 alternative codes per circuit level, ranked, and never repeat a code for each conductor. In components, count the conductors on each level (name "conductors", level HV, LV or earth).\n' +
       'Rules: only use codes from the list; if nothing fits a level, return no match for it. Describe only visible hardware (crossarms, insulator type: pin, post, disc/strain, reel; conductors per level; terminations; angle or straight; stays; pole top plant). Confidence 0 to 1, below 0.5 when the photo does not show the hardware clearly. Do not estimate dimensions, heights or pole strength.\n' +
       'For each circuit level, look at the wires on the LEFT of the pole and on the RIGHT of the pole separately and report in "line_sides" whether that level\'s spans leave the pole on both sides ("both") or on one side only ("one": the line ends here, even if a cable, fuse or transformer drop takes the supply down the pole). A level with wires on one side only is a termination (HV5, LV5, AB3), never an intermediate (HV1, LV1) or in-line strain (HV9, LV3). A pole-mounted transformer does not make a pole a termination by itself: count the sides.\n' +
+      'For HV and LV report in "insulators" the insulator type holding that level\'s conductors: "pin", "post", "disc" (strain discs, the conductor is dead-ended on the pole), "mixed" or null. Pin or post insulators mean an intermediate; strain discs on both sides mean an in-line or angle strain; strain discs on one side mean a termination. Report "hv_centre_phase": "raised" when the centre HV phase sits higher than the two outer phases, "level" when all three are at one height, null when you cannot tell.\n' +
       'Also report what you can see of stays (count), a pole-mounted transformer (present or not) and the conductors on each level; for conductors only name a code from the conductor list below, or null. If a pole number is legible, report it. List anything you cannot tell (field checks). Never present a guess as measured.\n' +
       'Many poles carry LV only, with no HV. First decide which circuit levels are actually on this pole from the photo alone. Only return an HV match when HV conductors and HV insulators are clearly visible on this pole (taller insulators, wider phase spacing, above the LV). Never add a level because it is common, because it is in the design, or because a reference photo shows it. Return no matches for a level that is not on the pole and set it false in "levels".\n' +
       'The PNW design currently lists: ' + (existing.join(', ') || 'none') + '. This may be a proposal or wrong: do not copy it; judge only from the photo.\n' +
       'Candidate conductor codes (code | name | material): ' + aiConductors(id).map(function (c) { return c.code + ' | ' + c.name + ' | ' + c.material; }).join('; ') + '\n' +
       (window.PNW_AI_GUIDE ? 'How to read the photo:\n' + PNW_AI_GUIDE.rules.map(function (x, k) { return (k + 1) + '. ' + x; }).join('\n') + '\n' : '') +
       'Candidate codes (code | description | DCSH | phases | what it looks like):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || '') + ' | ' + ((window.PNW_AI_GUIDE && PNW_AI_GUIDE.looks[c.code]) || ''); }).join('\n') +
-      '\nReturn JSON only: {"photo_quality":string,"levels":{"hv":boolean,"lv":boolean,"earth":boolean},"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"line_sides":{"hv":"both"|"one"|null,"lv":"both"|"one"|null,"earth":"both"|"one"|null,"notes":string},"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
+      '\nReturn JSON only: {"photo_quality":string,"levels":{"hv":boolean,"lv":boolean,"earth":boolean},"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"line_sides":{"hv":"both"|"one"|null,"lv":"both"|"one"|null,"earth":"both"|"one"|null,"notes":string},"insulators":{"hv":"pin"|"post"|"disc"|"mixed"|null,"lv":"pin"|"post"|"disc"|"mixed"|null},"hv_centre_phase":"raised"|"level"|null,"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
   }
   /* ---- Auto design: profile from QLINK, constructions from pole photos (or a Street View image aimed at the pole when there is
      no photo), strain sections from strain/termination constructions, conductor from the photo or the GIS feeder, tension by
@@ -2558,7 +2677,7 @@
       var r = aiResults[id], resp = r && r.resp, have = {}, P = { id: id, src: r && r.source, thumb: r && r.thumb, view: r && r.view, picks: [] };
       ((dm && dm.byPole[id]) || []).forEach(function (c) { have[circuitClass(c.code)] = c.code; });
       P.have = have;
-      if (!resp) { plan.missing.push(id + ': ' + ((r && r.error) || (photosOf(id).length ? 'the photo could not be read' : gmKey() ? 'no photo and no Street View within 50 m' : (IN_CLAUDE || webMapsOn() ? 'no photo, and no Street View near the pole' : 'no photo (add a Google Maps key to use Street View)')))); plan.poles.push(P); return; }
+      if (!resp) { plan.missing.push(id + ': ' + ((r && r.error) || (photosOf(id).length ? 'the photo could not be read' : gmKey() ? 'no photo and no Street View within 50 m' : (IN_CLAUDE || webMapsOn() ? 'no photo, and no Street View near the pole' : 'no photo (add a Google Maps key to use Street View)'))) + (bayRole(id) ? ' · ' + bayRole(id).text + (bayRole(id).kind === 'end' ? ': use a termination' : bayRole(id).kind === 'junction' ? ': tee-off or crossing' : '') : '')); plan.poles.push(P); return; }
       var best = {};
       resp.matches.slice().sort(function (a, b) { return a.rank - b.rank || b.confidence - a.confidence; }).forEach(function (m) { var k = circuitClass(m.code); if (AD_ORDER[k] != null && !best[k]) best[k] = m; });
       Object.keys(best).sort(function (a, b) { return AD_ORDER[a] - AD_ORDER[b]; }).forEach(function (k) {
@@ -2786,7 +2905,7 @@
       r.resp = { model: 'Claude', photo_quality: String(j.photo_quality || ''), components: (j.components || []).map(function (c) { return { name: String(c.name || ''), level: String(c.level || ''), count: Number(c.count) || null, confidence: conf(c.confidence) }; }),
         matches: matches, cautions: (j.cautions || []).map(String).concat((function () { var bad = all.filter(function (m) { return !valid[String(m.code || '').toUpperCase()]; }).length; return bad ? [bad + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []; })()),
         obs: aiObservations(j) };
-      aiSides(Object.assign(r.resp, { line_sides: j.line_sides }));
+      aiSides(Object.assign(r.resp, { line_sides: j.line_sides })); bayAdjust(id, r.resp, j);
     }).catch(function (e) { r.error = e && e.code === 'not_granted' ? 'Claude was not allowed to look at the photo. Allow it when asked to use this.' : e && e.code === 'rate_limited' ? 'Too many requests at once. Wait a moment and try again.' : (e && e.message) || String(e); })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
@@ -2800,7 +2919,7 @@
     }).then(function (res) {
       if (res.status === 404) throw new Error('The AI photo service is not switched on yet (the pnw-pole-photo-ai function is not deployed).');
       return res.json().then(function (j) { if (!res.ok || !j.ok) throw new Error(j.error || 'AI request failed (' + res.status + ').'); return j; });
-    }).then(function (j) { var ok = aiLevelFilter(j); j.matches = (j.matches || []).filter(ok); aiSides(j); r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
+    }).then(function (j) { var ok = aiLevelFilter(j); j.matches = (j.matches || []).filter(ok); aiSides(j); bayAdjust(id, j, j); r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
   $('selected').addEventListener('change', function (e) { if (e.target.id === 'aiPhoto' && e.target.files[0]) runAi(S.selected, e.target.files[0]); });
