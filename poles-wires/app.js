@@ -361,7 +361,7 @@
 
   /* ---------- import ---------- */
   var worker = null, wid = 0, waiting = {};
-  try { if (IN_CLAUDE) throw new Error('parse on the main thread inside Claude'); worker = new Worker('worker.js?v=20261129'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
+  try { if (IN_CLAUDE) throw new Error('parse on the main thread inside Claude'); worker = new Worker('worker.js?v=20261130'); worker.onmessage = function (e) { var w = waiting[e.data.id]; delete waiting[e.data.id]; if (w) e.data.error ? w.reject(new Error(e.data.error)) : w.resolve(e.data.result); }; worker.onerror = function () { worker = null; }; } catch (e) { worker = null; }
   function parse(name, buf, role) {
     if (worker) return new Promise(function (resolve, reject) { var id = ++wid; waiting[id] = { resolve: resolve, reject: reject }; worker.postMessage({ id: id, name: name, buffer: buf.slice(0), role: role }); })
       .catch(function (e) { if (/importScripts|NetworkError|Failed to execute/i.test(e.message)) { worker = null; return PNW.importFile(XLSX, name, buf, role); } throw e; });
@@ -2452,6 +2452,53 @@
       else j.matches.push({ level: top.level, code: t, rank: 1, confidence: Math.max(0.6, top.confidence || 0), reasons: [why] });
     });
   }
+  /* LiDAR bays and the photo's insulators weigh the AI's construction picks (bayAdjust). Bays: 1 = the line ends here,
+     2 = a through pole with the deviation between the two bay angles, 3+ = tee-off or crossing. Angle ranges are read from
+     the PNW library description (LV1 "0°", LV2 "0° - 20°", LV3 "21° - 45°", AB2, HX1 to HX4). Pin/post insulators point to an
+     intermediate, strain discs to a strain or termination. The bays cannot tell an in-line strain from an intermediate; the
+     photo does that. Each change is shown as the first reason in the review. */
+  var BAY_STRAIGHT = 5; // ° of deviation still counted as straight (the bays agree with the coordinates to about 1°)
+  function bayRole(id) {
+    var b = bays().bays[id]; if (!b || !b.length) return null;
+    var n = b.length, dev = bays().deviation[id];
+    if (n === 1) return { n: 1, kind: 'end', text: '1 LiDAR bay (the line ends here)' };
+    if (n > 2) return { n: n, kind: 'junction', text: n + ' LiDAR bays (tee-off or crossing)' };
+    return { n: 2, dev: dev, kind: dev <= BAY_STRAIGHT ? 'straight' : 'angle', text: '2 LiDAR bays, line deviation ' + dev + '°' };
+  }
+  function angleRange(desc) { var m = /(\d+)\s*°\s*-\s*(\d+)\s*°/.exec(desc || '') || /(\d+)\s*°/.exec(desc || ''); return m ? [+m[1], m[2] != null ? +m[2] : +m[1]] : null; }
+  function bayFit(code, role, ins, oneSide) {
+    var desc = ((M.libraryConstruction(lib, code) || {}).description) || '', arr = arrangementOf(desc), d = 0, why = [], rg = angleRange(desc);
+    var add = function (v, t) { d += v; why.push(t); };
+    if (role) {
+      if (role.kind === 'end') { if (arr === 'termination') add(0.15, role.text + ': fits a termination'); else if (arr === 'intermediate' || arr === 'strain') add(-0.25, role.text + ', so not ' + (arr === 'intermediate' ? 'an intermediate' : 'an in-line or angle strain')); }
+      else if (role.kind === 'junction') { if (arr === 'tee-off') add(0.1, role.text + ': fits a tee-off'); }
+      else {
+        if (arr === 'termination' && !oneSide) add(-0.1, role.text + ': the line runs through (a termination only if this level ends here)');
+        if (arr === 'tee-off') add(-0.1, role.text + ': no third bay for a tee-off');
+        if (rg) { if (role.dev >= rg[0] - 2 && role.dev <= rg[1] + 2) add(0.2, role.text + ': within ' + code + ' ' + rg[0] + '°' + (rg[1] !== rg[0] ? '–' + rg[1] + '°' : '')); else add(-0.3, role.text + ': outside ' + code + ' ' + rg[0] + '°' + (rg[1] !== rg[0] ? '–' + rg[1] + '°' : '')); }
+        else if (oneSide) { /* this level ends here: the through-line angle says nothing about it */ }
+        else if (arr === 'intermediate' && role.kind === 'straight') add(0.1, role.text + ': straight, fits an intermediate');
+        else if (arr === 'strain' && role.kind === 'angle') add(0.1, role.text + ': fits an angle or strain');
+      }
+    }
+    if (oneSide) { if (arr === 'termination') add(0.1, 'photo: this level leaves on one side only'); else if (arr === 'intermediate' || arr === 'strain') add(-0.2, 'photo: this level leaves on one side only, so it ends here'); }
+    if (ins === 'pin' || ins === 'post') { if (arr === 'intermediate') add(0.1, ins + ' insulators: fits an intermediate'); else if (arr === 'strain' || arr === 'termination') add(-0.1, ins + ' insulators, no strain discs'); }
+    else if (ins === 'disc') { if (arr === 'strain' || arr === 'termination') add(0.1, 'strain discs: fits a strain or termination'); else if (arr === 'intermediate') add(-0.15, 'strain discs, so not an intermediate'); }
+    return { d: d, why: why };
+  }
+  function bayAdjust(id, resp, j) {
+    if (!resp || !resp.matches) return;
+    var role = bayRole(id), ins = (j && j.insulators) || {}, sides = (j && j.line_sides) || {}, cen = j && j.hv_centre_phase;
+    resp.bay = role; resp.insulators = ins; if (cen) resp.centre = cen;
+    resp.matches.forEach(function (m) {
+      var k = circuitClass(m.code), f = bayFit(m.code, role, ins[k], sides[k] === 'one');
+      if (!f.why.length) return;
+      var c0 = m.confidence || 0; m.confidence = Math.round(Math.max(0.01, Math.min(0.99, c0 + f.d)) * 100) / 100;
+      var pc = Math.round(f.d * 100); m.reasons = [(pc > 0 ? '✓ ' : pc < 0 ? '⚠ ' : '• ') + f.why.join('; ') + ' (' + (pc > 0 ? '+' : '') + pc + '%)'].concat(m.reasons || []);
+    });
+    var lv = {}; resp.matches.forEach(function (m) { (lv[circuitClass(m.code)] = lv[circuitClass(m.code)] || []).push(m); });
+    Object.keys(lv).forEach(function (k) { lv[k].sort(function (a, b) { return b.confidence - a.confidence || a.rank - b.rank; }).forEach(function (m, i) { m.rank = i + 1; }); });
+  }
   function aiLevelFilter(j) { // keep a match only when its circuit level is on the pole by the AI's own account
     var lv = (j && j.levels) || {}, seen = {};
     ((j && j.components) || []).forEach(function (c) { if (!/conductor|wire|phase|neutral/i.test(c.name || '') || c.count == null) return; var k = /hv|high/i.test(c.level) ? 'hv' : /earth/i.test(c.level) ? 'earth' : /lv|low/i.test(c.level) ? 'lv' : null; if (k) seen[k] = (seen[k] || 0) + (Number(c.count) || 0); });
@@ -2571,13 +2618,14 @@
       'A construction code covers a whole circuit, not one conductor: one HV1 carries all three HV phases and one LV1 carries all four LV conductors (R W B N). Return at most 3 alternative codes per circuit level, ranked, and never repeat a code for each conductor. In components, count the conductors on each level (name "conductors", level HV, LV or earth).\n' +
       'Rules: only use codes from the list; if nothing fits a level, return no match for it. Describe only visible hardware (crossarms, insulator type: pin, post, disc/strain, reel; conductors per level; terminations; angle or straight; stays; pole top plant). Confidence 0 to 1, below 0.5 when the photo does not show the hardware clearly. Do not estimate dimensions, heights or pole strength.\n' +
       'For each circuit level, look at the wires on the LEFT of the pole and on the RIGHT of the pole separately and report in "line_sides" whether that level\'s spans leave the pole on both sides ("both") or on one side only ("one": the line ends here, even if a cable, fuse or transformer drop takes the supply down the pole). A level with wires on one side only is a termination (HV5, LV5, AB3), never an intermediate (HV1, LV1) or in-line strain (HV9, LV3). A pole-mounted transformer does not make a pole a termination by itself: count the sides.\n' +
+      'For HV and LV report in "insulators" the insulator type holding that level\'s conductors: "pin", "post", "disc" (strain discs, the conductor is dead-ended on the pole), "mixed" or null. Pin or post insulators mean an intermediate; strain discs on both sides mean an in-line or angle strain; strain discs on one side mean a termination. Report "hv_centre_phase": "raised" when the centre HV phase sits higher than the two outer phases, "level" when all three are at one height, null when you cannot tell.\n' +
       'Also report what you can see of stays (count), a pole-mounted transformer (present or not) and the conductors on each level; for conductors only name a code from the conductor list below, or null. If a pole number is legible, report it. List anything you cannot tell (field checks). Never present a guess as measured.\n' +
       'Many poles carry LV only, with no HV. First decide which circuit levels are actually on this pole from the photo alone. Only return an HV match when HV conductors and HV insulators are clearly visible on this pole (taller insulators, wider phase spacing, above the LV). Never add a level because it is common, because it is in the design, or because a reference photo shows it. Return no matches for a level that is not on the pole and set it false in "levels".\n' +
       'The PNW design currently lists: ' + (existing.join(', ') || 'none') + '. This may be a proposal or wrong: do not copy it; judge only from the photo.\n' +
       'Candidate conductor codes (code | name | material): ' + aiConductors(id).map(function (c) { return c.code + ' | ' + c.name + ' | ' + c.material; }).join('; ') + '\n' +
       (window.PNW_AI_GUIDE ? 'How to read the photo:\n' + PNW_AI_GUIDE.rules.map(function (x, k) { return (k + 1) + '. ' + x; }).join('\n') + '\n' : '') +
       'Candidate codes (code | description | DCSH | phases | what it looks like):\n' + aiCandidates().map(function (c) { return c.code + ' | ' + (c.description || '') + ' | ' + (c.dcsh || '') + ' | ' + (c.phases || '') + ' | ' + ((window.PNW_AI_GUIDE && PNW_AI_GUIDE.looks[c.code]) || ''); }).join('\n') +
-      '\nReturn JSON only: {"photo_quality":string,"levels":{"hv":boolean,"lv":boolean,"earth":boolean},"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"line_sides":{"hv":"both"|"one"|null,"lv":"both"|"one"|null,"earth":"both"|"one"|null,"notes":string},"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
+      '\nReturn JSON only: {"photo_quality":string,"levels":{"hv":boolean,"lv":boolean,"earth":boolean},"pole_number":string|null,"components":[{"name":string,"level":string,"count":number|null,"confidence":number}],"matches":[{"level":string,"code":string,"rank":number,"confidence":number,"reasons":[string]}],"stays":{"count":number|null,"confidence":number,"notes":string},"transformer":{"present":boolean|null,"confidence":number,"notes":string},"line_sides":{"hv":"both"|"one"|null,"lv":"both"|"one"|null,"earth":"both"|"one"|null,"notes":string},"insulators":{"hv":"pin"|"post"|"disc"|"mixed"|null,"lv":"pin"|"post"|"disc"|"mixed"|null},"hv_centre_phase":"raised"|"level"|null,"conductors":[{"level":string,"count":number|null,"code":string|null,"confidence":number,"notes":string}],"field_checks":[string],"cautions":[string]}';
   }
   /* ---- Auto design: profile from QLINK, constructions from pole photos (or a Street View image aimed at the pole when there is
      no photo), strain sections from strain/termination constructions, conductor from the photo or the GIS feeder, tension by
@@ -2629,7 +2677,7 @@
       var r = aiResults[id], resp = r && r.resp, have = {}, P = { id: id, src: r && r.source, thumb: r && r.thumb, view: r && r.view, picks: [] };
       ((dm && dm.byPole[id]) || []).forEach(function (c) { have[circuitClass(c.code)] = c.code; });
       P.have = have;
-      if (!resp) { plan.missing.push(id + ': ' + ((r && r.error) || (photosOf(id).length ? 'the photo could not be read' : gmKey() ? 'no photo and no Street View within 50 m' : (IN_CLAUDE || webMapsOn() ? 'no photo, and no Street View near the pole' : 'no photo (add a Google Maps key to use Street View)')))); plan.poles.push(P); return; }
+      if (!resp) { plan.missing.push(id + ': ' + ((r && r.error) || (photosOf(id).length ? 'the photo could not be read' : gmKey() ? 'no photo and no Street View within 50 m' : (IN_CLAUDE || webMapsOn() ? 'no photo, and no Street View near the pole' : 'no photo (add a Google Maps key to use Street View)'))) + (bayRole(id) ? ' · ' + bayRole(id).text + (bayRole(id).kind === 'end' ? ': use a termination' : bayRole(id).kind === 'junction' ? ': tee-off or crossing' : '') : '')); plan.poles.push(P); return; }
       var best = {};
       resp.matches.slice().sort(function (a, b) { return a.rank - b.rank || b.confidence - a.confidence; }).forEach(function (m) { var k = circuitClass(m.code); if (AD_ORDER[k] != null && !best[k]) best[k] = m; });
       Object.keys(best).sort(function (a, b) { return AD_ORDER[a] - AD_ORDER[b]; }).forEach(function (k) {
@@ -2857,7 +2905,7 @@
       r.resp = { model: 'Claude', photo_quality: String(j.photo_quality || ''), components: (j.components || []).map(function (c) { return { name: String(c.name || ''), level: String(c.level || ''), count: Number(c.count) || null, confidence: conf(c.confidence) }; }),
         matches: matches, cautions: (j.cautions || []).map(String).concat((function () { var bad = all.filter(function (m) { return !valid[String(m.code || '').toUpperCase()]; }).length; return bad ? [bad + ' suggestion(s) used codes that are not in your PNW library and were removed.'] : []; })()),
         obs: aiObservations(j) };
-      aiSides(Object.assign(r.resp, { line_sides: j.line_sides }));
+      aiSides(Object.assign(r.resp, { line_sides: j.line_sides })); bayAdjust(id, r.resp, j);
     }).catch(function (e) { r.error = e && e.code === 'not_granted' ? 'Claude was not allowed to look at the photo. Allow it when asked to use this.' : e && e.code === 'rate_limited' ? 'Too many requests at once. Wait a moment and try again.' : (e && e.message) || String(e); })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
@@ -2871,7 +2919,7 @@
     }).then(function (res) {
       if (res.status === 404) throw new Error('The AI photo service is not switched on yet (the pnw-pole-photo-ai function is not deployed).');
       return res.json().then(function (j) { if (!res.ok || !j.ok) throw new Error(j.error || 'AI request failed (' + res.status + ').'); return j; });
-    }).then(function (j) { var ok = aiLevelFilter(j); j.matches = (j.matches || []).filter(ok); aiSides(j); r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
+    }).then(function (j) { var ok = aiLevelFilter(j); j.matches = (j.matches || []).filter(ok); aiSides(j); bayAdjust(id, j, j); r.resp = j; r.resp.obs = r.resp.obs || aiObservations(j); }).catch(function (e) { r.error = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the AI service. Check the connection; the service only answers on evedesignandengineering.com.' : e.message; })
       .then(function () { r.loading = false; if (S.selected === id) renderSelected(); });
   }
   $('selected').addEventListener('change', function (e) { if (e.target.id === 'aiPhoto' && e.target.files[0]) runAi(S.selected, e.target.files[0]); });
