@@ -170,7 +170,7 @@
       if (!id) { issues.push(issue('error', 'missing-id', 'Row ' + r._row + ' has no ' + (fs ? 'SV_pl_no' : 'PICK_ID') + ', so it was skipped.', at)); return; }
       var e = num(r[fs ? 'x' : 'x_coord_base']), n = num(r[fs ? 'y' : 'y_coord_base']), z = num(r[fs ? 'z' : 'z_coord_base']);
       var it = {
-        id: id, equipNo: str(r['equip_no']), group: str(r['equip_grp_id']), dataType: str(r['data type']),
+        id: id, kind: fs ? 'Field survey' : 'QLINK', equipNo: str(r['equip_no']), group: str(r['equip_grp_id']), dataType: str(r['data type']),
         easting: e, northing: n, elevation: z, lidarHeight: num(r['lidar vertical height']),
         leanDeg: num(r['lean_angle_deg']), bays: num(r['no_of_bays']),
         bayAngles: [1, 2, 3, 4].map(function (i) { return num(r['bay_' + i + '_h_angle_deg']); }).filter(function (v) { return v != null && !isNaN(v); }),
@@ -317,7 +317,14 @@
     function get(id) { return poles[id] || (poles[id] = { id: id, order: order++, survey: null, gis: null, insp: null, defects: [], inList: false }); }
     files.forEach(function (f) {
       if (f.role === 'survey') f.items.forEach(function (s) {
-        var p = get(s.id);
+        var p = get(s.id), fld = function (x) { return x && x.kind === 'Field survey'; };
+        // A field survey (Pole.txt) position wins over QLINK/LiDAR for the same pole, whichever file came first; QLINK fills the gaps.
+        if (p.survey && fld(s) !== fld(p.survey)) {
+          if (fld(s)) { p.qlink = p.survey; p.survey = s; } else p.qlink = s;
+          // Field survey positions win, but the LiDAR bay angles (only in QLINK) still say where the spans go.
+          if (p.qlink && !(p.survey.bayAngles || []).length && (p.qlink.bayAngles || []).length) p.survey = Object.assign({}, p.survey, { bayAngles: p.qlink.bayAngles });
+          return;
+        }
         if (p.survey) {
           var same = p.survey.easting === s.easting && p.survey.northing === s.northing && p.survey.elevation === s.elevation;
           issues.push(issue(same ? 'warning' : 'error', 'duplicate-id', s.id + ' appears more than once in the survey' + (same ? ' with identical values; the first row is used.' : ' with different coordinates; the first row is used. Remove the wrong row and re-import.'), { poleId: s.id, file: f.name, row: s.src.row }));
